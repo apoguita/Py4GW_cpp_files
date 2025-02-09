@@ -246,13 +246,13 @@ void PyLivingAgent::GetContext() {
     hp_regen = living->hp_pips;
     login_number = living->login_number;
 
-    
+    /*
     if (login_number) {
         wchar_t* p_name = GW::Agents::GetPlayerNameByLoginNumber(login_number);
         std::wstring wide_name(p_name);
         name = std::string(wide_name.begin(), wide_name.end());
     }
-    /*
+    
     else {
 		name = "";
         std::wstring wide_name;
@@ -307,20 +307,19 @@ void PyLivingAgent::GetContext() {
 }
 
 std::string PyLivingAgent::GetName() {
-	if (login_number) {
-		wchar_t* p_name = GW::Agents::GetPlayerNameByLoginNumber(login_number);
-		std::wstring wide_name(p_name);
-		return std::string(wide_name.begin(), wide_name.end());
+    /*
+	std::wstring wide_name;
+	GW::Agents::AsyncGetAgentName(GW::Agents::GetAgentByID(agent_id), wide_name);
+    while (name.empty())
+    {
+        Sleep(5);
+    }
+	if (!wide_name.empty()) {
+		char buffer[512];
+		const std::string agent_name_str = local_WStringToString(wide_name);
+		return agent_name_str;
 	}
-	else {
-		std::wstring wide_name;
-		GW::Agents::AsyncGetAgentName(GW::Agents::GetAgentByID(agent_id), wide_name);
-		if (!wide_name.empty()) {
-			char buffer[512];
-			const std::string agent_name_str = local_WStringToString(wide_name);
-			return agent_name_str;
-		}
-	}
+    */
 	return "";
 }
 
