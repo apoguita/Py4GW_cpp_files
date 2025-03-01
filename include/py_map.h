@@ -201,6 +201,10 @@ public:
     void GetContext();
     bool Travel(int map_id, int district, int district_number);
     bool Travel(int map_id);
+	bool Travel(int map_id, int server_region, int district_number, int language);
+	bool TravelGH();
+	bool LeaveGH();
+
     GW::Constants::ServerRegion RegionFromDistrict(GW::Constants::District _district);
     GW::Constants::Language LanguageFromDistrict(const GW::Constants::District _district);
     bool GetIsMapUnlocked(int map_id);

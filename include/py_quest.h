@@ -26,5 +26,17 @@ public:
             GW::QuestMgr::AbandonQuestId(static_cast<GW::Constants::QuestID>(quest_id));
             });
     }
+
+	bool IsQuestCompleted(uint32_t quest_id) {
+		GW::Quest* quest = GW::QuestMgr::GetQuest(static_cast<GW::Constants::QuestID>(quest_id));
+		if (!quest) return false;
+		return quest->IsCompleted();
+	}
+
+    bool IsQuestPrimary(uint32_t quest_id) {
+        GW::Quest* quest = GW::QuestMgr::GetQuest(static_cast<GW::Constants::QuestID>(quest_id));
+        if (!quest) return false;
+        return quest->IsPrimary();
+    }
 };
 

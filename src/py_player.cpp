@@ -1,4 +1,4 @@
-#include "py_player.h"
+﻿#include "py_player.h"
 
 
 namespace py = pybind11;
@@ -283,6 +283,94 @@ std::vector<int> PyPlayer::GetGadgetArray() {
     return agent_ids;
 }
 
+std::string local_player_WStringToString(const std::wstring& s) {
+    // @Cleanup: ASSERT used incorrectly here; value passed could be from anywhere!
+    if (s.empty()) {
+        return "Error In Wstring";
+    }
+    // NB: GW uses code page 0 (CP_ACP)
+    const auto size_needed = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, s.data(), static_cast<int>(s.size()), nullptr, 0, nullptr, nullptr);
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), strTo.data(), size_needed, NULL, NULL);
+    // Remove the trailing null character added by WideCharToMultiByte
+    strTo.resize(size_needed - 1);
+
+    // **Regex to strip tags like <quote>, <a=1>, <tag>**
+    static const std::regex tagPattern(R"(<[^<>]+?>)");
+    return std::regex_replace(strTo, tagPattern, "");  // ✅ Removes all tags
+}
+
+
+// Global variables (same as original implementation)
+static std::vector<std::string> global_chat_messages;
+static bool chat_log_ready = false;
+
+void PyPlayer::RequestChatHistory() {
+    chat_log_ready = false;
+	global_chat_messages = {};
+
+    std::thread([]() {
+        const GW::Chat::ChatBuffer* log = GW::Chat::GetChatLog();
+        if (!log) {
+            chat_log_ready = true;  // No chat log available, mark as done
+            return;
+        }
+
+        std::vector<std::wstring> temp_chat_log;
+
+        // Read the entire chat log
+        for (size_t i = 0; i < GW::Chat::CHAT_LOG_LENGTH; i++) {
+            if (log->messages[i]) {
+                temp_chat_log.push_back(log->messages[i]->message);
+            }
+        }
+
+        std::vector<std::wstring> decoded_chat(temp_chat_log.size());
+        auto start_time = std::chrono::steady_clock::now();
+
+        // Request decoding inside the game thread
+        GW::GameThread::Enqueue([temp_chat_log, &decoded_chat]() {
+            for (size_t i = 0; i < temp_chat_log.size(); i++) {
+                GW::UI::AsyncDecodeStr(temp_chat_log[i].c_str(), &decoded_chat[i]);
+            }
+            });
+
+        // Wait for all messages to be decoded (max 1000ms timeout)
+        for (size_t i = 0; i < temp_chat_log.size(); i++) {
+            while (decoded_chat[i].empty()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                auto now = std::chrono::steady_clock::now();
+                if (std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count() >= 500) {
+                    decoded_chat[i] = L"[ERROR: Timeout]";  // Mark as failed
+                    break;
+                }
+            }
+        }
+
+        // Convert all messages to UTF-8
+        std::vector<std::string> converted_chat;
+        for (const auto& decoded_msg : decoded_chat) {
+            converted_chat.push_back(local_player_WStringToString(decoded_msg));
+        }
+
+        // Now safely update the global chat log
+        global_chat_messages = std::move(converted_chat);
+        chat_log_ready = true;  // Mark chat log as ready
+
+        }).detach();  // Fully detach the thread so it does not block anything
+}
+
+bool PyPlayer::IsChatHistoryReady() {
+    return chat_log_ready;
+}
+
+std::vector<std::string> PyPlayer::GetChatHistory() {
+    return global_chat_messages;
+}
+
+
+
+
 
 void PyPlayer::SendChatCommand(std::string msg) {
     GW::Chat::SendChat('/', msg.c_str());
@@ -308,7 +396,10 @@ bool PyPlayer::ChangeTarget(uint32_t new_target_id) {
 }
 
 bool PyPlayer::Move(float x, float y, int zplane) {
-    return GW::Agents::Move(x, y, zplane);
+    GW::GameThread::Enqueue([x,y,zplane] {
+        GW::Agents::Move(x, y, zplane);
+        });
+    return true;
 }
 
 bool PyPlayer::Move(float x, float y) {
@@ -316,7 +407,10 @@ bool PyPlayer::Move(float x, float y) {
     pos.x = x;
     pos.y = y;
 
-    return GW::Agents::Move(pos);
+    GW::GameThread::Enqueue([pos] {
+        GW::Agents::Move(pos);
+        });
+    return true;
 }
 
 bool PyPlayer::InteractAgent(int agent_id, bool call_target) {
@@ -339,7 +433,10 @@ void PyPlayer::SendDialog(uint32_t dialog_id) {
 }
 
 bool PyPlayer::SetActiveTitle(uint32_t title_id) {
-	return GW::PlayerMgr::SetActiveTitle(static_cast<GW::Constants::TitleID>(title_id));
+    GW::GameThread::Enqueue([title_id] {
+	    GW::PlayerMgr::SetActiveTitle(static_cast<GW::Constants::TitleID>(title_id));
+        });
+    return true;
 }
 
 bool PyPlayer::RemoveActiveTitle() {
@@ -386,6 +483,9 @@ void BindPyPlayer(py::module_& m) {
         .def("GetNPCMinipetArray", &PyPlayer::GetNPCMinipetArray)  // Bind the GetNPCMinipetArray method
         .def("GetItemArray", &PyPlayer::GetItemArray)  // Bind the GetItemArray method
         .def("GetGadgetArray", &PyPlayer::GetGadgetArray)  // Bind the GetGadgetArray method
+		.def("GetChatHistory", &PyPlayer::GetChatHistory)  // Bind the GetChatHistory method
+		.def("RequestChatHistory", &PyPlayer::RequestChatHistory)  // Bind the RequestChatHistory method
+		.def("IsChatHistoryReady", &PyPlayer::IsChatHistoryReady)  // Bind the IsChatHistoryReady method
         .def("SendChatCommand", &PyPlayer::SendChatCommand, py::arg("msg"))  // Bind the SendChatCommand method
         .def("SendChat", &PyPlayer::SendChat, py::arg("channel"), py::arg("msg"))  // Bind the SendChat method
         .def("SendWhisper", &PyPlayer::SendWhisper, py::arg("name"), py::arg("msg"))  // Bind the SendWhisper method

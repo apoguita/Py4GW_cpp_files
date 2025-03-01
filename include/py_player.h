@@ -48,6 +48,9 @@ public:
     std::vector<int> GetNPCMinipetArray();
     std::vector<int> GetItemArray();
     std::vector<int> GetGadgetArray();
+	std::vector<std::string> GetChatHistory();
+	void RequestChatHistory();
+	bool IsChatHistoryReady();
     void SendChatCommand(std::string msg);
     void SendChat(char channel, std::string msg);
     void SendWhisper(std::string name, std::string msg);
@@ -62,6 +65,7 @@ public:
     bool RemoveActiveTitle();
     bool DepositFaction(uint32_t allegiance);
     uint32_t GetActiveTitleId();
+
     
 };
 

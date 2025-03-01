@@ -186,6 +186,9 @@ public:
     
     PetInfo GetPetInfo(uint32_t owner_agent_id);
     bool GetIsPlayerTicked(int player_id);
+    void UseHeroSkillInstant(uint32_t hero_id, uint32_t skill_slot, uint32_t target_id);
+
+    
 };
 
 namespace GW {

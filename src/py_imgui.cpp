@@ -580,8 +580,8 @@ std::array<float, 2> ImGui_GetCursorStartPos() {
 }
 
 //is_rect_visible
-bool ImGui_IsRectVisible(const std::array<float, 2>& size) {
-    return ImGui::IsRectVisible(ImVec2(size[0], size[1]));
+bool ImGui_IsRectVisible(float width, float height) {
+    return ImGui::IsRectVisible(ImVec2(width, height));
 }
 
 // Windows
@@ -768,6 +768,10 @@ int GetSortDirection(const ImGuiTableColumnSortSpecs& spec) {
 
 void ClearSortSpecsDirty(ImGuiTableSortSpecs* specs) {
     specs->SpecsDirty = false;  // Allow clearing the flag safely
+}
+
+void Dummy(const int width, const int height) {
+	ImGui::Dummy(ImVec2(width, height));
 }
 
 PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
@@ -1056,7 +1060,7 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
         .value("ResizeGripActive", ImGuiColWrapper::ResizeGripActive)
         .value("Tab", ImGuiColWrapper::Tab)
         .value("TabHovered", ImGuiColWrapper::TabHovered)
-        .value("TabActive", ImGuiColWrapper::Tab)
+        .value("TabActive", ImGuiColWrapper::TabActive)
         //.value("TabSelected", ImGuiColWrapper::TabSelected)
         //.value("TabSelectedOverline", ImGuiColWrapper::TabSelectedOverline)
         //.value("TabDimmed", ImGuiColWrapper::TabDimmed)
@@ -1340,6 +1344,8 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
     m.def("collapsing_header", py::overload_cast<const std::string&>(&ImGui_CollapsingHeader));
     m.def("collapsing_header", py::overload_cast<const std::string&, ImGuiTreeNodeFlags>(&ImGui_CollapsingHeader));
 
+    //Dummy
+	m.def("dummy", &Dummy, "Creates a dummy in ImGui");
 
 
 }

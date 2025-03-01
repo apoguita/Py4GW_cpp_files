@@ -932,6 +932,15 @@ namespace GW {
             return GetFrameById(found_id);
         }
 
+        Frame* GetChildFrame(Frame* parent, const std::initializer_list<uint32_t> child_offsets)
+        {
+            auto id = parent->frame_id;
+            for (uint32_t child_offset : child_offsets) {
+                id = GetChildFrameId_Func(id, child_offset);
+            }
+            return GetFrameById(id);
+        }
+
         Frame* GetParentFrame(Frame* frame) {
             return frame ? frame->relation.GetParent() : nullptr;
         }
@@ -954,6 +963,114 @@ namespace GW {
             }
             return nullptr;
         }
+
+        uint32_t GetFrameIDByLabel(const wchar_t* frame_label) {
+            if (!(CreateHashFromWchar_Func && s_FrameArray))
+                return static_cast<uint32_t>(0); // Return an invalid ID if checks fail
+
+            const auto hash = CreateHashFromWchar_Func(frame_label, -1);
+            for (uint32_t frame_id = 0; frame_id < s_FrameArray->size(); ++frame_id) {
+                auto frame = (*s_FrameArray)[frame_id];
+                if (!IsFrameValid(frame))
+                    continue;
+
+                if (frame->relation.frame_hash_id == hash)
+                    return frame_id; // Return the frame_id if the name matches
+            }
+
+            return static_cast<uint32_t>(0); // Return an invalid ID if no match found
+        }
+
+        uint32_t GetFrameIDByHash(uint32_t hash) {
+            if (!s_FrameArray)
+                return static_cast<uint32_t>(0); // Return an invalid ID if checks fail
+
+            for (uint32_t frame_id = 0; frame_id < s_FrameArray->size(); ++frame_id) {
+                auto frame = (*s_FrameArray)[frame_id];
+                if (!IsFrameValid(frame))
+                    continue;
+
+                if (frame->relation.frame_hash_id == hash)
+                    return frame_id; // Return the frame_id if the hash matches
+            }
+
+            return static_cast<uint32_t>(0); // Return an invalid ID if no match found
+        }
+
+        uint32_t GetHashByLabel(const std::string& label) {
+            if (!CreateHashFromWchar_Func)
+                return 0; // Return an invalid hash if the function is unavailable
+
+            // Convert std::string to std::wstring
+            std::wstring wlabel(label.begin(), label.end());
+
+            // Generate and return the hash
+            return CreateHashFromWchar_Func(wlabel.c_str(), -1);
+        }
+
+
+        std::vector<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>> GetFrameHierarchy() {
+            std::vector<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>> hierarchy;
+
+            if (!s_FrameArray)
+                return hierarchy; 
+
+            for (Frame* frame : *s_FrameArray) {
+                if (!IsFrameValid(frame))
+                    continue; 
+
+				if (!frame->IsCreated())
+					continue; 
+
+				if (!frame->IsVisible())
+					continue; 
+
+                Frame* parent = frame->relation.GetParent();
+                uint32_t parent_hash = parent ? parent->relation.frame_hash_id : 0;  // Parent hash, 0 if no parent
+                uint32_t frame_hash = frame->relation.frame_hash_id;  // Current frame hash
+                uint32_t parent_frame_id = parent ? parent->frame_id : 0;  // Parent frame ID, 0 if no parent
+                uint32_t frame_id = frame->frame_id;  // Current frame ID
+
+                hierarchy.emplace_back(parent_hash, frame_hash, parent_frame_id, frame_id);
+            }
+
+            return hierarchy;
+        }
+
+
+        std::vector<std::pair<uint32_t, uint32_t>> GetFrameCoordsByHash(uint32_t frame_hash) {
+            std::vector<std::pair<uint32_t, uint32_t>> coords;
+
+            if (!s_FrameArray)
+                return coords; // Return empty if frame array is invalid
+
+            // Get frame ID using the existing function
+            uint32_t frame_id = GetFrameIDByHash(frame_hash);
+            if (frame_id == 0)
+                return coords; // Return empty if no matching frame is found
+
+            // Retrieve the frame using GetFrameById
+            Frame* frame = GetFrameById(frame_id);
+            if (!frame)
+                return coords; // Return empty if the frame is invalid
+
+            // Get root frame for relative positioning
+            const auto root = GetRootFrame();
+
+            // Use existing functions to get the bounding box
+            const auto top_left = frame->position.GetTopLeftOnScreen(root);
+            const auto bottom_right = frame->position.GetBottomRightOnScreen(root);
+
+            // Store coordinates in the required order: Top-left, Top-right, Bottom-right, Bottom-left
+            coords.emplace_back(static_cast<uint32_t>(top_left.x), static_cast<uint32_t>(top_left.y));         // Top-left
+            coords.emplace_back(static_cast<uint32_t>(bottom_right.x), static_cast<uint32_t>(bottom_right.y)); // Bottom-right
+
+
+            return coords;
+        }
+
+
+
 
         Vec2f WindowPosition::xAxis(float multiplier, const bool clamp_position) const {
             Vec2f x;

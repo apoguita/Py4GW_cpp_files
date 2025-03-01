@@ -56,6 +56,10 @@ public:
 	void DrawText2D(Point2D position, std::string text, ImU32 color, bool centered = true, float scale = 1.0f);
     void DrawText3D(Point3D position3D, std::string text, ImU32 color, bool autoZ = true, bool centered = true, float scale = 1.0f);
 	void DrawFilledTriangle3D(Point3D p1, Point3D p2, Point3D p3, ImU32 color);
+	void DrawQuad(Point2D p1, Point2D p2, Point2D p3, Point2D p4, ImU32 color, float thickness = 1.0f);
+	void DrawQuad3D(Point3D p1, Point3D p2, Point3D p3, Point3D p4, ImU32 color, float thickness = 1.0f);
+	void DrawQuadFilled(Point2D p1, Point2D p2, Point2D p3, Point2D p4, ImU32 color);
+	void DrawQuadFilled3D(Point3D p1, Point3D p2, Point3D p3, Point3D p4, ImU32 color);
 	bool IsMouseClicked(int button);
     Point2D GetDisplaySize();
 };

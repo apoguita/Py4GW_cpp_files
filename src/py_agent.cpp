@@ -210,19 +210,6 @@ PyLivingAgent::PyLivingAgent(int agent_id) : agent_id(agent_id) {
     GetContext();
 }
 
-std::string local_WStringToString(const std::wstring& s)
-{
-    // @Cleanup: ASSERT used incorrectly here; value passed could be from anywhere!
-    if (s.empty()) {
-        return "Error In Wstring";
-    }
-    // NB: GW uses code page 0 (CP_ACP)
-    const auto size_needed = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, s.data(), static_cast<int>(s.size()), nullptr, 0, nullptr, nullptr);
-    std::string strTo(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), strTo.data(), size_needed, NULL, NULL);
-    return strTo;
-}
-
 
 void PyLivingAgent::GetContext() {
     if (!agent_id) return;
@@ -307,40 +294,69 @@ void PyLivingAgent::GetContext() {
 }
 
 std::string global_agent_name;
-
 bool name_ready = false;
 
+std::string local_WStringToString(const std::wstring& s)
+{
+    // @Cleanup: ASSERT used incorrectly here; value passed could be from anywhere!
+    if (s.empty()) {
+        return "Error In Wstring";
+    }
+    // NB: GW uses code page 0 (CP_ACP)
+    const auto size_needed = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, s.data(), static_cast<int>(s.size()), nullptr, 0, nullptr, nullptr);
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), strTo.data(), size_needed, NULL, NULL);
+    return strTo;
+}
+
+
+
+// Struct to store agent name request status
+struct AgentNameData {
+    std::string agent_name;
+    bool name_ready = false;
+};
+
+// Global map for storing multiple agent name requests
+static std::unordered_map<uint32_t, AgentNameData> agent_name_map;
+
 void PyLivingAgent::RequestName() {
-	const auto agentid = agent_id;
-    name_ready = false;
-    //global_agent_name = "LOADING_NAME";
+    const auto agentid = agent_id;
+    agent_name_map[agentid].name_ready = false;  // Reset flag for this agent
+	agent_name_map[agentid].agent_name = "";  // Reset name
 
-    GW::GameThread::Enqueue([agentid] {
+    std::thread([agentid]() {
         std::wstring temp_name;
+        auto start_time = std::chrono::steady_clock::now();
 
-        // Fetch agent name in the game thread
-        GW::Agents::AsyncGetAgentName(GW::Agents::GetAgentByID(agentid), temp_name);
+        GW::GameThread::Enqueue([agentid, &temp_name]() {
+            GW::Agents::AsyncGetAgentName(GW::Agents::GetAgentByID(agentid), temp_name);
+            });
 
-		while (temp_name.empty()) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-		}
+        while (temp_name.empty()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
-        if (!temp_name.empty()) {
-            char buffer[512];
-            const std::string agent_name_str = local_WStringToString(temp_name);
-            global_agent_name =  agent_name_str;
-            name_ready = true;  // Mark name as available
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count() >= 500) {
+                agent_name_map[agentid].agent_name = "Timeout";
+                agent_name_map[agentid].name_ready = true;
+                return;  // Timeout without modifying anything
+            }
         }
-    });
 
+        // Store the name inside the global map
+        agent_name_map[agentid].agent_name = local_WStringToString(temp_name);
+        agent_name_map[agentid].name_ready = true;  // Mark as ready
+
+        }).detach();  // Fully detach the thread so it does not block anything
 }
 
 bool PyLivingAgent::IsAgentNameReady() {
-    return name_ready;  // Check if the name is available
+    return agent_name_map[agent_id].name_ready;
 }
 
 std::string PyLivingAgent::GetName() {
-    return global_agent_name;
+    return agent_name_map[agent_id].agent_name;
 }
 
 

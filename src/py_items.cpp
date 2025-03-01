@@ -446,35 +446,12 @@ std::string SafeDyeInfoClass::to_string() const {
 }
 
 
-std::string custom_WStringToString(const std::wstring& s)
-{
-    // @Cleanup: ASSERT used incorrectly here; value passed could be from anywhere!
-    if (s.empty()) {
-        return "Error In Name";
-    }
-    // NB: GW uses code page 0 (CP_ACP)
-    const auto size_needed = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, s.data(), static_cast<int>(s.size()), nullptr, 0, nullptr, nullptr);
-    std::string strTo(size_needed, 0);
-    return strTo;
-}
-
-
-
 void SafeItem::GetContext() {
     GW::Item* item = GW::Items::GetItemById(item_id);
     if (!item) return;
 
     agent_id = item->agent_id;
     agent_item_id = item->item_id;
-
-    /*
-    std::wstring wide_name;
-    GW::Items::AsyncGetItemName(item, wide_name);
-    if (!wide_name.empty()) {
-        char buffer[512];
-        const std::string agent_name_str = custom_WStringToString(wide_name);
-        name = agent_name_str;
-    }*/
     
 
     for (size_t i = 0; i < item->mod_struct_size; i++) {
@@ -519,6 +496,92 @@ void SafeItem::GetContext() {
     IsIdentified = item_ext.GetIsIdentified();
     IsPrefixUpgradable = item_ext.IsPrefixUpgradable();
 
+}
+
+
+std::string global_item_name;
+bool item_name_ready;
+
+
+std::string custom_WStringToString(const std::wstring& s)
+{
+    if (s.empty()) {
+        return "Error In Name";
+    }
+
+    // Determine required size for UTF-8 conversion
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, s.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (size_needed <= 0) return "Error In Name";  // Handle failure
+
+    // Perform the actual conversion
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, s.c_str(), -1, &strTo[0], size_needed, nullptr, nullptr);
+
+    // Remove the null terminator at the end (since WideCharToMultiByte includes it)
+    strTo.resize(size_needed - 1);
+
+    std::regex tagPattern(R"(<[^>]*>)");
+    return std::regex_replace(strTo, tagPattern, "");
+
+}
+
+
+
+
+// Struct to store item name request status
+struct ItemNameData {
+    std::string item_name;
+    bool name_ready = false;
+};
+
+// Global map for storing multiple item name requests
+static std::unordered_map<uint32_t, ItemNameData> item_name_map;
+
+void SafeItem::RequestName() {
+    if (!item_id) return;  // Ensure item_id is valid
+    item_name_map[item_id].name_ready = false;  // Reset flag for this item
+    item_name_map[item_id].item_name = "";
+
+    std::thread([item_id = this->item_id]() {
+        GW::Item* item = GW::Items::GetItemById(item_id);
+        if (!item) {
+            // Immediately mark as ready with an empty string to prevent infinite waiting
+            item_name_map[item_id].item_name = "No Item";
+            item_name_map[item_id].name_ready = true;
+            return;
+        }
+
+        std::wstring temp_name;
+        auto start_time = std::chrono::steady_clock::now();
+
+        GW::GameThread::Enqueue([item, &temp_name]() {
+            GW::Items::AsyncGetItemName(item, temp_name);
+            });
+
+        while (temp_name.empty()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count() >= 1000) {
+                item_name_map[item_id].item_name = "Timeout";
+                item_name_map[item_id].name_ready = true;
+                return;  // Timeout without modifying anything
+            }
+        }
+
+        // Store the name inside the global map
+        item_name_map[item_id].item_name = custom_WStringToString(temp_name);
+        item_name_map[item_id].name_ready = true;  // Mark as ready
+
+        }).detach();  // Fully detach the thread so it does not block anything
+}
+
+bool SafeItem::IsItemNameReady() {
+    return item_name_map[item_id].name_ready;
+}
+
+std::string SafeItem::GetName() {
+    return item_name_map[item_id].item_name;
 }
 
 
@@ -711,6 +774,9 @@ void bind_SafeItem(py::module_& m) {
     py::class_<SafeItem>(m, "PyItem")
         .def(py::init<int>())  // Constructor with item_id
         .def("GetContext", &SafeItem::GetContext)  // GetContext method
+		.def("RequestName", &SafeItem::RequestName)
+		.def("IsItemNameReady", &SafeItem::IsItemNameReady)
+		.def("GetName", &SafeItem::GetName)
         .def_readonly("item_id", &SafeItem::item_id)
         .def_readonly("agent_id", &SafeItem::agent_id)
         .def_readonly("agent_item_id", &SafeItem::agent_item_id)
@@ -825,12 +891,13 @@ void bind_Inventory(py::module_& m) {
 
         // Salvage methods
         .def("StartSalvage", &Inventory::StartSalvage, py::arg("salv_kit_id"), py::arg("item_id"))  // Start salvage process
-		.def("HandleSalvageUI", &Inventory::continueSalvage)  // Continue salvage process
-		.def("UpdateSalvageSession", &Inventory::update_salvage_session)  // Update salvage process
+        .def("HandleSalvageUI", &Inventory::continueSalvage)  // Continue salvage process
+        .def("UpdateSalvageSession", &Inventory::update_salvage_session)  // Update salvage process
         .def("FinishSalvage", &Inventory::FinishSalvage)  // Finish salvage process
         .def("CancelSalvage", &Inventory::CancelSalvage)  // Cancel the current salvage process
         .def("IsSalvaging", &Inventory::IsSalvaging)  // Check if currently salvaging
-        .def("IsSalvageTransactionDone", &Inventory::IsSalvageTransactionDone);  // Check if the salvage transaction is done
+        .def("IsSalvageTransactionDone", &Inventory::IsSalvageTransactionDone) // Check if the salvage transaction is done
+        .def("AcceptSalvageWindow", &Inventory::AcceptSalvageWindow);  // Accept the salvage window
 }
 
 

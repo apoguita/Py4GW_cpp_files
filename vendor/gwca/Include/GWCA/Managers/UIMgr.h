@@ -1007,9 +1007,15 @@ namespace GW {
         GWCA_API Frame* GetRootFrame();
 
         GWCA_API Frame* GetChildFrame(Frame* parent, uint32_t child_offset);
+        GWCA_API Frame* GetChildFrame(Frame* parent, std::initializer_list<uint32_t> child_offsets);
         GWCA_API Frame* GetParentFrame(Frame* frame);
         GWCA_API Frame* GetFrameById(uint32_t frame_id);
         GWCA_API Frame* GetFrameByLabel(const wchar_t* frame_label);
+        GWCA_API uint32_t GetFrameIDByLabel(const wchar_t* frame_label);
+        GWCA_API uint32_t GetFrameIDByHash(uint32_t hash);
+        GWCA_API uint32_t GetHashByLabel(const std::string& label);
+        GWCA_API std::vector<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>> GetFrameHierarchy();
+        GWCA_API std::vector<std::pair<uint32_t, uint32_t>> GetFrameCoordsByHash(uint32_t frame_hash);
 
         GWCA_API bool SendFrameUIMessage(UI::Frame* frame, UI::UIMessage message_id, void* wParam, void* lParam = nullptr);
 

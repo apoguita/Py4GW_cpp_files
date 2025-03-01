@@ -378,6 +378,27 @@ bool PyParty::GetIsPlayerTicked(int player_id) {
 }
 
 
+void PyParty::UseHeroSkillInstant(uint32_t hero_id, uint32_t skill_slot, uint32_t target_id) {
+    using namespace GW;
+
+    static UseHeroSkillInstant_t UseHeroSkillInstant_Func = nullptr;
+    if (!UseHeroSkillInstant_Func) {
+        uintptr_t func_addr = GW::Scanner::Find("\xD9\x45\xE0\x8D\x45\xD8\xD9\x55\xE8", "xxxxxxxxx", -0x59);
+        UseHeroSkillInstant_Func = (UseHeroSkillInstant_t)GW::Scanner::FunctionFromNearCall(func_addr);
+
+        if (!UseHeroSkillInstant_Func) {
+            return;
+        }
+    }
+
+    GW::GameThread::Enqueue([hero_id, skill_slot, target_id] {
+        // Call the function
+		UseHeroSkillInstant_Func(hero_id,skill_slot, target_id);
+     });
+
+}
+
+
 
 
 void bind_AgentEffects(py::module_& m) {
@@ -589,6 +610,7 @@ void bind_PyParty(py::module_& m) {
         .def("SetPetBehavior", &PyParty::SetPetBehaviour, py::arg("behaviour"), py::arg("lock_target_id"))  // Bind SetPetBehaviour method
         .def("GetPetInfo", &PyParty::GetPetInfo, py::arg("owner_agent_id")) // Bind GetPetInfo method
         .def("GetIsPlayerTicked", &PyParty::GetIsPlayerTicked)
+		.def("UseHeroSkill", &PyParty::UseHeroSkillInstant, py::arg("hero_id"), py::arg("skill_slot"), py::arg("target_id"))  // Bind UseHeroSkillInstant method
 
         // Bind public attributes (use snake_case)
         .def_readwrite("party_id", &PyParty::party_id)

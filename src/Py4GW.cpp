@@ -823,7 +823,7 @@ void DrawConsole(const char* title, bool* new_p_open = nullptr)
 
 std::string GetCredits()
 { 
-    return "Py4GW v1.0.5, Apoguita - 2024";
+    return "Py4GW v1.0.57, Apoguita - 2024,2025";
 }
 
 std::string GetLicense()
@@ -1180,6 +1180,17 @@ void Py4GW::Draw(IDirect3DDevice9*) {
 
 }
 
+void SetFog(bool enable) {
+    GW::GameThread::Enqueue([enable]() {
+        GW::CameraMgr::SetFog(enable);
+        });
+}
+
+
+
+
+
+
 HWND Py4GW::get_gw_window_handle() { return gw_window_handle; }
 
 bool Py4GW::HeroAI_IsAIEnabled() { return heroAI->IsAIEnabled(); }
@@ -1264,6 +1275,10 @@ PYBIND11_EMBEDDED_MODULE(Py4GW, m)
 
     // Create the 'Console' submodule under 'Py4GW'
     py::module_ console = m.def_submodule("Console", "Submodule for console logging");
+
+	py::module_ game = m.def_submodule("Game", "Submodule for game functions");
+	game.def("SetFog", &SetFog, "Enable or disable fog");
+
 
     // Bind the MessageType enum inside the 'Console' submodule
     py::enum_<MessageType>(console, "MessageType")

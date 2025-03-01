@@ -104,6 +104,7 @@ public:
     float hp_regen;
     int login_number;
     std::string name = "";
+    bool name_ready;
     int dagger_status;
     Allegiance allegiance = 0;
     Weapon weapon_type = 0;

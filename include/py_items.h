@@ -245,6 +245,9 @@ public:
     }
 
     void GetContext();
+	void RequestName();
+    bool IsItemNameReady();
+	std::string GetName();
 
 };
 
@@ -429,6 +432,14 @@ public:
             salvage_transaction_done = false;
             salvage_timer.stop();
     }
+
+	void AcceptSalvageWindow()
+	{
+        // Auto accept "you can only salvage materials with a lesser salvage kit"
+        GW::GameThread::Enqueue([] {
+            GW::UI::ButtonClick(GW::UI::GetChildFrame(GW::UI::GetFrameByLabel(L"Game"), { 0x6, 0x62, 0x6 }));
+            });
+	}
 
     void OpenXunlaiWindow() {
         GW::GameThread::Enqueue([] {

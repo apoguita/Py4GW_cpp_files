@@ -367,6 +367,56 @@ void Overlay::DrawFilledTriangle3D(Point3D p1, Point3D p2, Point3D p3, ImU32 col
 	drawList->AddTriangleFilled(p1ImVec, p2ImVec, p3ImVec, color);
 }
 
+void Overlay::DrawQuad(Point2D p1, Point2D p2, Point2D p3, Point2D p4, ImU32 color, float thickness) {
+	drawList = ImGui::GetWindowDrawList();
+	ImVec2 p1ImVec(p1.x, p1.y);
+	ImVec2 p2ImVec(p2.x, p2.y);
+	ImVec2 p3ImVec(p3.x, p3.y);
+	ImVec2 p4ImVec(p4.x, p4.y);
+	drawList->AddLine(p1ImVec, p2ImVec, color, thickness);
+	drawList->AddLine(p2ImVec, p3ImVec, color, thickness);
+	drawList->AddLine(p3ImVec, p4ImVec, color, thickness);
+	drawList->AddLine(p4ImVec, p1ImVec, color, thickness);
+}
+
+void Overlay::DrawQuadFilled(Point2D p1, Point2D p2, Point2D p3, Point2D p4, ImU32 color) {
+	drawList = ImGui::GetWindowDrawList();
+	ImVec2 p1ImVec(p1.x, p1.y);
+	ImVec2 p2ImVec(p2.x, p2.y);
+	ImVec2 p3ImVec(p3.x, p3.y);
+	ImVec2 p4ImVec(p4.x, p4.y);
+	drawList->AddQuadFilled(p1ImVec, p2ImVec, p3ImVec, p4ImVec, color);
+}
+
+void Overlay::DrawQuad3D(Point3D p1, Point3D p2, Point3D p3, Point3D p4, ImU32 color, float thickness) {
+	drawList = ImGui::GetWindowDrawList();
+	Point2D p1Screen = WorldToScreen(p1.x, p1.y, p1.z);
+	Point2D p2Screen = WorldToScreen(p2.x, p2.y, p2.z);
+	Point2D p3Screen = WorldToScreen(p3.x, p3.y, p3.z);
+	Point2D p4Screen = WorldToScreen(p4.x, p4.y, p4.z);
+	ImVec2 p1ImVec(p1Screen.x, p1Screen.y);
+	ImVec2 p2ImVec(p2Screen.x, p2Screen.y);
+	ImVec2 p3ImVec(p3Screen.x, p3Screen.y);
+	ImVec2 p4ImVec(p4Screen.x, p4Screen.y);
+	drawList->AddLine(p1ImVec, p2ImVec, color, thickness);
+	drawList->AddLine(p2ImVec, p3ImVec, color, thickness);
+	drawList->AddLine(p3ImVec, p4ImVec, color, thickness);
+	drawList->AddLine(p4ImVec, p1ImVec, color, thickness);
+}
+
+void Overlay::DrawQuadFilled3D(Point3D p1, Point3D p2, Point3D p3, Point3D p4, ImU32 color) {
+	drawList = ImGui::GetWindowDrawList();
+	Point2D p1Screen = WorldToScreen(p1.x, p1.y, p1.z);
+	Point2D p2Screen = WorldToScreen(p2.x, p2.y, p2.z);
+	Point2D p3Screen = WorldToScreen(p3.x, p3.y, p3.z);
+	Point2D p4Screen = WorldToScreen(p4.x, p4.y, p4.z);
+	ImVec2 p1ImVec(p1Screen.x, p1Screen.y);
+	ImVec2 p2ImVec(p2Screen.x, p2Screen.y);
+	ImVec2 p3ImVec(p3Screen.x, p3Screen.y);
+	ImVec2 p4ImVec(p4Screen.x, p4Screen.y);
+	drawList->AddQuadFilled(p1ImVec, p2ImVec, p3ImVec, p4ImVec, color);
+}
+
 Point2D Overlay::GetDisplaySize() {
     drawList = ImGui::GetWindowDrawList();
     ImGuiIO& io = ImGui::GetIO();
@@ -629,7 +679,11 @@ void bind_overlay(py::module_& m) {
         .def("DrawText", &Overlay::DrawText2D, py::arg("position"), py::arg("text"), py::arg("color") = 0xFFFFFFFF, py::arg("centered") = true, py::arg("scale") = 1.0)
         .def("DrawText3D", &Overlay::DrawText3D, py::arg("position3D"), py::arg("text"), py::arg("color") = 0xFFFFFFFF, py::arg("autoZ") = true, py::arg("centered") = true, py::arg("scale") = 1.0)
         .def("GetDisplaySize", &Overlay::GetDisplaySize)
-	    .def("IsMouseClicked", &Overlay::IsMouseClicked, py::arg("button") = 0);
+	    .def("IsMouseClicked", &Overlay::IsMouseClicked, py::arg("button") = 0)
+		.def("DrawQuad", &Overlay::DrawQuad, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("p4"), py::arg("color") = 0xFFFFFFFF, py::arg("thickness") = 1.0f)
+		.def("DrawQuadFilled", &Overlay::DrawQuadFilled, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("p4"), py::arg("color") = 0xFFFFFFFF)
+		.def("DrawQuad3D", &Overlay::DrawQuad3D, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("p4"), py::arg("color") = 0xFFFFFFFF, py::arg("thickness") = 1.0f)
+		.def("DrawQuadFilled3D", &Overlay::DrawQuadFilled3D, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("p4"), py::arg("color") = 0xFFFFFFFF);
 
 }
 

@@ -897,6 +897,23 @@ bool PyMap::Travel(int new_map_id, int new_district, int district_number)
     );
 }
 
+bool PyMap::Travel(int new_map_id, int region, int district, int language) {
+    return GW::Map::Travel(
+        static_cast<GW::Constants::MapID>(new_map_id),  // Extract the GW::Constants::MapID from MapID
+        static_cast<GW::Constants::ServerRegion>(region),  // Cast int to GW::Constants::ServerRegion
+        static_cast<int>(district),  // Cast int to GW::Constants::District
+        static_cast<GW::Constants::Language>(language)  // Cast int to GW::Constants::Language
+    );
+}
+
+bool PyMap::TravelGH() {
+	return GW::GuildMgr::TravelGH();
+}
+
+bool PyMap::LeaveGH() {
+	return GW::GuildMgr::LeaveGH();
+}
+
 
 GW::Constants::ServerRegion PyMap::RegionFromDistrict(GW::Constants::District _district) {
     return GW::Map::RegionFromDistrict(_district);
@@ -1147,6 +1164,9 @@ PYBIND11_EMBEDDED_MODULE(PyMap, m) {
         .def("GetContext", &PyMap::GetContext, "Updates the PyMap instance with the current game map context")
         .def("Travel", py::overload_cast<int>(&PyMap::Travel))  // Binding for the single-parameter Travel
         .def("Travel", py::overload_cast<int, int, int>(&PyMap::Travel))  // Binding for the three-parameter Travel
+		.def("Travel", py::overload_cast<int, int, int, int>(&PyMap::Travel))  // Binding for the four-parameter Travel
+		.def("TravelGH", &PyMap::TravelGH)
+		.def("LeaveGH", &PyMap::LeaveGH)
         .def("RegionFromDistrict", &PyMap::RegionFromDistrict)
         .def("LanguageFromDistrict", &PyMap::LanguageFromDistrict)
         .def("GetIsMapUnlocked", &PyMap::GetIsMapUnlocked)

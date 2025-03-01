@@ -30,6 +30,7 @@ enum combatState { cIdle, cInCastingRoutine };
 #include <string_view>
 #include <vector>
 #include <memory>
+#include <regex>
 
 // DirectX headers
 #include <d3d9.h>
@@ -612,7 +613,7 @@ enum class HeroType {
 #include <iostream>
 #include <codecvt>
 #include <mutex>
-#include <atomic>
+#include <future>
 
 
 
@@ -657,18 +658,13 @@ enum class HeroType {
 #include <GWCA/Managers/StoCMgr.h>
 #include <GWCA/Managers/ChatMgr.h>
 
-//#include <Modules/Resources.h>
-//#include <Utils/GuiUtils.h>
-
-//#include <Modules/DialogModule.h>
-
-
 #include <GWCA/Managers/GameThreadMgr.h>
 #include <GWCA/Context/MapContext.h>
 #include <GWCA/GameEntities/Map.h>
 #include <GWCA/Managers/MapMgr.h>
 #include <GWCA/GameEntities/Item.h>
 #include <GWCA/Managers/ItemMgr.h>
+#include <GWCA/GameEntities/Quest.h>
 #include <GWCA/Managers/QuestMgr.h>
 
 #include <GWCA/Managers/EffectMgr.h>
@@ -677,6 +673,8 @@ enum class HeroType {
 #include <GWCA/Context/GameContext.h>
 #include <GWCA/Context/PartyContext.h>
 #include <GWCA/Context/WorldContext.h>
+
+#include <GWCA/Managers/GuildMgr.h>
 
 
 #include <GWCA/GameEntities/Hero.h>
@@ -704,7 +702,14 @@ namespace GW {
         //FindPath_Func = (FindPath_pt)GW::Scanner::Find("\x83\xec\x20\x53\x8b\x5d\x1c\x56\x57\xe8", "xxxxxxxxxx", -0x3);
         FindPath_Func = (FindPath_pt)GW::Scanner::Find("\x83\xec\x20\x53\x56\x57\xe8\x92\x8a\xdd", "xxxxxxxxxx", -0x3);
     }
+
+    typedef void(__stdcall* UseHeroSkillInstant_t)(uint32_t hero_agent_id, uint32_t skill_slot, uint32_t target_id);
+
+    static UseHeroSkillInstant_t UseHeroSkillInstant_Func = nullptr;
+
+
 }
+
 
 
 extern bool salvaging;
@@ -800,6 +805,13 @@ extern std::vector<uint32_t> merchant_window_items;
 extern std::string global_agent_name;
 extern bool name_ready;
 
+extern std::vector<std::string> global_chat_messages;  // Stores multiple decoded messages
+extern bool chat_log_ready;  // Indicates if decoding is done
+
+extern std::string global_item_name;
+extern bool item_name_ready;
+
+
 
 #include <pybind11/pybind11.h>
 #include <pybind11/embed.h> 
@@ -819,6 +831,7 @@ extern Timer salvage_timer;
 //manually added libs
 #include "Logger.h"
 #include <commdlg.h>
+#include "py_ui.h"
 #include "py_imgui.h"
 #include "py_map.h"
 #include "py_items.h"
