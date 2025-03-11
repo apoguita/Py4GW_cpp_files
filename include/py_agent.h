@@ -231,6 +231,8 @@ public:
     float x = 0;
     float y = 0;
     float z = 0;
+	float screen_x = 0;
+	float screen_y = 0;
     int zplane = 0;
     float rotation_angle = 0;
     float rotation_cos = 0;

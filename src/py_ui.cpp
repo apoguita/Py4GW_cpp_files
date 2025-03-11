@@ -64,8 +64,7 @@ void UIFrame::GetContext() {
     GW::UI::Frame* parent = frame->relation.GetParent();
 	parent_id = parent ? parent->frame_id : 0;
 	frame_hash = frame->relation.frame_hash_id;
-	is_visible = frame->IsVisible();
-	is_created = frame->IsCreated();
+	
 
 	frame_layout = frame->frame_layout;
 	visibility_flags = frame->visibility_flags;
@@ -141,10 +140,10 @@ void UIFrame::GetContext() {
 	const auto top_left = frame->position.GetTopLeftOnScreen(root);
 	const auto bottom_right = frame->position.GetBottomRightOnScreen(root);
 
-	position.top_on_screen = top_left.x;
-	position.left_on_screen = top_left.y;
-	position.bottom_on_screen = bottom_right.x;
-	position.right_on_screen = bottom_right.y;
+	position.top_on_screen = top_left.y;
+	position.left_on_screen = top_left.x;
+	position.bottom_on_screen = bottom_right.y;
+	position.right_on_screen = bottom_right.x;
 
 	position.width_on_screen = frame->position.GetSizeOnScreen(root).x;
 	position.height_on_screen = frame->position.GetSizeOnScreen(root).y;
@@ -190,5 +189,8 @@ void UIFrame::GetContext() {
 	field98_0x1a0 = frame->field98_0x1a0;
 	//TooltipInfo* tooltip_info;
 	field100_0x1a8 = frame->field100_0x1a8;
+
+	is_visible = frame->IsVisible();
+	is_created = frame->IsCreated();
 
 }

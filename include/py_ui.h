@@ -180,10 +180,16 @@ public:
         return GW::UI::GetFrameCoordsByHash(frame_hash);
     }
 
+	static uint32_t GetChildFrameID(uint32_t parent_hash, std::vector<uint32_t> child_offsets) {
+		return GW::UI::GetChildFrameID(parent_hash, child_offsets);
+	}
 
-	bool ButtonClick(uint32_t frame_id) {
-		GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
-		return GW::UI::ButtonClick(frame);
+	static void ButtonClick(uint32_t frame_id) {
+        GW::GameThread::Enqueue([frame_id]() {
+            GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+            GW::UI::ButtonClick(frame);
+            });
+        
 	}
 
 	static uint32_t GetRootFrameID() {
@@ -198,17 +204,24 @@ public:
 		return GW::UI::GetIsWorldMapShowing();
 	}
 
-	bool SetPreference(uint32_t pref, uint32_t value) {
-		GW::UI::EnumPreference pref_enum = static_cast<GW::UI::EnumPreference>(pref);
-		return GW::UI::SetPreference(pref_enum, value);
+    static void SetPreference(uint32_t pref, uint32_t value) {
+        GW::GameThread::Enqueue([pref, value]() {
+            GW::UI::EnumPreference pref_enum = static_cast<GW::UI::EnumPreference>(pref);
+            GW::UI::SetPreference(pref_enum, value);
+            });
+
+		
 	}
 
 	static uint32_t GetFrameLimit() {
 		return GW::UI::GetFrameLimit();
 	}
 
-	bool SetFrameLimit(uint32_t value) {
-		return GW::UI::SetFrameLimit(value);
+    static void SetFrameLimit(uint32_t value) {
+        GW::GameThread::Enqueue([value]() {
+            GW::UI::SetFrameLimit(value);
+            });
+
 	}
 
 	static std::vector <uint32_t> GetFrameArray() {
@@ -356,12 +369,13 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
         .def_static("get_hash_by_label", &UIManager::GetHashByLabel, py::arg("label"), "Gets the hash of a frame label.")
         .def_static("get_frame_hierarchy", &UIManager::GetFrameHierarchy, "Retrieves the hierarchy of frames as a list of tuples (parent, child, etc.).")
         .def_static("get_frame_coords_by_hash", &UIManager::GetFrameCoordsByHash, py::arg("frame_hash"), "Gets the coordinates of a frame using its hash.")
-		.def("button_click", &UIManager::ButtonClick, py::arg("frame_id"), "Simulates a button click on a frame.")
-		.def("get_root_frame_id", &UIManager::GetRootFrameID, "Gets the ID of the root frame.")
-		.def("is_world_map_showing", &UIManager::IsWorldMapShowing, "Checks if the world map is currently showing.")
-		.def("set_preference", &UIManager::SetPreference, py::arg("pref"), py::arg("value"), "Sets a UI preference.")
-		.def("get_frame_limit", &UIManager::GetFrameLimit, "Gets the frame limit.")
-		.def("set_frame_limit", &UIManager::SetFrameLimit, py::arg("value"), "Sets the frame limit.")
-		.def_static("get_frame_array", &UIManager::GetFrameArray, "Gets the frame array.");
+		.def_static("button_click", &UIManager::ButtonClick, py::arg("frame_id"), "Simulates a button click on a frame.")
+		.def_static("get_root_frame_id", &UIManager::GetRootFrameID, "Gets the ID of the root frame.")
+		.def_static("is_world_map_showing", &UIManager::IsWorldMapShowing, "Checks if the world map is currently showing.")
+		.def_static("set_preference", &UIManager::SetPreference, py::arg("pref"), py::arg("value"), "Sets a UI preference.")
+		.def_static("get_frame_limit", &UIManager::GetFrameLimit, "Gets the frame limit.")
+		.def_static("set_frame_limit", &UIManager::SetFrameLimit, py::arg("value"), "Sets the frame limit.")
+		.def_static("get_frame_array", &UIManager::GetFrameArray, "Gets the frame array.")
+		.def_static("get_child_frame_id", &UIManager::GetChildFrameID, py::arg("parent_hash"), py::arg("child_offsets"), "Gets the ID of a child frame using its parent hash and child offsets.");
 
 }

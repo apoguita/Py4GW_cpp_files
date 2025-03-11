@@ -607,6 +607,13 @@ void PyAgent::GetContext() {
             }
         }
     }
+
+    /*
+	Overlay ovrly = Overlay();
+	Point2D screen_coords = ovrly.WorldToScreen(x, y, z);
+	screen_x = screen_coords.x;
+	screen_y = screen_coords.y;
+    */
 }
 
 
@@ -874,6 +881,8 @@ void bind_PyAgent(py::module_& m) {
         .def_readonly("y", &PyAgent::y)  // Access to the y field
         .def_readonly("z", &PyAgent::z)  // Access to the z field
         .def_readonly("zplane", &PyAgent::zplane)  // Access to the zplane field
+		.def_readonly("screen_x", &PyAgent::screen_x)  // Access to the screen_x field
+		.def_readonly("screen_y", &PyAgent::screen_y)  // Access to the screen_y field
         .def_readonly("rotation_angle", &PyAgent::rotation_angle)  // Access to the rotation_angle field
         .def_readonly("rotation_cos", &PyAgent::rotation_cos)  // Access to the rotation_cos field
         .def_readonly("rotation_sin", &PyAgent::rotation_sin)  // Access to the rotation_sin field

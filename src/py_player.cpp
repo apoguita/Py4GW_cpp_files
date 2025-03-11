@@ -251,15 +251,38 @@ std::vector<int> PyPlayer::GetItemArray() {
     if (!agents) return agent_ids;  // Return an empty vector if there are no agents
 
     for (const GW::Agent* agent : *agents) {
-        if (!agent || !agent->GetIsItemType()) continue;  // Skip non-item agents
+        if (!(agent && agent->GetIsItemType())) continue;  // Skip non-item agents
 
         const auto agent_item = agent->GetAsAgentItem();
-        if (!agent_item || !agent_item->agent_id) continue;  // Skip invalid item agents
+        if (!(agent_item && agent_item->agent_id)) continue;  // Skip invalid item agents
 
         uint32_t item_id = agent_item->agent_id;  // Get the item agent ID
 
+		if (item_id == 0) continue;  // Skip invalid item IDs
+
         // Add the valid item ID to the list
         agent_ids.push_back(static_cast<int>(item_id));
+    }
+    return agent_ids;
+}
+
+std::vector<int> PyPlayer::GetOwnedItemArray(int owner_agent_id) {
+    std::vector<int> agent_ids = {};
+	GW::Agent* agent = GW::Agents::GetAgentByID(owner_agent_id);
+	if (!agent) return agent_ids;  // Return an empty vector if the agent is invalid
+    
+    const auto agents = GW::Agents::GetAgentArray();
+    if (!agents) return agent_ids;  // Return an empty vector if there are no agents
+
+    for (const GW::Agent* agent : *agents) {
+        if (!(agent && agent->GetIsItemType())) continue;  // Skip non-item agents
+
+        const auto agent_item = agent->GetAsAgentItem();
+        if (!(agent_item && agent_item->agent_id)) continue;  // Skip invalid item agents
+        
+		if (agent_item->owner == owner_agent_id)
+			agent_ids.push_back(static_cast<int>(agent_item->agent_id));
+       
     }
     return agent_ids;
 }
@@ -385,7 +408,8 @@ void PyPlayer::SendWhisper(std::string name, std::string msg) {
 }
 
 bool PyPlayer::ChangeTarget(uint32_t new_target_id) {
-    
+	if (new_target_id == 0) return false;
+
     auto agent = GW::Agents::GetAgentByID(new_target_id);
     if (!agent) return false;
 
@@ -414,6 +438,7 @@ bool PyPlayer::Move(float x, float y) {
 }
 
 bool PyPlayer::InteractAgent(int agent_id, bool call_target) {
+	if (agent_id == 0) return false;
 
     GW::Agent* agent = GW::Agents::GetAgentByID(agent_id);
     if (!agent) return false;
@@ -451,6 +476,12 @@ uint32_t PyPlayer::GetActiveTitleId() {
 	return static_cast<uint32_t>(GW::PlayerMgr::GetActiveTitleId());
 }
 
+bool PyPlayer::IsAgentIDValid(int agent_id) {
+	const auto agent = GW::Agents::GetAgentByID(agent_id);
+	if (!agent) return false;
+	return true;
+}
+
 void BindPyTitle(py::module_& m) {
     py::class_<PyTitle>(m, "PyTitle")
         .def(py::init<uint32_t>(), py::arg("title_id"))  // Constructor with title_id
@@ -482,7 +513,9 @@ void BindPyPlayer(py::module_& m) {
         .def("GetMinionArray", &PyPlayer::GetMinionArray)  // Bind the GetMinionArray method
         .def("GetNPCMinipetArray", &PyPlayer::GetNPCMinipetArray)  // Bind the GetNPCMinipetArray method
         .def("GetItemArray", &PyPlayer::GetItemArray)  // Bind the GetItemArray method
+		.def("GetOwnedItemArray", &PyPlayer::GetOwnedItemArray, py::arg("owner_agent_id"))  // Bind the GetOwnedItemArray method
         .def("GetGadgetArray", &PyPlayer::GetGadgetArray)  // Bind the GetGadgetArray method
+		.def("IsAgentIDValid", &PyPlayer::IsAgentIDValid, py::arg("agent_id"))  // Bind the IsAgentIDValid method
 		.def("GetChatHistory", &PyPlayer::GetChatHistory)  // Bind the GetChatHistory method
 		.def("RequestChatHistory", &PyPlayer::RequestChatHistory)  // Bind the RequestChatHistory method
 		.def("IsChatHistoryReady", &PyPlayer::IsChatHistoryReady)  // Bind the IsChatHistoryReady method

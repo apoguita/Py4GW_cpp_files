@@ -563,14 +563,29 @@ std::array<float, 2> ImGui_GetCursorPos() {
     return { pos.x, pos.y };
 }
 
+//set_cursor_pos
+void ImGui_SetCursorPos(float x, float y) {
+	ImGui::SetCursorPos(ImVec2(x, y));
+}
+
 //get_cursor_pos_x
 float ImGui_GetCursorPosX() {
     return ImGui::GetCursorPosX();
 }
 
+//set_cursor_pos_x
+void ImGui_SetCursorPosX(float x) {
+	ImGui::SetCursorPosX(x);
+}
+
 //get_cursor_pos_y
 float ImGui_GetCursorPosY() {
     return ImGui::GetCursorPosY();
+}
+
+//set_cursor_pos_y
+void ImGui_SetCursorPosY(float y) {
+	ImGui::SetCursorPosY(y);
 }
 
 //get)cursor_start_pos
@@ -1199,6 +1214,9 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
     m.def("get_cursor_pos", &ImGui_GetCursorPos, "Returns the cursor position in ImGui");
     m.def("get_cursor_pos_x", &ImGui_GetCursorPosX, "Returns the cursor position in the x-direction");
     m.def("get_cursor_pos_y", &ImGui_GetCursorPosY, "Returns the cursor position in the y-direction");
+	m.def("set_cursor_pos", &ImGui_SetCursorPos, "Sets the cursor position in ImGui");
+	m.def("set_cursor_pos_x", &ImGui_SetCursorPosX, "Sets the cursor position in the x-direction");
+	m.def("set_cursor_pos_y", &ImGui_SetCursorPosY, "Sets the cursor position in the y-direction");
     m.def("get_cursor_start_pos", &ImGui_GetCursorStartPos, "Returns the cursor start position in ImGui");
     m.def("is_rect_visible", &ImGui_IsRectVisible, "Checks if a rectangle is visible in ImGui");
 

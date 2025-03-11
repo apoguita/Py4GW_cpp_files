@@ -831,6 +831,7 @@ extern Timer salvage_timer;
 //manually added libs
 #include "Logger.h"
 #include <commdlg.h>
+#include "py_overlay.h"
 #include "py_ui.h"
 #include "py_imgui.h"
 #include "py_map.h"
@@ -841,7 +842,7 @@ extern Timer salvage_timer;
 #include "py_skills.h"
 #include "py_merchant.h"
 #include "py_pinghandler.h"
-#include "py_overlay.h"
+
 #include "py_quest.h"
 
 #include "SpecialSkilldata.h"

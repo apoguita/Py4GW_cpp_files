@@ -342,7 +342,7 @@ namespace GW {
         bool InteractAgent(const Agent* agent, bool call_target) {
             if (!agent)
                 return false;
-            UI::UIPacket::kSendWorldAction packet = { WorldActionId::InteractEnemy, agent->agent_id, !call_target };
+            UI::UIPacket::kSendWorldAction packet = { WorldActionId::InteractEnemy, agent->agent_id, call_target };
             if (agent->GetIsItemType()) {
                 packet.action_id = WorldActionId::InteractItem;
                 return UI::SendUIMessage(UI::UIMessage::kSendWorldAction, &packet);

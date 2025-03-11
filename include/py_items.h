@@ -277,117 +277,9 @@ public:
 };
 
 class Inventory {
-private:
-
-    void AttachSalvageListeners()
-    {
-
-        if (salvage_listeners_attached) {
-            return;
-        }
-
-        GW::StoC::RegisterPacketCallback(&salvage_hook_entry, GW::Packet::StoC::SalvageSessionCancel::STATIC_HEADER, &ClearSalvageSession);
-        GW::StoC::RegisterPacketCallback(&salvage_hook_entry, GW::Packet::StoC::SalvageSessionDone::STATIC_HEADER, &ClearSalvageSession);
-        GW::StoC::RegisterPacketCallback(&salvage_hook_entry, GW::Packet::StoC::SalvageSessionItemKept::STATIC_HEADER, &ClearSalvageSession);
-
-        if (!GW::StoC::RegisterPacketCallback<GW::Packet::StoC::SalvageSessionSuccess>(
-            &salvage_hook_entry,
-            [this](GW::HookStatus* status, GW::Packet::StoC::SalvageSessionSuccess*) {
-                //DebugMessage(L"SalvageSessionSuccess packet received");
-                ClearSalvageSession(status, nullptr);
-                GW::Items::SalvageSessionDone();
-
-            })) {
-            throw std::out_of_range("Failed to register SalvageSessionSuccess callback");
-        }
-
-        if (!GW::StoC::RegisterPacketCallback<GW::Packet::StoC::SalvageSession>(
-            &salvage_hook_entry,
-            [this](GW::HookStatus* status, const GW::Packet::StoC::SalvageSession* packet) {
-                //DebugMessage(L"SalvageSession packet received");
-                salvage_transaction_done = false;
-                salvaging = true;
-                current_salvage_session = *packet;
-                status->blocked = true;
-            })) {
-            throw std::out_of_range("Failed to register SalvageSession callback");
-        }
-
-        //DebugMessage(L"Listeners Attached");
-        salvage_listeners_attached = true;
-    }
-
-
-    void DetachSalvageListeners()
-    {
-        if (!salvage_listeners_attached) { return; };
-        GW::StoC::RemoveCallback(GW::Packet::StoC::SalvageSessionCancel::STATIC_HEADER, &salvage_hook_entry);
-        GW::StoC::RemoveCallback(GW::Packet::StoC::SalvageSessionDone::STATIC_HEADER, &salvage_hook_entry);
-        GW::StoC::RemoveCallback(GW::Packet::StoC::SalvageSession::STATIC_HEADER, &salvage_hook_entry);
-        GW::StoC::RemoveCallback(GW::Packet::StoC::SalvageSessionItemKept::STATIC_HEADER, &salvage_hook_entry);
-        GW::StoC::RemoveCallback(GW::Packet::StoC::SalvageSessionSuccess::STATIC_HEADER, &salvage_hook_entry);
-        salvage_listeners_attached = false;
-    }
-
-    static void ClearSalvageSession(GW::HookStatus* status, void*)
-    {
-        if (status) {
-            status->blocked = true;
-        }
-        current_salvage_session.salvage_item_id = 0;
-        salvage_transaction_done = true;
-    }
-
 public:
 
-    void continueSalvage()
-    {
-        GW::GameThread::Enqueue([] {
-
-            if (salvaging && !salvage_transaction_done) {
-                const auto salvage_info = GW::Items::GetSalvageSessionInfo();
-                if (salvage_info) {
-                    if (!GW::Items::SalvageMaterials())
-                    {
-                        GW::Items::SalvageSessionCancel();
-                        salvaging = false;
-                    }
-                }
-                else
-                {
-                    GW::Items::SalvageSessionCancel();
-                    salvaging = false;
-                }
-                salvage_transaction_done = true;
-                salvage_timer.stop();
-            }
-
-            });
-    }
-
-    void update_salvage_session()
-    {
-        if (salvaging && !salvage_transaction_done && salvage_timer.hasElapsed(500)) {
-            continueSalvage();
-			FinishSalvage();
-        }
-    }
-
-
-    bool Salvage(GW::Item* item, GW::Item* kit)
-    {
-        GW::Items::SalvageStart(kit->item_id, item->item_id);
-        salvage_timer.start();
-        return true;
-    }
-
-    
-
-    void StartSalvage(int salv_kit_id, int item_id) {
-
-        if (salvaging) { return; }
-		salvaging = true;
-		salvage_transaction_done = false;
+    void Salvage(int salv_kit_id, int item_id) {
 
         GW::Item* item = GW::Items::GetItemById(item_id);
         if (!item) return;
@@ -399,38 +291,10 @@ public:
 
         if ((item && kit) && (SalvKit.IsSalvageKit && Unsalv.IsSalvagable))
         {
-            //AttachSalvageListeners();
-            Salvage(item, kit);
+            GW::Items::SalvageStart(kit->item_id, item->item_id);
         }
         return;
 
-    }
-
-
-    bool IsSalvaging() {
-        return salvaging;
-    }
-
-    bool IsSalvageTransactionDone() {
-        return salvage_transaction_done;
-    }
-
-    void CancelSalvage()
-    {
-        //DetachSalvageListeners();
-        //ClearSalvageSession(nullptr, nullptr);
-        GW::Items::SalvageSessionCancel();
-		salvaging = false;
-		salvage_transaction_done = false;
-    }
-
-    
-
-    void FinishSalvage()
-    {
-            salvaging = false;
-            salvage_transaction_done = false;
-            salvage_timer.stop();
     }
 
 	void AcceptSalvageWindow()

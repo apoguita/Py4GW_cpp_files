@@ -890,13 +890,7 @@ void bind_Inventory(py::module_& m) {
         .def("MoveItem", &Inventory::MoveItem, py::arg("item_id"), py::arg("bag_id"), py::arg("slot"), py::arg("quantity") = 1)  // Move an item within a bag
 
         // Salvage methods
-        .def("StartSalvage", &Inventory::StartSalvage, py::arg("salv_kit_id"), py::arg("item_id"))  // Start salvage process
-        .def("HandleSalvageUI", &Inventory::continueSalvage)  // Continue salvage process
-        .def("UpdateSalvageSession", &Inventory::update_salvage_session)  // Update salvage process
-        .def("FinishSalvage", &Inventory::FinishSalvage)  // Finish salvage process
-        .def("CancelSalvage", &Inventory::CancelSalvage)  // Cancel the current salvage process
-        .def("IsSalvaging", &Inventory::IsSalvaging)  // Check if currently salvaging
-        .def("IsSalvageTransactionDone", &Inventory::IsSalvageTransactionDone) // Check if the salvage transaction is done
+        .def("Salvage", &Inventory::Salvage, py::arg("salv_kit_id"), py::arg("item_id"))  // Start salvage process
         .def("AcceptSalvageWindow", &Inventory::AcceptSalvageWindow);  // Accept the salvage window
 }
 

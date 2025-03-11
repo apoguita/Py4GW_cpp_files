@@ -24,7 +24,7 @@ GW::Vec2f GlobalMouseClass::GetMouseCoords() {
 
 // Overlay methods
 Overlay::Overlay() {
-    drawList = ImGui::GetWindowDrawList();
+    //drawList = ImGui::GetWindowDrawList();
 }
 
 void Overlay::RefreshDrawList() {
@@ -182,6 +182,7 @@ Point3D Overlay::GetMouseWorldPos() {
 }
 
 void Overlay::BeginDraw() {
+
     ImGuiIO& io = ImGui::GetIO();
 
     // Make the panel cover the whole screen

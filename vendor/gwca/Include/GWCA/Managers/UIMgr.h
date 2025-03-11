@@ -1008,8 +1008,9 @@ namespace GW {
 
         GWCA_API Frame* GetChildFrame(Frame* parent, uint32_t child_offset);
         GWCA_API Frame* GetChildFrame(Frame* parent, std::initializer_list<uint32_t> child_offsets);
+		GWCA_API uint32_t GetChildFrameID(uint32_t parent_hash, std::vector<uint32_t> child_offsets);
         GWCA_API Frame* GetParentFrame(Frame* frame);
-        GWCA_API Frame* GetFrameById(uint32_t frame_id);
+        GWCA_API Frame* GetFrameById(uint32_t frame_id); 
         GWCA_API Frame* GetFrameByLabel(const wchar_t* frame_label);
         GWCA_API uint32_t GetFrameIDByLabel(const wchar_t* frame_label);
         GWCA_API uint32_t GetFrameIDByHash(uint32_t hash);

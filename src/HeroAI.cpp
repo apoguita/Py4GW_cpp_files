@@ -1690,53 +1690,7 @@ uint32_t HeroAI::GetNextUnsalvagedItem(uint32_t kit, SalvageAllType type)
 
 void HeroAI::SalvageNext(SalvageAllType type)
 {
-     Inventory inventory_handler;
-    //DebugMessage(L"SalvageNext Called");
-    if (!ThereIsSpaceInInventory()) {
-        DebugMessage(L"Inventory Full");
-        want_to_salvage = false;
-        salvage_transaction_done = true;
-        salvaging = false;
-		inventory_handler.CancelSalvage();
-        return;
-    }
-
-	if (inventory_handler.IsSalvaging()) {
-		if (inventory_handler.IsSalvageTransactionDone()) {
-			inventory_handler.FinishSalvage();
-		}
-		return;
-	}
-
-    uint32_t kit = GetSalvageKit();
-    uint32_t Unsalv = GetNextUnsalvagedItem(kit, type);
-
-    if (Unsalv && kit)
-    {
-		inventory_handler.StartSalvage(kit, Unsalv);
-
-        if (inventory_handler.IsSalvaging()) {
-            if (inventory_handler.IsSalvageTransactionDone()) {
-                inventory_handler.FinishSalvage();
-            }
-            return;
-        }
-    }
-    else
-    {
-        if (!Unsalv)
-        {
-            DebugMessage(L"No Items To Salvage");
-        }
-        if (!kit)
-        {
-            DebugMessage(L"No Salvage Kit");
-        }
-        want_to_salvage = false;
-        salvage_transaction_done = true;
-        salvaging = false;
-    }
-
+    
 }
 
 void HeroAI::HandleMessaging()

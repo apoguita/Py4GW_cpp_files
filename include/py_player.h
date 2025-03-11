@@ -47,6 +47,7 @@ public:
     std::vector<int> GetMinionArray();
     std::vector<int> GetNPCMinipetArray();
     std::vector<int> GetItemArray();
+    std::vector<int> GetOwnedItemArray(int owner_agent_id);
     std::vector<int> GetGadgetArray();
 	std::vector<std::string> GetChatHistory();
 	void RequestChatHistory();
@@ -65,6 +66,7 @@ public:
     bool RemoveActiveTitle();
     bool DepositFaction(uint32_t allegiance);
     uint32_t GetActiveTitleId();
+	bool IsAgentIDValid(int agent_id);
 
     
 };

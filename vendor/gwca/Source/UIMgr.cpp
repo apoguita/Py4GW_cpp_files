@@ -941,6 +941,31 @@ namespace GW {
             return GetFrameById(id);
         }
 
+		uint32_t GetChildFrameID(uint32_t parent_hash, std::vector<uint32_t> child_offsets) {
+
+			uint32_t parent_frame_id = GetFrameIDByHash(parent_hash);
+			if (parent_frame_id == 0)
+				return 0;
+			Frame* parent = GetFrameById(parent_frame_id);
+			if (!parent)
+				return 0;
+            
+            uint32_t id = parent->frame_id;
+			if (id == 0)
+				return 0;
+
+            if (child_offsets.empty())
+                return id; // Or return 0 if no child frames exist.
+
+
+            for (uint32_t child_offset : child_offsets) {
+                id = GetChildFrameId_Func(id, child_offset);
+                if (id == 0) return 0;
+            }
+            return id;
+
+		}
+
         Frame* GetParentFrame(Frame* frame) {
             return frame ? frame->relation.GetParent() : nullptr;
         }

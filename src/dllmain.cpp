@@ -170,6 +170,11 @@ void ApplyImGuiTheme() {
     style->Colors[ImGuiCol_TextDisabled] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
     style->Colors[ImGuiCol_WindowBg] = ImVec4(0.01f, 0.01f, 0.01f, 0.8f);
     //style->Colors[ImGuiCol_ChildWindowBg] = ImVec4(0.07f, 0.07f, 0.09f, 1.00f);
+	style->Colors[ImGuiCol_Tab] = ImVec4(0.10f, 0.15f, 0.2f, 1.00f);
+	style->Colors[ImGuiCol_TabHovered] = ImVec4(0.2f, 0.3f, 0.4f, 1.00f);
+	style->Colors[ImGuiCol_TabActive] = ImVec4(0.4f, 0.5f, 0.6f, 1.00f);
+
+
     style->Colors[ImGuiCol_PopupBg] = ImVec4(0.01f, 0.01f, 0.01f, 0.8f);
     style->Colors[ImGuiCol_Border] = ImVec4(0.80f, 0.80f, 0.83f, 0.88f);
     style->Colors[ImGuiCol_BorderShadow] = ImVec4(0.1f, 0.1f, 0.1f, 0.5f);
