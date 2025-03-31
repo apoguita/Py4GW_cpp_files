@@ -152,6 +152,10 @@ int ImGui_Combo(const std::string& label, int current_item, const std::vector<st
     return temp;
 }
 
+//selectable
+bool ImGui_Selectable(const std::string& label, bool selected, ImGuiSelectableFlags flags, const std::array<float, 2>& size) {
+	return ImGui::Selectable(label.c_str(), selected, flags, ImVec2(size[0], size[1]));
+}
 
 // ColorEdit3
 std::vector<float> ImGui_ColorEdit3(const std::string& label, const std::vector<float>& color) {
@@ -485,6 +489,14 @@ void ImGui_EndTabBar() {
 
 bool ImGui_BeginTabItem(const std::string& label) {
     return ImGui::BeginTabItem(label.c_str());
+}
+
+bool ImGui_BeginTabItem(const std::string& label, bool popen) {
+	return ImGui::BeginTabItem(label.c_str(), &popen);
+}
+
+bool ImGui_BeginTabItem(const std::string& label, bool p_open, ImGuiTabItemFlags flags) {
+    return ImGui::BeginTabItem(label.c_str(), &p_open, flags);
 }
 
 void ImGui_EndTabItem() {
@@ -1150,6 +1162,7 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
     m.def("input_float", &ImGui_InputFloat, "Creates a float input in ImGui");
     m.def("input_int", &ImGui_InputInt, "Creates an integer input in ImGui");
     m.def("combo", &ImGui_Combo, "Creates a combo box in ImGui");
+	m.def("selectable", &ImGui_Selectable, "Creates a selectable item in ImGui");
     m.def("color_edit3", &ImGui_ColorEdit3, "A function to create a color editor (RGB)");
     m.def("color_edit4", &ImGui_ColorEdit4, "Creates an RGBA color editor in ImGui");
 
@@ -1323,7 +1336,19 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
     // Tabs
     m.def("begin_tab_bar", &ImGui_BeginTabBar, "Begins a tab bar in ImGui");
     m.def("end_tab_bar", &ImGui_EndTabBar, "Ends the tab bar in ImGui");
-    m.def("begin_tab_item", &ImGui_BeginTabItem, "Begins a tab item in ImGui");
+    // Overload bindings
+    m.def("begin_tab_item",
+        py::overload_cast<const std::string&>(&ImGui_BeginTabItem),
+        "Begin tab item with label");
+
+    m.def("begin_tab_item",
+        py::overload_cast<const std::string&, bool>(&ImGui_BeginTabItem),
+        "Begin tab item with label and popen");
+
+    m.def("begin_tab_item",
+        py::overload_cast<const std::string&, bool, ImGuiTabItemFlags>(&ImGui_BeginTabItem),
+        "Begin tab item with full params");
+
     m.def("end_tab_item", &ImGui_EndTabItem, "Ends the tab item in ImGui");
 
     // Drawing

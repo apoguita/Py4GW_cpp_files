@@ -56,6 +56,13 @@ void PyPlayer::GetContext() {
         if (world_context) {
             wchar_t*  waccount_name = world_context->accountInfo->account_name;
             account_name = std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(waccount_name);
+
+            const auto char_context = GW::GetCharContext();
+            if (char_context) {
+                std::wstring wplayer_email = char_context->player_email;
+                account_email = std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(wplayer_email);
+            }
+
             wins = world_context->accountInfo->wins;
             losses = world_context->accountInfo->losses;
             rating = world_context->accountInfo->rating;
@@ -555,6 +562,7 @@ void BindPyPlayer(py::module_& m) {
         .def_readonly("mouse_over_id", &PyPlayer::mouse_over_id)  // Bind the mouse_over_id attribute
         .def_readonly("observing_id", &PyPlayer::observing_id)  // Bind the observing_id attribute
 	    .def_readonly("account_name", &PyPlayer::account_name) // Bind the account_name attribute
+		.def_readonly("account_email", &PyPlayer::account_email)  // Bind the account_email attribute
 	    .def_readonly("wins", &PyPlayer::wins)  // Bind the wins attribute
 	    .def_readonly("losses", &PyPlayer::losses)  // Bind the losses attribute
 	    .def_readonly("rating", &PyPlayer::rating)  // Bind the rating attribute

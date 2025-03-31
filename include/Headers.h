@@ -627,7 +627,7 @@ enum class HeroType {
 #include <GWCA/Utilities/Scanner.h>
 
 #include <GWCA/Constants/Constants.h>
-
+#include <GWCA/Context/CharContext.h>
 #include <GWCA/GameEntities/Pathing.h>
 
 #include <GWCA/GameEntities/Attribute.h>

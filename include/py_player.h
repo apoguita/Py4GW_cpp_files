@@ -10,6 +10,7 @@ public:
     int observing_id = 0;
 
 	std::string account_name = "";
+	std::string account_email = "";
     uint32_t wins = 0;
     uint32_t losses = 0;
     uint32_t rating = 0;

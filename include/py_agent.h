@@ -91,7 +91,7 @@ public:
 class PyLivingAgent {
 public:
     int agent_id;
-    int owner_id;
+    int owner_id = -1;
     int player_number;
     Profession profession = 0;
     Profession secondary_profession = 0;
@@ -166,7 +166,7 @@ public:
 class PyItemAgent {
 public:
     int agent_id = 0;
-    int owner_id = 0;
+    int owner_id = -1;
     int item_id = 0;
     uint32_t h00CC;
     uint32_t extra_type = 0;
@@ -251,5 +251,6 @@ public:
     PyAgent(int agent_id);  // Updated constructor
     void Set(int agent_id);
     void GetContext();  // Updated method to take agent_id as a parameter
+	bool IsValid(int agent_id);
 };
 

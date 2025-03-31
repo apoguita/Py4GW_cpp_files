@@ -366,6 +366,7 @@ PyItemAgent::PyItemAgent(int agent_id) : agent_id(agent_id) {
 }
 
 void PyItemAgent::GetContext() {
+	owner_id = -1;
     if (!agent_id) return;
 
     GW::Agent* temp_agent = GW::Agents::GetAgentByID(agent_id);
@@ -616,6 +617,12 @@ void PyAgent::GetContext() {
     */
 }
 
+bool PyAgent::IsValid(int agent_id) {
+	if (!agent_id) return false;
+    GW::Agent* agent = GW::Agents::GetAgentByID(id);
+	if (!agent) return false;
+    return true;
+}
 
 
 // Bind the Profession enum
@@ -876,6 +883,7 @@ void bind_PyAgent(py::module_& m) {
         .def(py::init<int>())  // Constructor with agent_id
         .def("Set", &PyAgent::Set)  // Set method to update agent_id and context
         .def("GetContext", &PyAgent::GetContext)  // Method to refresh the context
+		.def("IsValid", &PyAgent::IsValid)  // Method to check if the agent is valid
         .def_readonly("id", &PyAgent::id)  // Access to the id field
         .def_readonly("x", &PyAgent::x)  // Access to the x field
         .def_readonly("y", &PyAgent::y)  // Access to the y field

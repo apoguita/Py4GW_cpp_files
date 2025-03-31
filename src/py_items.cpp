@@ -498,6 +498,11 @@ void SafeItem::GetContext() {
 
 }
 
+bool SafeItem::IsItemValid(uint32_t item_id_param) {
+	GW::Item* item = GW::Items::GetItemById(item_id_param);
+	if (!item) return false;
+    return true;
+}
 
 std::string global_item_name;
 bool item_name_ready;
@@ -777,6 +782,7 @@ void bind_SafeItem(py::module_& m) {
 		.def("RequestName", &SafeItem::RequestName)
 		.def("IsItemNameReady", &SafeItem::IsItemNameReady)
 		.def("GetName", &SafeItem::GetName)
+		.def("IsItemValid", &SafeItem::IsItemValid)
         .def_readonly("item_id", &SafeItem::item_id)
         .def_readonly("agent_id", &SafeItem::agent_id)
         .def_readonly("agent_item_id", &SafeItem::agent_item_id)

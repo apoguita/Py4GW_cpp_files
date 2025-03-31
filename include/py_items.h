@@ -248,6 +248,7 @@ public:
 	void RequestName();
     bool IsItemNameReady();
 	std::string GetName();
+	bool IsItemValid(uint32_t item_id);
 
 };
 
@@ -360,6 +361,7 @@ public:
             });
         return result;
     }
+
 
     int GetGoldAmount() {
         return GW::Items::GetGoldAmountOnCharacter();
