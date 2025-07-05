@@ -495,7 +495,14 @@ void bind_AgentEffects(py::module_& m) {
 
         //drop buff
         .def("DropBuff", &AgentEffects::DropBuff, py::arg("skill_id"),
-            "Drop a specific buff for the agent");
+            "Drop a specific buff for the agent")
+
+		.def_static("GetAlcoholLevel", &AgentEffects::GetDrunkennessLevel,
+			"Get the current alcohol level of the agent")
+
+
+        .def_static("ApplyDrunkEffect", &AgentEffects::ApplyDrunkEffect,
+            "Get the agent ID associated with this AgentEffects instance");
 }
 
 

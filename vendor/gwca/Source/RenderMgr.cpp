@@ -108,7 +108,7 @@ namespace {
         InitializeCriticalSection(&mutex);
 
         // Locate function addresses
-        GwReset_Func = (GwReset_pt)Scanner::ToFunctionStart(Scanner::Find("\x75\x14\x68\x94\x02\x00\x00", "xxxxxxx"));
+        GwReset_Func = (GwReset_pt)Scanner::ToFunctionStart(Scanner::Find("\x3B\x4D\xB4\x89", "xxxx"), 0xfff);
         //GwReset_Func = (GwReset_pt)Scanner::ToFunctionStart(Scanner::Find("\x75\x14\x68\xca\x03\x00\x00", "xxxxxxx"));
         
         //GwEndScene_Func = (GwEndScene_pt)Scanner::ToFunctionStart(Scanner::Find("\x75\x28\x68\x8c\x08\x00\x00", "xxxxxxx"));

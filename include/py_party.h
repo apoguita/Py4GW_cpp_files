@@ -283,7 +283,6 @@ public:
         }
 
 
-
         auto* effects = GW::Effects::GetAgentEffects(static_cast<uint32_t>(agent_id));
         if (effects) {
             for (const auto& effect : *effects) {
@@ -357,5 +356,12 @@ public:
     void DropBuff(int skill_id) {
         GW::Effects::DropBuff(static_cast<uint32_t>(skill_id));
     }
+
+    static int GetDrunkennessLevel() {
+        return static_cast<int>(GW::Effects::GetAlcoholLevel());
+    }
+	static void ApplyDrunkEffect(int intensity, int tint) {
+		GW::Effects::GetDrunkAf(static_cast<uint32_t>(intensity), static_cast<uint32_t>(tint));
+	}
 };
 

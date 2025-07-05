@@ -15,6 +15,7 @@ public:
         uint32_t count = 1;
         if (item)
         {
+			transaction_complete = false; // Reset transaction completion status
             cost = cost * count;  // Adjust the total cost by multiplying with the count
 
             GW::Merchant::TransactionInfo give, recv;
@@ -42,6 +43,7 @@ public:
         uint32_t count = 1;
         if (item) 
         {
+            transaction_complete = false; // Reset transaction completion status
             cost = cost * count;  // Adjust the total cost by multiplying with the count
 
             GW::Merchant::TransactionInfo give, recv;
@@ -71,6 +73,7 @@ public:
         if (give_item_ids.size() != give_item_quantities.size()) {
             return false; // Or handle the error appropriately.
         }
+        transaction_complete = false; // Reset transaction completion status
 
         // Convert vectors to raw pointers.
         uint32_t* item_ids_ptr = give_item_ids.empty() ? nullptr : const_cast<uint32_t*>(give_item_ids.data());
@@ -104,6 +107,8 @@ public:
         uint32_t* item_ids_ptr = give_item_ids.empty() ? nullptr : const_cast<uint32_t*>(give_item_ids.data());
         uint32_t* item_quantities_ptr = give_item_quantities.empty() ? nullptr : const_cast<uint32_t*>(give_item_quantities.data());
 
+        transaction_complete = false; // Reset transaction completion status
+
         // Create TransactionInfo structures.
         GW::Merchant::TransactionInfo give_info;
         give_info.item_count = static_cast<uint32_t>(give_item_ids.size());
@@ -125,6 +130,7 @@ public:
         uint32_t count = 1;
         if (item)
         {
+            transaction_complete = false; // Reset transaction completion status
             price = price * count;  // Calculate the total price based on quantity
 
             GW::Merchant::TransactionInfo give, recv;
@@ -153,6 +159,7 @@ public:
         uint32_t count = 1;
         if (item) 
         {
+            transaction_complete = false; // Reset transaction completion status
             price = price * count;  // Calculate the total price based on quantity
 
             GW::Merchant::TransactionInfo give, recv;
@@ -179,10 +186,13 @@ public:
 
     // Perform a request quote for the item based on its ID
     bool TraderRequestQuote(uint32_t item_id) {
+
         GW::Item* item = GW::Items::GetItemById(item_id);
 
         if (item) 
         {
+            quoted_value = -1; // Reset the quoted value
+            
             GW::Merchant::QuoteInfo give, recv;
             give.unknown = 0;
             give.item_count = 0;
@@ -206,6 +216,8 @@ public:
 
         if (item)
         {
+            quoted_value = -1; // Reset the quoted value
+            
             GW::Merchant::QuoteInfo give, recv;
             recv.unknown = 0;
             recv.item_count = 0;
@@ -225,7 +237,7 @@ public:
     }
 
     // Get the last quoted price
-    uint32_t GetQuotedValue() const {
+    int GetQuotedValue() const {
         return quoted_value;
     }
 

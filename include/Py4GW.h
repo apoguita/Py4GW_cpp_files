@@ -36,6 +36,7 @@ public:
     GW::HookEntry WindowItems_Entry;         // Entry for item stream callback
     GW::HookEntry WindowItemsEnd_Entry;      // Entry for item stream end callback
 
+
     bool visible = true;
     bool checkbox = false;
 

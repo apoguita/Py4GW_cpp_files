@@ -166,14 +166,9 @@ namespace {
 
     // Override the default in-game chat message timestamp logic
     void __cdecl OnUICallback_ChatLogLine(GW::UI::InteractionMessage* message, void* wParam, void* lParam) {
-		if (!message || !wParam || !lParam) {
-            Logger::Instance().SetLogFile("Py4GW_injection_log.txt");
-			Logger::Instance().LogError("OnUICallback_ChatLogLine called with null parameters.");
-			return;
-		}
         GW::Hook::EnterHook();
         switch (static_cast<uint32_t>(message->message_id)) {
-        case 0x49: {
+        case 0x4A: {
             ShowTimestamps = GW::UI::GetPreference(GW::UI::FlagPreference::ShowChatTimestamps);
             if (ShowTimestamps != block_chat_timestamps.GetIsActive()) {
                 block_chat_timestamps.TogglePatch();
@@ -383,8 +378,10 @@ namespace {
 		Logger::AssertAddress("UICallback_AssignEditableText_Func", (uintptr_t)UICallback_AssignEditableText_Func);
 
 
-        //int success = HookBase::CreateHook((void**)&UICallback_ChatLogLine_Func, OnUICallback_ChatLogLine, (void**)&UICallback_ChatLogLine_Ret);
-		//Logger::AssertHook("UICallback_ChatLogLine_Func", success);
+        int succeed= HookBase::CreateHook((void**)&UICallback_ChatLogLine_Func, OnUICallback_ChatLogLine, (void**)&UICallback_ChatLogLine_Ret);
+		Logger::AssertHook("UICallback_ChatLogLine_Func", succeed);
+
+
         int success = HookBase::CreateHook((void**)&StartWhisper_Func, OnStartWhisper_Func, (void**)& StartWhisper_Ret);
 		Logger::AssertHook("StartWhisper_Func", success);
         success = HookBase::CreateHook((void**)&GetSenderColor_Func, OnGetSenderColor_Func, (void **)&GetSenderColor_Ret);

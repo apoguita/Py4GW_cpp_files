@@ -44,6 +44,10 @@ void ImGui_TextScaled(std::string& text, const std::array<float, 4>& color, floa
     ImGui::PopFont();  // Pop the font after rendering
 }
 
+void ImGui_SetWindowFontScale(float scale) {
+	ImGui::SetWindowFontScale(scale);
+}
+
 //pushid
 void ImGui_PushID(const std::string& str_id) {
 	ImGui::PushID(str_id.c_str());
@@ -488,6 +492,10 @@ void ImGui_EndTable() {
 
 void ImGui_TableNextRow() {
     ImGui::TableNextRow();
+}
+
+void ImGui_TableNextRow(int  row_flags, float min_row_height) {
+	ImGui::TableNextRow(row_flags, min_row_height);
 }
 
 void ImGui_TableNextColumn() {
@@ -1435,6 +1443,7 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
     //m.def("text_ex", &ImGui_TextEx, "Displays a text with flags in ImGui");
     m.def("text_unformatted", &ImGui_TextUnformatted, "Displays an unformatted text in ImGui");
 	m.def("text_scaled", &ImGui_TextScaled, "Displays a scaled text in ImGui");
+	m.def("set_window_font_scale", &ImGui_SetWindowFontScale, "Sets the font scale for the current window in ImGui");
 
 
     m.def("get_text_line_height", &ImGui_GetTextLineHeight, "Returns the text line height in ImGui");
@@ -1662,7 +1671,10 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
 	m.def("table_get_column_count", &ImGui_TableGetColumnCount, "Returns the number of columns in the table");
 	m.def("table_get_column_index", &ImGui_TableGetColumnIndex, "Returns the current column index in the table");
 	m.def("table_get_row_index", &ImGui_TableGetRowIndex, "Returns the current row index in the table");
-    m.def("table_next_row", &ImGui_TableNextRow, "Moves to the next row in the table");
+    m.def("table_next_row", py::overload_cast<>(&ImGui_TableNextRow), "Moves to the next row in the table with default settings");
+    m.def("table_next_row", py::overload_cast<int, float>(&ImGui_TableNextRow), py::arg("row_flags"), py::arg("min_row_height"), "Moves to the next row in the table with flags and minimum row height");
+
+    //m.def("table_next_row", &ImGui_TableNextRow, "Moves to the next row in the table");
     m.def("table_next_column", &ImGui_TableNextColumn, "Moves to the next column in the table");
     m.def("table_set_column_index", &ImGui_TableSetColumnIndex, "Sets the current column index in the table");
 	m.def("table_set_column_width", &ImGui_SetColumnWidth, "Sets the width of a column in the table");

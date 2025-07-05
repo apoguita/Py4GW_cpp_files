@@ -799,7 +799,7 @@ extern uint32_t* GameCursorState;
 extern CaptureMouseClickType* CaptureMouseClickTypePtr;
 
 extern uint32_t quoted_item_id;
-extern uint32_t quoted_value;  
+extern int quoted_value;  
 extern bool transaction_complete; 
 
 extern std::vector<uint32_t> merch_items;

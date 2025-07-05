@@ -31,7 +31,7 @@ uint32_t* GameCursorState = nullptr;
 CaptureMouseClickType* CaptureMouseClickTypePtr = nullptr;
 
 uint32_t quoted_item_id = 0;
-uint32_t quoted_value = 0;   // Stores quoted price
+int quoted_value = 0;   // Stores quoted price
 bool transaction_complete = false; // Tracks transaction completion
 
 MemMgrClass ptrGetter;
