@@ -43,6 +43,7 @@ struct Portal {
     uint16_t right_layer_id;
     uint32_t h0004;
     uint32_t pair_index;  // Index of the paired portal
+	uint32_t count; // Number of trapezoids connected by this portal
     std::vector<uint32_t> trapezoid_indices; // IDs of associated trapezoids
 
     Portal() : left_layer_id(0xFFFF), right_layer_id(0xFFFF), h0004(0), pair_index(UINT32_MAX) {}

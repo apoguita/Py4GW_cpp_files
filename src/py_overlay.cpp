@@ -120,29 +120,148 @@ void Overlay::GetScreenToWorld() {
 
 }
 
-float Overlay::findZ(float x, float y, float pz) {
 
-    float altitude = ALTITUDE_UNKNOWN;
-    unsigned int cur_altitude = 0u;
-    float z = pz - (pz * 0.05);// adds an offset more of z to look for unleveled planes
+GW::Vec3f GetVec3f(const GW::GamePos& gp) {
+    auto map = GW::GetMapContext();
+    if (!map || map->sub1->sub2->pmaps.size() <= gp.zplane) [[unlikely]] {
+        auto player = GW::Agents::GetControlledCharacter();
+        if (player) return GW::Vec3f(gp.x, gp.y, player->z);
+        else return GW::Vec3f(gp.x, gp.y, 0.0f);
+    }
 
-    // in order to properly query altitudes, we have to use the pathing map
-    // to determine the number of Z planes in the current map.
-    const GW::PathingMapArray* pathing_map = GW::Map::GetPathingMap();
-    if (pathing_map != nullptr) {
-        const size_t pmap_size = pathing_map->size();
-        if (pmap_size > 0) {
+    GW::Vec3f pos{ gp.x, gp.y, 0.0f };
+    GW::Map::QueryAltitude(gp, 5.0f, pos.z);
+    return pos;
+}
 
-            GW::Map::QueryAltitude({ x, y, pmap_size - 1 }, 5.f, altitude);
-            if (altitude < z) {
-                // recall that the Up camera component is inverted
-                z = altitude;
+
+struct ZProbeResult {
+    float z;
+    uint32_t zplane;
+};
+
+// cache: (map_id, x, y) -> result
+struct ZKeyHash {
+    std::size_t operator()(const std::tuple<uint32_t, int, int>& k) const noexcept {
+        auto [map_id, x, y] = k;
+        return std::hash<uint32_t>()(map_id)
+            ^ (std::hash<int>()(x) << 1)
+            ^ (std::hash<int>()(y) << 2);
+    }
+};
+
+static std::unordered_map<std::tuple<uint32_t, int, int>, ZProbeResult, ZKeyHash> point_cache;
+static std::unordered_map<uint32_t, std::unordered_set<uint32_t>> valid_planes;
+
+static void UpdateValidPlanes() {
+    uint32_t map_id = static_cast<uint32_t>(GW::Map::GetMapID());
+    auto& set = valid_planes[map_id];
+
+    // Initialize with pmaps indices only once
+    if (set.empty()) {
+        auto map = GW::GetMapContext();
+        if (map && map->sub1 && map->sub1->sub2) {
+            for (size_t i = 0; i < map->sub1->sub2->pmaps.size(); ++i) {
+                set.insert(static_cast<uint32_t>(i)); // index is the actual plane
             }
-
         }
     }
-    return z;
+
+    // Always add player's current plane (already an index)
+    if (auto player = GW::Agents::GetControlledCharacter()) {
+        set.insert(static_cast<uint32_t>(player->plane));
+    }
 }
+
+
+// ---------------- INTERNAL SHARED RESOLVER ----------------
+static ZProbeResult ProbeZ(float x, float y, uint32_t zplane) {
+    uint32_t map_id = static_cast<uint32_t>(GW::Map::GetMapID());
+    auto key = std::make_tuple(map_id, (int)x, (int)y);
+
+    // cache lookup
+    auto it = point_cache.find(key);
+    if (it != point_cache.end()) {
+        return it->second;
+    }
+
+    auto map = GW::GetMapContext();
+    if (!map || !map->sub1 || !map->sub1->sub2) {
+        auto player = GW::Agents::GetControlledCharacter();
+        float z = player ? player->z : 0.0f;
+        ZProbeResult res{ z, 0 };
+        point_cache[key] = res;
+        return res;
+    }
+
+    // explicit zplane query ? use index directly
+    if (zplane != 0) {
+        float z = GetVec3f(GW::GamePos(x, y, zplane)).z;
+
+        // log plane if not in valid list
+        auto& set = valid_planes[map_id];
+        set.insert(zplane);
+
+        ZProbeResult res{ z, zplane };
+        point_cache[key] = res;
+        return res;
+    }
+
+    // ensure valid planes are populated
+    UpdateValidPlanes();
+
+    // base reference
+    float base_z = GetVec3f(GW::GamePos(x, y, 0)).z;
+    std::vector<std::pair<uint32_t, float>> entries;
+    entries.emplace_back(0, base_z);
+
+    // probe all cached valid planes (indices)
+    for (uint32_t zp : valid_planes[map_id]) {
+        if (zp == 0) continue; // base already included
+        float z = GetVec3f(GW::GamePos(x, y, zp)).z;
+        entries.emplace_back(zp, z);
+    }
+
+    // deduplicate by Z
+    std::unordered_map<float, int> counts;
+    for (auto& [zp, z] : entries) counts[z]++;
+
+    std::vector<std::pair<uint32_t, float>> unique;
+    for (auto& [zp, z] : entries) {
+        if (counts[z] == 1)
+            unique.emplace_back(zp, z);
+    }
+
+    // fallback to base if nothing unique
+    if (unique.empty()) {
+        ZProbeResult res{ base_z, 0 };
+        point_cache[key] = res;
+        return res;
+    }
+
+    // pick layer with maximum delta from base
+    auto top = std::max_element(unique.begin(), unique.end(),
+        [base_z](auto& a, auto& b) {
+            return std::abs(a.second - base_z) < std::abs(b.second - base_z);
+        });
+
+    ZProbeResult res{ top->second, top->first };
+    point_cache[key] = res;
+    return res;
+}
+
+
+// ---------------- PUBLIC API ----------------
+float Overlay::findZ(float x, float y, uint32_t zplane) {
+    return ProbeZ(x, y, zplane).z;
+}
+
+uint32_t Overlay::FindZPlane(float x, float y, uint32_t zplane) {
+    return ProbeZ(x, y, zplane).zplane;
+}
+
+
+
 
 Point2D Overlay::WorldToScreen(float x, float y, float z) {
     GW::Vec3f world_position = { x, y, z };
@@ -415,7 +534,7 @@ void Overlay::BeginDraw() {
         ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
         ImGuiWindowFlags_NoBackground |
-        ImGuiWindowFlags_NoBringToFrontOnFocus |
+        //ImGuiWindowFlags_NoBringToFrontOnFocus |
         ImGuiWindowFlags_NoInputs);
 }
 
@@ -436,8 +555,9 @@ void Overlay::BeginDraw(std::string name) {
         ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoScrollWithMouse |
         ImGuiWindowFlags_NoBackground |
-        ImGuiWindowFlags_NoBringToFrontOnFocus |
+        //ImGuiWindowFlags_NoBringToFrontOnFocus |
         ImGuiWindowFlags_NoInputs);
+
 }
 
 void Overlay::BeginDraw(std::string name, float x, float y, float width, float height) {
@@ -452,7 +572,7 @@ void Overlay::BeginDraw(std::string name, float x, float y, float width, float h
 		ImGuiWindowFlags_NoScrollbar |
 		ImGuiWindowFlags_NoScrollWithMouse |
 		ImGuiWindowFlags_NoBackground |
-		ImGuiWindowFlags_NoBringToFrontOnFocus |
+		//ImGuiWindowFlags_NoBringToFrontOnFocus |
 		ImGuiWindowFlags_NoInputs);
 }
 
@@ -972,6 +1092,85 @@ bool Overlay::ImageButton(const std::string& caption, const std::string& file_pa
     return result;
 }
 
+void Overlay::DrawTextureInForegound(
+    const std::tuple<float, float>& pos,
+    const std::tuple<float, float>& size,
+    const std::string& texture_path,
+    const std::tuple<float, float>& uv0,
+    const std::tuple<float, float>& uv1,
+    const std::tuple<int, int, int, int>& tint)
+{
+    ImDrawList* draw_list = ImGui::GetForegroundDrawList();  // THIS is the correct call
+
+    std::wstring wpath(texture_path.begin(), texture_path.end());
+    IDirect3DTexture9* tex = TextureManager::Instance().GetTexture(wpath);
+    if (!tex || !draw_list)
+        return;
+
+    ImTextureID tex_id = reinterpret_cast<ImTextureID>(tex);
+
+    float x = std::get<0>(pos), y = std::get<1>(pos);
+    float w = std::get<0>(size), h = std::get<1>(size);
+    ImVec2 uv_start(std::get<0>(uv0), std::get<1>(uv0));
+    ImVec2 uv_end(std::get<0>(uv1), std::get<1>(uv1));
+    ImVec4 tint_color(
+        std::get<0>(tint) / 255.0f,
+        std::get<1>(tint) / 255.0f,
+        std::get<2>(tint) / 255.0f,
+        std::get<3>(tint) / 255.0f
+    );
+
+    draw_list->AddImage(
+        tex_id,
+        ImVec2(x, y),
+        ImVec2(x + w, y + h),
+        uv_start,
+        uv_end,
+        ImGui::ColorConvertFloat4ToU32(tint_color)
+    );
+}
+
+void Overlay::DrawTextureInDrawlist(
+    const std::tuple<float, float>& pos,
+    const std::tuple<float, float>& size,
+    const std::string& texture_path,
+    const std::tuple<float, float>& uv0,
+    const std::tuple<float, float>& uv1,
+    const std::tuple<int, int, int, int>& tint)
+{
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();  // Draw in current ImGui window
+
+    std::wstring wpath(texture_path.begin(), texture_path.end());
+    IDirect3DTexture9* tex = TextureManager::Instance().GetTexture(wpath);
+    if (!tex || !draw_list)
+        return;
+
+    ImTextureID tex_id = reinterpret_cast<ImTextureID>(tex);
+
+    float x = std::get<0>(pos), y = std::get<1>(pos);
+    float w = std::get<0>(size), h = std::get<1>(size);
+    ImVec2 uv_start(std::get<0>(uv0), std::get<1>(uv0));
+    ImVec2 uv_end(std::get<0>(uv1), std::get<1>(uv1));
+    ImVec4 tint_color(
+        std::get<0>(tint) / 255.0f,
+        std::get<1>(tint) / 255.0f,
+        std::get<2>(tint) / 255.0f,
+        std::get<3>(tint) / 255.0f
+    );
+
+    draw_list->AddImage(
+        tex_id,
+        ImVec2(x, y),
+        ImVec2(x + w, y + h),
+        uv_start,
+        uv_end,
+        ImGui::ColorConvertFloat4ToU32(tint_color)
+    );
+}
+
+
+
+
 
 namespace py = pybind11;
 
@@ -995,7 +1194,8 @@ void bind_overlay(py::module_& m) {
         .def(py::init<>())  // Constructor binding
         .def("RefreshDrawList", &Overlay::RefreshDrawList)  // Expose RefreshDrawList method
         .def("GetMouseCoords", &Overlay::GetMouseCoords)  // Expose GetMouseCoords method
-        .def("FindZ", &Overlay::findZ, py::arg("x"), py::arg("y"), py::arg("pz"))  // Expose findZ method
+        .def("FindZ", &Overlay::findZ, py::arg("x"), py::arg("y"), py::arg("pz") = 0)  // Expose findZ method
+		.def("FindZPlane", &Overlay::FindZPlane, py::arg("x"), py::arg("y"), py::arg("z") = 0)  // Expose findZPlane method
         .def("WorldToScreen", &Overlay::WorldToScreen, py::arg("x"), py::arg("y"), py::arg("z"))  // Expose WorldToScreen method
         .def("GetMouseWorldPos", &Overlay::GetMouseWorldPos)  // Expose GetMouseWorldPos method
         // Game <-> World
@@ -1111,7 +1311,26 @@ void bind_overlay(py::module_& m) {
             py::arg("uv1") = std::make_tuple(1.0f, 1.0f),
             py::arg("bg_color") = std::make_tuple(0, 0, 0, 0),
             py::arg("tint_color") = std::make_tuple(255, 255, 255, 255),
-            py::arg("frame_padding") = 0);
+            py::arg("frame_padding") = 0)
+
+		.def("DrawTextureInForegound",
+			&Overlay::DrawTextureInForegound,
+			py::arg("pos") = std::make_tuple(0.0f, 0.0f),
+			py::arg("size") = std::make_tuple(100.0f, 100.0f),
+			py::arg("texture_path") = "",
+			py::arg("uv0") = std::make_tuple(0.0f, 0.0f),
+			py::arg("uv1") = std::make_tuple(1.0f, 1.0f),
+			py::arg("tint") = std::make_tuple(255, 255, 255, 255))
+
+        .def("DrawTextureInDrawlist",
+            &Overlay::DrawTextureInDrawlist,
+            py::arg("pos") = std::make_tuple(0.0f, 0.0f),
+            py::arg("size") = std::make_tuple(100.0f, 100.0f),
+            py::arg("texture_path") = "",
+            py::arg("uv0") = std::make_tuple(0.0f, 0.0f),
+            py::arg("uv1") = std::make_tuple(1.0f, 1.0f),
+            py::arg("tint") = std::make_tuple(255, 255, 255, 255));
+
 
 }
 

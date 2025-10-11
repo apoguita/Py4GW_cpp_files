@@ -302,12 +302,27 @@ namespace {
         delete abuf;
     }
 
+    size_t GetEncStrLength(const wchar_t* str) {
+        size_t len = 0;
+        while (str[len] != (0x0000)) {
+            len++;
+        }
+        return len + 1;  // Include the final 0x0000 terminator
+    }
+
+    void __calback_copy_wstring(void* param, const wchar_t* s) {
+        GWCA_ASSERT(param && s);
+        std::wstring* str = static_cast<std::wstring*>(param);
+        *str = std::wstring(s, GetEncStrLength(s));  //Copy full encoded string including \0 terminator
+    }
+
+    /*
     void __cdecl __calback_copy_wstring(void *param, const wchar_t *s) {
         GWCA_ASSERT(param && s);
         std::wstring *str = (std::wstring *)param;
         *str = s;
     }
-
+    */
 
 
     void Init() {
@@ -886,6 +901,28 @@ namespace GW {
                 return SendFrameUIMessage(parent_frame, UIMessage::kMouseClick2, &action);
             }
 
+        GWCA_API bool TestMouseClickAction(uint32_t frame_id, uint32_t current_state, uint32_t wparam = 0, uint32_t lparam = 0) {
+            Frame* target_frame = GetFrameById(frame_id);
+            if (!(target_frame && target_frame->IsCreated()))
+                return false;
+
+            Frame* parent_frame = GetParentFrame(target_frame);
+            if (!(parent_frame && parent_frame->IsCreated()))
+                return false;
+
+            GW::UI::UIPacket::kMouseAction action{};
+            action.child_frame_id = target_frame->child_offset_id;
+            action.child_frame_id_dupe = target_frame->child_offset_id;
+
+            struct button_param { uint32_t unk; uint32_t wparam; uint32_t lparam; };
+            button_param param = { 0, wparam, lparam };
+
+            action.wparam = &param;
+            action.current_state = current_state;
+
+            return SendFrameUIMessage(parent_frame, UIMessage::kMouseClick, &action);
+        }
+
 
 
         Frame* FrameRelation::GetFrame() {
@@ -1412,7 +1449,12 @@ namespace GW {
             if (!enc_str)
                 return false;
             // The null terminator is considered part of the EncString, so include it in calculating the EncString end position
-            const wchar_t* term = enc_str + wcslen(enc_str) + 1;
+            //const wchar_t* term = enc_str + wcslen(enc_str) + 1;
+            const wchar_t* term = enc_str;
+            while (*term != TERM_FINAL && *term != 0) {
+                term++;
+            }
+            term++;  // include the TERM_FINAL terminator
             const wchar_t* data = enc_str;
 
             if (!EncStr_Validate(data, term)) {

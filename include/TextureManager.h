@@ -56,6 +56,14 @@ public:
         return nullptr;
     }
 
+    void AddInMemoryTexture(const std::wstring& name, IDirect3DTexture9* texture) {
+        if (!texture) return;
+
+        // Store without taking ownership beyond caching
+        textures[name] = TimedTexture(texture, name);
+    }
+
+
     void CleanupOldTextures(int timeout_seconds = 30) {
         auto now = std::chrono::steady_clock::now();
         for (auto it = textures.begin(); it != textures.end(); ) {

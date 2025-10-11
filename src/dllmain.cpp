@@ -437,8 +437,8 @@ LRESULT CALLBACK DLLMain::WndProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM
     auto& instance = DLLMain::Instance();
     ImGuiIO& io = ImGui::GetIO();
 
-    io.MouseDown[0] = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-    io.MouseDown[1] = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+    //io.MouseDown[0] = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+    //io.MouseDown[1] = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
 
 
     if (Message == WM_RBUTTONUP) {right_mouse_down = false;}
@@ -449,10 +449,10 @@ LRESULT CALLBACK DLLMain::WndProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM
 		return CallWindowProc(instance.old_wndproc, hWnd, Message, wParam, lParam);
 	}
 
-    POINT mouse_pos;
-    GetCursorPos(&mouse_pos);
-    ScreenToClient(hWnd, &mouse_pos);
-    io.MousePos = ImVec2((float)mouse_pos.x, (float)mouse_pos.y);
+    //POINT mouse_pos;
+    //GetCursorPos(&mouse_pos);
+    //ScreenToClient(hWnd, &mouse_pos);
+    //io.MousePos = ImVec2((float)mouse_pos.x, (float)mouse_pos.y);
 
 	if (Message == WM_LBUTTONDOWN && !dragging_initialized) {
 		if (io.WantCaptureMouse) {

@@ -69,7 +69,7 @@ public:
     int Combo = 0;
     int Target = 0;
     int SkillEquipType = 0;
-    int Overcast = 0;
+    int Overcast = 0; // only if special flag has 0x000001 set
     int EnergyCost = 0;
     int HealthCost = 0;
     int Adrenaline = 0;
@@ -111,6 +111,11 @@ public:
     int adrenaline_a = 0;
     int adrenaline_b = 0;
     int recharge = 0;
+
+	uint32_t h0004 = 0; // unused, but present in the original struct
+    int h0032 = 0; // unused, but present in the original struct
+	int h0037 = 0; // unused, but present in the original struct
+	uint16_t h0050[4] = { 0, 0, 0, 0 }; // unused, but present in the original struct
 
     void GetContext();
     Skill() { GetContext(); }

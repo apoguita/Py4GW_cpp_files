@@ -363,7 +363,7 @@ namespace GW {
             wparam[1] = 0x1;
 
             uint32_t ctx[13] = { 0 };
-            ctx[0xb] = 1;
+            ctx[0xb] = 1; //hero
             ctx[9] = heroid;
 
             PartySearchButtonCallback_Func(ctx, 2, wparam);
@@ -379,7 +379,7 @@ namespace GW {
             wparam[1] = 0x6;
 
             uint32_t ctx[13] = { 0 };
-            ctx[0xb] = 1;
+            ctx[0xb] = 1;//hero
             ctx[ctx[0xb] + 8] = heroid;
 
             PartySearchButtonCallback_Func(ctx, 0, wparam);
@@ -397,7 +397,7 @@ namespace GW {
             wparam[1] = 0x2;
 
             uint32_t ctx[13] = { 0 };
-            ctx[0xb] = 2;
+            ctx[0xb] = 2;//henchman
             ctx[10] = agent_id;
 
             PartySearchButtonCallback_Func(ctx, 0, wparam);
@@ -413,13 +413,30 @@ namespace GW {
             wparam[1] = 0x6;
 
             uint32_t ctx[13] = { 0 };
-            ctx[0xb] = 2;
+            ctx[0xb] = 2;//henchman
             ctx[ctx[0xb] + 8] = agent_id;
 
             PartySearchButtonCallback_Func(ctx, 0, wparam);
             return true;
         }
-        bool KickPlayer(uint32_t playerid) {
+        bool KickPlayer(const wchar_t* player_name) {
+            // There is a specific CtoS packet for this, but just use chat command instead
+            if (!(player_name && player_name[0]))
+                return false;
+            wchar_t buf[32];
+            int len = swprintf(buf, 32, L"kick %s", player_name);
+            if (len < 0)
+                return false;
+            Chat::SendChat('/', buf); // TODO: SendChat to be bool, return result.
+            return true;
+        };
+        bool KickPlayer(uint32_t player_id) {
+            auto player = PlayerMgr::GetPlayerByID(player_id);
+            if (!(player && player->name))
+                return false;
+            return KickPlayer(player->name);
+            
+            /*
             if (!PartyWindowButtonCallback_Func)
                 return false;
 
@@ -431,7 +448,9 @@ namespace GW {
             ctx[9] = 9;
 
             PartyWindowButtonCallback_Func(ctx, 0, 0);
+            */
             return true;
+
         }
         bool InvitePlayer(const wchar_t* player_name) {
             // There is a specific CtoS packet for this, but just use chat command instead

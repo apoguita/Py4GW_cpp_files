@@ -47,34 +47,6 @@ private:
     void operator=(const Py4GW&) = delete;
     //static HeroAI* heroAI;
    
-public:
-    static bool HeroAI_IsAIEnabled();
-    static void HeroAI_SetAIEnabled(bool state);
-    static int  HeroAI_GetMyPartyPos();
-    // ********** Python Vars **********
-    static bool HeroAI_IsActive(int party_pos);
-    static void HeroAI_SetLooting(int party_pos, bool state);
-    static bool HeroAI_GetLooting(int party_pos);
-    static void HeroAI_SetFollowing(int party_pos, bool state);
-    static bool HeroAI_GetFollowing(int party_pos);
-    static void HeroAI_SetCombat(int party_pos, bool state);
-    static bool HeroAI_GetCombat(int party_pos);
-    static void HeroAI_SetCollision(int party_pos, bool state);
-    static bool HeroAI_GetCollision(int party_pos);
-    static void HeroAI_SetTargetting(int party_pos, bool state);
-    static bool HeroAI_GetTargetting(int party_pos);
-    static void HeroAI_SetSkill(int party_pos, int skill_pos, bool state);
-    static bool HeroAI_GetSkill(int party_pos, int skill_pos);
-
-    static void HeroAI_FlagAIHero(int party_pos, float x, float y);
-    static void HeroAI_UnFlagAIHero(int party_pos);
-    static float HeroAI_GetEnergy(int party_pos);
-    static float HeroAI_GetEnergyRegen(int party_pos);
-    static int  HeroAI_GetPythonAgentID(int party_pos);
-    static void HeroAI_Resign(int party_pos);
-    static void HeroAI_TakeQuest(uint32_t party_pos, uint32_t quest_id);
-    static void HeroAI_Identify_cmd(int party_pos);
-    static void HeroAI_Salvage_cmd(int party_pos);
     
 };
 

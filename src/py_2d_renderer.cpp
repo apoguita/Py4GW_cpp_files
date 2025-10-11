@@ -481,131 +481,68 @@ void Py2DRenderer::Setup3DView() {
 }
 
 
-void Py2DRenderer::DrawLine3D(Point3D from, Point3D to, D3DCOLOR color, bool use_occlusion) {
+void Py2DRenderer::DrawLine3D(Point3D from, Point3D to, D3DCOLOR color, bool use_occlusion, int segments, float floor_offset)
+{
     if (!g_d3d_device) return;
 
     Setup3DView();
 
-    if (!use_occlusion) {
-        g_d3d_device->SetRenderState(D3DRS_ZENABLE, FALSE);
-        g_d3d_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-    }
-
-    // Flip Z to match RH system (because the view/projection flips Z)
-    from.z = -from.z;
-    to.z = -to.z;
-
-    struct D3DVertex3D {
-        float x, y, z;
-        D3DCOLOR color;
-    };
-
-    D3DVertex3D verts[] = {
-        { from.x, from.y, from.z, color },
-        { to.x,   to.y,   to.z,   color }
-    };
-
-    g_d3d_device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE);
-    g_d3d_device->DrawPrimitiveUP(D3DPT_LINELIST, 1, verts, sizeof(D3DVertex3D));
-}
-
-void Py2DRenderer::DrawTriangle3D(Point3D p1, Point3D p2, Point3D p3, D3DCOLOR color, bool use_occlusion) {
-    if (!g_d3d_device) return;
-    Setup3DView();
     if (!use_occlusion) {
         g_d3d_device->SetRenderState(D3DRS_ZENABLE, FALSE);
         g_d3d_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
     }
 
     struct D3DVertex3D { float x, y, z; D3DCOLOR color; };
-    D3DVertex3D verts[] = {
-        { p1.x, p1.y, -p1.z, color },
-        { p2.x, p2.y, -p2.z, color },
-        { p3.x, p3.y, -p3.z, color }
-    };
+    auto lerp = [](float a, float b, float t) { return a + (b - a) * t; };
 
-    g_d3d_device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE);
-    g_d3d_device->DrawPrimitiveUP(D3DPT_LINESTRIP, 2, verts, sizeof(D3DVertex3D));
-    g_d3d_device->DrawPrimitiveUP(D3DPT_LINELIST, 1, &verts[2], sizeof(D3DVertex3D));
-}
-
-void Py2DRenderer::DrawTriangleFilled3D(Point3D p1, Point3D p2, Point3D p3, D3DCOLOR color, bool use_occlusion) {
-    if (!g_d3d_device) return;
-    Setup3DView();
-    if (!use_occlusion) {
-        g_d3d_device->SetRenderState(D3DRS_ZENABLE, FALSE);
-        g_d3d_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-    }
-
-    struct D3DVertex3D { float x, y, z; D3DCOLOR color; };
-    D3DVertex3D verts[] = {
-        { p1.x, p1.y, -p1.z, color },
-        { p2.x, p2.y, -p2.z, color },
-        { p3.x, p3.y, -p3.z, color }
-    };
-
-    g_d3d_device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE);
-    g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, verts, sizeof(D3DVertex3D));
-}
-
-void Py2DRenderer::DrawQuad3D(Point3D p1, Point3D p2, Point3D p3, Point3D p4, D3DCOLOR color, bool use_occlusion) {
-    DrawTriangle3D(p1, p2, p3, color, use_occlusion);
-    DrawTriangle3D(p3, p4, p1, color, use_occlusion);
-}
-
-void Py2DRenderer::DrawQuadFilled3D(Point3D p1, Point3D p2, Point3D p3, Point3D p4, D3DCOLOR color, bool use_occlusion) {
-    if (!g_d3d_device) return;
-    Setup3DView();
-    if (!use_occlusion) {
-        g_d3d_device->SetRenderState(D3DRS_ZENABLE, FALSE);
-        g_d3d_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-    }
-
-    struct D3DVertex3D { float x, y, z; D3DCOLOR color; };
-    D3DVertex3D verts[] = {
-        { p1.x, p1.y, -p1.z, color },
-        { p2.x, p2.y, -p2.z, color },
-        { p3.x, p3.y, -p3.z, color },
-        { p3.x, p3.y, -p3.z, color },
-        { p4.x, p4.y, -p4.z, color },
-        { p1.x, p1.y, -p1.z, color }
-    };
-
-    g_d3d_device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE);
-    g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, verts, sizeof(D3DVertex3D));
-}
-
-void Py2DRenderer::DrawPoly3D(Point3D center, float radius, D3DCOLOR color, int segments, bool autoZ, bool use_occlusion) {
-    if (!g_d3d_device) return;
-    Setup3DView();
-    if (!use_occlusion) {
-        g_d3d_device->SetRenderState(D3DRS_ZENABLE, FALSE);
-        g_d3d_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-    }
-
-    struct D3DVertex3D { float x, y, z; D3DCOLOR color; };
-
-    std::vector<Point3D> points;
-    const float step = XM_2PI / segments;
-    for (int i = 0; i <= segments; ++i) {
-        float angle = step * i;
-        float x = center.x + cosf(angle) * radius;
-        float y = center.y + sinf(angle) * radius;
-        float z = autoZ ? overlay.findZ(x, y, center.z) : center.z;
-        points.push_back({ x, y, z });
-    }
-
-    for (int i = 0; i < segments; ++i) {
-        D3DVertex3D verts[] = {
-            { points[i].x, points[i].y, -points[i].z, color },
-            { points[i + 1].x, points[i + 1].y, -points[i + 1].z, color }
+    // Single segment: original behavior
+    if (segments <= 1) {
+        D3DVertex3D v[2] = {
+            { from.x, from.y, -from.z, color },
+            { to.x,   to.y,   -to.z,   color }
         };
         g_d3d_device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE);
-        g_d3d_device->DrawPrimitiveUP(D3DPT_LINELIST, 1, verts, sizeof(D3DVertex3D));
+        g_d3d_device->DrawPrimitiveUP(D3DPT_LINELIST, 1, v, sizeof(D3DVertex3D));
+        return;
+    }
+
+    // N segments: snap each segment’s endpoints to ground using its own z-plane (midpoint z)
+    g_d3d_device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE);
+    for (int i = 0; i < segments; ++i) {
+        float t0 = float(i) / float(segments);
+        float t1 = float(i + 1) / float(segments);
+        float x0 = lerp(from.x, to.x, t0);
+        float y0 = lerp(from.y, to.y, t0);
+        float x1 = lerp(from.x, to.x, t1);
+        float y1 = lerp(from.y, to.y, t1);
+
+        float zplane = lerp(from.z, to.z, (t0 + t1) * 0.5f);
+		float z0 = overlay.findZ(x0, y0, 0) - floor_offset;
+		float z1 = overlay.findZ(x1, y1, 0) - floor_offset;
+
+        D3DVertex3D seg[2] = {
+            { x0, y0, -z0, color },
+            { x1, y1, -z1, color }
+        };
+        g_d3d_device->DrawPrimitiveUP(D3DPT_LINELIST, 1, seg, sizeof(D3DVertex3D));
     }
 }
 
-void Py2DRenderer::DrawPolyFilled3D(Point3D center, float radius, D3DCOLOR color, int segments, bool autoZ, bool use_occlusion) {
+
+
+
+// ---------- TRIANGLE (outline) ----------
+void Py2DRenderer::DrawTriangle3D(Point3D p1, Point3D p2, Point3D p3, D3DCOLOR color, bool use_occlusion, int edge_segments, float floor_offset)
+{
+    if (!g_d3d_device) return;
+    // Reuse the line routine you just approved (per-segment FindZ, RH flip, etc.)
+	DrawLine3D(p1, p2, color, use_occlusion, edge_segments, floor_offset);
+	DrawLine3D(p2, p3, color, use_occlusion, edge_segments, floor_offset);
+	DrawLine3D(p3, p1, color, use_occlusion, edge_segments, floor_offset);
+}
+
+void Py2DRenderer::DrawTriangleFilled3D(Point3D p1, Point3D p2, Point3D p3, D3DCOLOR color, bool use_occlusion, int segments, float floor_offset)
+{
     if (!g_d3d_device) return;
     Setup3DView();
     if (!use_occlusion) {
@@ -613,24 +550,189 @@ void Py2DRenderer::DrawPolyFilled3D(Point3D center, float radius, D3DCOLOR color
         g_d3d_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
     }
 
-    struct D3DVertex3D { float x, y, z; D3DCOLOR color; };
+    struct V { float x, y, z; D3DCOLOR c; };
+    auto lerp = [](float a, float b, float t) { return a + (b - a) * t; };
+    auto LerpP = [&](const Point3D& A, const Point3D& B, float t) {
+        return Point3D{ lerp(A.x,B.x,t), lerp(A.y,B.y,t), lerp(A.z,B.z,t) };
+        };
 
-    std::vector<D3DVertex3D> verts;
-    verts.push_back({ center.x, center.y, -center.z, color }); // center of the fan
+    // Subdivide the triangle into 'segments' radial strips from p1
+    g_d3d_device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE);
+    for (int i = 0; i < segments; ++i) {
+        float t0 = float(i) / float(segments);
+        float t1 = float(i + 1) / float(segments);
 
-    const float step = XM_2PI / segments;
-    for (int i = 0; i <= segments; ++i) {
-        float angle = step * i;
-        float x = center.x + cosf(angle) * radius;
-        float y = center.y + sinf(angle) * radius;
-        float z = autoZ ? overlay.findZ(x, y, center.z) : center.z;
-        verts.push_back({ x, y, -z, color });
+        // Two edges from p1: p1->p2 and p1->p3
+        Point3D a0 = LerpP(p1, p2, t0);
+        Point3D a1 = LerpP(p1, p2, t1);
+        Point3D b0 = LerpP(p1, p3, t0);
+        Point3D b1 = LerpP(p1, p3, t1);
+
+        // First small triangle: (a0, b0, b1)
+        {
+            // Use this triangle's centroid z as z-plane selector
+            float zplane = (a0.z + b0.z + b1.z) / 3.0f;
+            float za0 = overlay.findZ(a0.x, a0.y, zplane);
+            float zb0 = overlay.findZ(b0.x, b0.y, zplane);
+            float zb1 = overlay.findZ(b1.x, b1.y, zplane);
+
+            V tri[3] = {
+                { a0.x, a0.y, -za0, color },
+                { b0.x, b0.y, -zb0, color },
+                { b1.x, b1.y, -zb1, color }
+            };
+            g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, tri, sizeof(V));
+        }
+
+        // Second small triangle: (a0, b1, a1)
+        {
+            float zplane = (a0.z + b1.z + a1.z) / 3.0f;
+            float za0 = overlay.findZ(a0.x, a0.y, zplane);
+            float zb1 = overlay.findZ(b1.x, b1.y, zplane);
+            float za1 = overlay.findZ(a1.x, a1.y, zplane);
+
+            V tri[3] = {
+                { a0.x, a0.y, -za0, color },
+                { b1.x, b1.y, -zb1, color },
+                { a1.x, a1.y, -za1, color }
+            };
+            g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, tri, sizeof(V));
+        }
+    }
+}
+
+// ---------- QUAD (outline) ----------
+void Py2DRenderer::DrawQuad3D(Point3D p1, Point3D p2, Point3D p3, Point3D p4, D3DCOLOR color, bool use_occlusion, int edge_segments, float floor_offset)
+{
+    if (!g_d3d_device) return;
+	DrawLine3D(p1, p2, color, use_occlusion, edge_segments, floor_offset);
+	DrawLine3D(p2, p3, color, use_occlusion, edge_segments, floor_offset);
+	DrawLine3D(p3, p4, color, use_occlusion, edge_segments, floor_offset);
+	DrawLine3D(p4, p1, color, use_occlusion, edge_segments, floor_offset);
+}
+
+void Py2DRenderer::DrawQuadFilled3D(Point3D p1, Point3D p2, Point3D p3, Point3D p4, D3DCOLOR color, bool use_occlusion, int segments, float floor_offset)
+{
+    if (!g_d3d_device) return;
+    // Split into two triangles; reuse the draped triangle filler
+	DrawTriangleFilled3D(p1, p2, p3, color, use_occlusion, segments, floor_offset);
+	DrawTriangleFilled3D(p3, p4, p1, color, use_occlusion, segments, floor_offset);
+}
+
+// ---------- POLY (outline) ----------
+// 'sides' = number of polygon sides (existing meaning).
+// 'edge_segments' = per-edge snapping subdivisions (new).
+void Py2DRenderer::DrawPoly3D(Point3D center, float radius, D3DCOLOR color, int numSegments, bool autoZ, bool use_occlusion, int segments, float floor_offset)
+{
+    if (!g_d3d_device) return;
+    Setup3DView();
+    if (!use_occlusion) {
+        g_d3d_device->SetRenderState(D3DRS_ZENABLE, FALSE);
+        g_d3d_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    }
+
+    struct V { float x, y, z; D3DCOLOR c; };
+    const float step = XM_2PI / numSegments;
+
+    // Precompute ring points (XY); Z will be sampled per sub-segment
+    std::vector<Point3D> ring;
+    ring.reserve(numSegments + 1);
+    for (int i = 0; i <= numSegments; ++i) {
+        float a = step * i;
+        float x = center.x + cosf(a) * radius;
+        float y = center.y + sinf(a) * radius;
+        float z = autoZ ? overlay.findZ(x, y, center.z) : center.z; // base Z (not final)
+        ring.push_back({ x, y, z });
     }
 
     g_d3d_device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE);
-    g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, segments, verts.data(), sizeof(D3DVertex3D));
+
+    // For each edge, split into 'edge_segments' and snap each small segment
+    for (int i = 0; i < numSegments; ++i) {
+        Point3D A = ring[i];
+        Point3D B = ring[i + 1];
+
+        for (int s = 0; s < std::max(1, segments); ++s) {
+            float t0 = float(s) / float(std::max(1, segments));
+            float t1 = float(s + 1) / float(std::max(1, segments));
+            float x0 = A.x + (B.x - A.x) * t0;
+            float y0 = A.y + (B.y - A.y) * t0;
+            float x1 = A.x + (B.x - A.x) * t1;
+            float y1 = A.y + (B.y - A.y) * t1;
+
+            // Use this sub-segment’s midpoint z as the z-plane selector
+            float zplane = (A.z + B.z) * 0.5f;
+			float z0 = overlay.findZ(x0, y0, zplane) - floor_offset;
+			float z1 = overlay.findZ(x1, y1, zplane) - floor_offset;
+
+            V seg[2] = {
+                { x0, y0, -z0, color },
+                { x1, y1, -z1, color }
+            };
+            g_d3d_device->DrawPrimitiveUP(D3DPT_LINELIST, 1, seg, sizeof(V));
+        }
+    }
 }
 
+// ---------- POLY (filled, draped by triangulating each fan triangle and snapping per sub-tri) ----------
+// 'sides' = polygon sides (existing).
+// 'edge_segments' = how many sub-tris along each outer edge.
+void Py2DRenderer::DrawPolyFilled3D(Point3D center, float radius, D3DCOLOR color, int numSegments, bool autoZ, bool use_occlusion, int segments, float floor_offset)
+{
+    if (!g_d3d_device) return;
+    Setup3DView();
+    if (!use_occlusion) {
+        g_d3d_device->SetRenderState(D3DRS_ZENABLE, FALSE);
+        g_d3d_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    }
+
+    struct V { float x, y, z; D3DCOLOR c; };
+    const float step = XM_2PI / numSegments;
+
+    // Precompute center Z (if requested)
+	float zc = autoZ ? overlay.findZ(center.x, center.y, center.z) : center.z - floor_offset;
+
+    // Precompute ring points (XY only; Z is sampled per sub-tri)
+    std::vector<Point3D> ring;
+    ring.reserve(numSegments + 1);
+    for (int i = 0; i <= numSegments; ++i) {
+        float a = step * i;
+        ring.push_back({ center.x + cosf(a) * radius,
+                         center.y + sinf(a) * radius,
+                         center.z });
+    }
+
+    g_d3d_device->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE);
+
+    for (int i = 0; i < numSegments; ++i) {
+        Point3D A = ring[i];
+        Point3D B = ring[i + 1];
+
+        // Split fan triangle (center, A, B) along edge A->B
+        int n = std::max(1, segments);
+        for (int s = 0; s < n; ++s) {
+            float t0 = float(s) / float(n);
+            float t1 = float(s + 1) / float(n);
+
+            Point3D E0{ A.x + (B.x - A.x) * t0, A.y + (B.y - A.y) * t0, center.z };
+            Point3D E1{ A.x + (B.x - A.x) * t1, A.y + (B.y - A.y) * t1, center.z };
+
+            // Triangle (center, E0, E1): pick this tri’s centroid z as z-plane
+            float zplane = (zc + E0.z + E1.z) / 3.0f;
+
+            float zCenter = overlay.findZ(center.x, center.y, zplane);
+			float zE0 = overlay.findZ(E0.x, E0.y, zplane) - floor_offset;
+			float zE1 = overlay.findZ(E1.x, E1.y, zplane) - floor_offset;
+
+            V tri[3] = {
+                { center.x, center.y, -zCenter, color },
+                { E0.x,     E0.y,     -zE0,     color },
+                { E1.x,     E1.y,     -zE1,     color }
+            };
+            g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, tri, sizeof(V));
+        }
+    }
+}
 void Py2DRenderer::DrawCubeOutline(Point3D center, float size, D3DCOLOR color, bool use_occlusion) {
     if (!g_d3d_device) return;
     Setup3DView();
@@ -836,6 +938,136 @@ void Py2DRenderer::DrawQuadTextured3D(const std::string& file_path,
     }
 }
 
+enum SaveGeometryResult {
+    SAVE_OK = 0,
+    ERR_NO_DEVICE,
+    ERR_NO_PRIMITIVES,
+    ERR_INVALID_DIMENSIONS,
+    ERR_CREATE_TEXTURE,
+    ERR_GET_SURFACE,
+    ERR_GET_OLD_RT,
+    ERR_SET_RT,
+    ERR_CREATE_STATEBLOCK,
+    ERR_SET_VIEWPORT,
+    ERR_SAVE_FILE,
+    ERR_STATEBLOCK_APPLY,
+    ERR_UNKNOWN
+};
+
+int Py2DRenderer::SaveGeometryToFile(
+    const std::wstring& filename,
+    float min_x, float min_y,
+    float max_x, float max_y
+) {
+    if (!g_d3d_device) return ERR_NO_DEVICE;
+    if (primitives.empty()) return ERR_NO_PRIMITIVES;
+
+    float src_width = max_x - min_x;
+    float src_height = max_y - min_y;
+    if (src_width <= 0 || src_height <= 0) return ERR_INVALID_DIMENSIONS;
+
+    // --- Scale to fit max 2048 while preserving aspect ratio
+    float scale = 2048.0f / std::max(src_width, src_height);
+    int out_width = static_cast<int>(src_width * scale);
+    int out_height = static_cast<int>(src_height * scale);
+
+    // --- Create render target texture
+    IDirect3DTexture9* rtTexture = nullptr;
+    HRESULT hr = g_d3d_device->CreateTexture(
+        out_width, out_height, 1,
+        D3DUSAGE_RENDERTARGET,
+        D3DFMT_A8R8G8B8,
+        D3DPOOL_DEFAULT,
+        &rtTexture, nullptr
+    );
+    if (FAILED(hr) || !rtTexture) return ERR_CREATE_TEXTURE;
+
+    IDirect3DSurface9* rtSurface = nullptr;
+    hr = rtTexture->GetSurfaceLevel(0, &rtSurface);
+    if (FAILED(hr) || !rtSurface) { rtTexture->Release(); return ERR_GET_SURFACE; }
+
+    IDirect3DSurface9* oldSurface = nullptr;
+    hr = g_d3d_device->GetRenderTarget(0, &oldSurface);
+    if (FAILED(hr)) { rtSurface->Release(); rtTexture->Release(); return ERR_GET_OLD_RT; }
+
+    hr = g_d3d_device->SetRenderTarget(0, rtSurface);
+    if (FAILED(hr)) { oldSurface->Release(); rtSurface->Release(); rtTexture->Release(); return ERR_SET_RT; }
+
+    // --- State block save
+    IDirect3DStateBlock9* state_block = nullptr;
+    hr = g_d3d_device->CreateStateBlock(D3DSBT_ALL, &state_block);
+    if (FAILED(hr)) { g_d3d_device->SetRenderTarget(0, oldSurface); oldSurface->Release(); rtSurface->Release(); rtTexture->Release(); return ERR_CREATE_STATEBLOCK; }
+
+    D3DMATRIX old_world, old_view, old_proj;
+    g_d3d_device->GetTransform(D3DTS_WORLD, &old_world);
+    g_d3d_device->GetTransform(D3DTS_VIEW, &old_view);
+    g_d3d_device->GetTransform(D3DTS_PROJECTION, &old_proj);
+
+    // --- Viewport
+    D3DVIEWPORT9 vp = { 0, 0, (DWORD)out_width, (DWORD)out_height, 0.0f, 1.0f };
+    hr = g_d3d_device->SetViewport(&vp);
+    if (FAILED(hr)) {
+        state_block->Release();
+        g_d3d_device->SetRenderTarget(0, oldSurface);
+        oldSurface->Release(); rtSurface->Release(); rtTexture->Release();
+        return ERR_SET_VIEWPORT;
+    }
+
+    // --- Clear target
+    g_d3d_device->Clear(0, nullptr, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+        D3DCOLOR_ARGB(0, 0, 0, 0), 1.0f, 0);
+
+    // === COPY YOUR render() PIPELINE EXACTLY HERE ===
+    // including SetupProjection, render states, FillRect/Circle, primitive loop etc.
+    // The ONLY difference is: coordinates should be transformed with `scale` and offset `-min_x, -min_y`
+    // to fit inside the output texture.
+
+    float cos_r = cosf(world_rotation);
+    float sin_r = sinf(world_rotation);
+
+    for (const auto& shape : primitives) {
+        if (shape.size() != 3 && shape.size() != 4) continue;
+
+        D3DVertex verts[4];
+        for (size_t i = 0; i < shape.size(); ++i) {
+            float x = (shape[i].x - min_x) * scale;
+            float y = (shape[i].y - min_y) * scale;
+
+            verts[i] = { x, y, 0.0f, 1.0f, color };
+        }
+
+        if (shape.size() == 4)
+            g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, verts, sizeof(D3DVertex));
+        else
+            g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, verts, sizeof(D3DVertex));
+    }
+
+    // --- Save to file
+    hr = D3DXSaveSurfaceToFileW(filename.c_str(), D3DXIFF_PNG, rtSurface, nullptr, nullptr);
+
+    // --- Restore state
+    g_d3d_device->SetRenderTarget(0, oldSurface);
+    g_d3d_device->SetTransform(D3DTS_WORLD, &old_world);
+    g_d3d_device->SetTransform(D3DTS_VIEW, &old_view);
+    g_d3d_device->SetTransform(D3DTS_PROJECTION, &old_proj);
+
+    if (state_block) {
+        hr = state_block->Apply();
+        state_block->Release();
+        if (FAILED(hr)) { oldSurface->Release(); rtSurface->Release(); rtTexture->Release(); return ERR_STATEBLOCK_APPLY; }
+    }
+
+    // Cleanup
+    if (oldSurface) oldSurface->Release();
+    if (rtSurface) rtSurface->Release();
+    if (rtTexture) rtTexture->Release();
+
+    if (FAILED(hr)) return ERR_SAVE_FILE;
+    return SAVE_OK;
+}
+
+
+
 
 void bind_2drenderer(py::module_& m) {
     py::class_<Py2DRenderer>(m, "Py2DRenderer")
@@ -873,13 +1105,13 @@ void bind_2drenderer(py::module_& m) {
         .def("DrawCubeOutline", &Py2DRenderer::DrawCubeOutline, py::arg("center"), py::arg("size"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true)
         .def("DrawCubeFilled", &Py2DRenderer::DrawCubeFilled, py::arg("center"), py::arg("size"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true)
 
-        .def("DrawLine3D", &Py2DRenderer::DrawLine3D, py::arg("from"), py::arg("to"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true)
-        .def("DrawTriangle3D", &Py2DRenderer::DrawTriangle3D, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true)
-        .def("DrawTriangleFilled3D", &Py2DRenderer::DrawTriangleFilled3D, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true)
-        .def("DrawQuad3D", &Py2DRenderer::DrawQuad3D, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("p4"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true)
-        .def("DrawQuadFilled3D", &Py2DRenderer::DrawQuadFilled3D, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("p4"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true)
-        .def("DrawPoly3D", &Py2DRenderer::DrawPoly3D, py::arg("center"), py::arg("radius"), py::arg("color") = 0xFFFFFFFF, py::arg("segments") = 3, py::arg("autoZ") = true, py::arg("use_occlusion") = true)
-        .def("DrawPolyFilled3D", &Py2DRenderer::DrawPolyFilled3D, py::arg("center"), py::arg("radius"), py::arg("color") = 0xFFFFFFFF, py::arg("segments") = 3, py::arg("autoZ") = true, py::arg("use_occlusion") = true)
+		.def("DrawLine3D", &Py2DRenderer::DrawLine3D, py::arg("from"), py::arg("to"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true, py::arg("segments") = 16, py::arg("floor_offset") = 0.0f)
+		.def("DrawTriangle3D", &Py2DRenderer::DrawTriangle3D, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true, py::arg("edge_segments") = 16, py::arg("floor_offset") = 0.0f)
+		.def("DrawTriangleFilled3D", &Py2DRenderer::DrawTriangleFilled3D, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true, py::arg("edge_segments") = 16, py::arg("floor_offset") = 0.0f)
+		.def("DrawQuad3D", &Py2DRenderer::DrawQuad3D, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("p4"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true, py::arg("edge_segments") = 16, py::arg("floor_offset") = 0.0f)
+		.def("DrawQuadFilled3D", &Py2DRenderer::DrawQuadFilled3D, py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("p4"), py::arg("color") = 0xFFFFFFFF, py::arg("use_occlusion") = true, py::arg("segments") = 16, py::arg("floor_offset") = 0.0f)
+		.def("DrawPoly3D", &Py2DRenderer::DrawPoly3D, py::arg("center"), py::arg("radius"), py::arg("color") = 0xFFFFFFFF, py::arg("numSegments") = 3, py::arg("autoZ") = true, py::arg("use_occlusion") = true, py::arg("segments") = 16, py::arg("floor_offset") = 0.0f)
+		.def("DrawPolyFilled3D", &Py2DRenderer::DrawPolyFilled3D, py::arg("center"), py::arg("radius"), py::arg("color") = 0xFFFFFFFF, py::arg("numSegments") = 3, py::arg("autoZ") = true, py::arg("use_occlusion") = true, py::arg("segments") = 16, py::arg("floor_offset") = 0.0f)
 
         .def("Setup3DView", &Py2DRenderer::Setup3DView)
         .def("ApplyStencilMask", &Py2DRenderer::ApplyStencilMask)
@@ -888,7 +1120,8 @@ void bind_2drenderer(py::module_& m) {
         .def("DrawTexture3D", &Py2DRenderer::DrawTexture3D, py::arg("file_path"), py::arg("world_pos_x"), py::arg("world_pos_y"), py::arg("world_pos_z"), py::arg("width") = 100.0f, py::arg("height") = 100.0f, py::arg("use_occlusion") = true, py::arg("int_tint") = 0xFFFFFFFF)
         .def("DrawQuadTextured3D", &Py2DRenderer::DrawQuadTextured3D, py::arg("file_path"),
             py::arg("p1"), py::arg("p2"), py::arg("p3"), py::arg("p4"),
-            py::arg("use_occlusion") = true, py::arg("int_tint") = 0xFFFFFFFF);
+            py::arg("use_occlusion") = true, py::arg("int_tint") = 0xFFFFFFFF)
+        .def("SaveGeometryToFile", &Py2DRenderer::SaveGeometryToFile, py::arg("filename"), py::arg("min_x"), py::arg("min_y"), py::arg("max_x"), py::arg("max_y"));
 }
 
 PYBIND11_EMBEDDED_MODULE(Py2DRenderer, m) {

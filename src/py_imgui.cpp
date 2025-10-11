@@ -21,6 +21,68 @@ void ImGui_TextDisabled(const std::string& text) {
     ImGui::TextDisabled("%s", text.c_str());
 }
 
+// --- helper: format with variable args (Python list/tuple - string)
+static std::string format_text(const std::string& fmt, const std::vector<std::string>& args) {
+    std::string result = fmt;
+    for (const auto& arg : args) {
+        size_t pos = result.find("%s");
+        if (pos == std::string::npos)
+            break;
+        result.replace(pos, 2, arg);
+    }
+    return result;
+}
+
+void ImGui_TextV(const std::string& fmt, const std::vector<std::string>& args) {
+    std::string formatted = format_text(fmt, args);
+    ImGui::TextUnformatted(formatted.c_str());
+}
+
+void ImGui_TextColoredV(const std::array<float, 4>& color,
+    const std::string& fmt,
+    const std::vector<std::string>& args) {
+    std::string formatted = format_text(fmt, args);
+    ImGui::TextColored(ImVec4(color[0], color[1], color[2], color[3]), "%s", formatted.c_str());
+}
+
+void ImGui_TextDisabledV(const std::string& fmt, const std::vector<std::string>& args) {
+    std::string formatted = format_text(fmt, args);
+    ImGui::TextDisabled("%s", formatted.c_str());
+}
+
+void ImGui_TextWrappedV(const std::string& fmt, const std::vector<std::string>& args) {
+    std::string formatted = format_text(fmt, args);
+    ImGui::TextWrapped("%s", formatted.c_str());
+}
+
+void ImGui_LabelTextV(const std::string& label,
+    const std::string& fmt,
+    const std::vector<std::string>& args) {
+    std::string formatted = format_text(fmt, args);
+    ImGui::LabelText(label.c_str(), "%s", formatted.c_str());
+}
+
+void ImGui_BulletTextV(const std::string& fmt, const std::vector<std::string>& args) {
+    std::string formatted = format_text(fmt, args);
+    ImGui::BulletText("%s", formatted.c_str());
+}
+
+//--------------------------------------------------------------
+// InputTextMultiline wrapper (no varargs, just normal text binding)
+//--------------------------------------------------------------
+bool ImGui_InputTextMultiline(const std::string& label,
+    std::string& text,
+    const std::array<float, 2>& size,
+    ImGuiInputTextFlags flags = 0) {
+    return ImGui::InputTextMultiline(label.c_str(),
+        &text[0],
+        text.capacity() + 1,
+        ImVec2(size[0], size[1]),
+        flags);
+}
+
+
+
 /*
 void ImGui_TextEx(const std::string& text, ImGuiTextFlags flags) {
     ImGui::TextEx("%s", text.c_str(), flags);
@@ -247,6 +309,17 @@ int ImGui_Combo(const std::string& label, int current_item, const std::vector<st
     return temp;
 }
 
+//begin combo
+bool ImGui_BeginCombo(const std::string& label, const std::string& preview_value, ImGuiComboFlags flags) {
+	return ImGui::BeginCombo(label.c_str(), preview_value.c_str(), flags);
+}
+
+//end combo
+void ImGui_EndCombo() {
+	ImGui::EndCombo();
+}
+
+
 //selectable
 bool ImGui_Selectable(const std::string& label, bool selected, ImGuiSelectableFlags flags, const std::array<float, 2>& size) {
 	return ImGui::Selectable(label.c_str(), selected, flags, ImVec2(size[0], size[1]));
@@ -320,16 +393,19 @@ void ImGui_PopTextWrapPos() {
 
 // push allow keyboard focus
 void ImGui_PushAllowKeyboardFocus(bool allow_keyboard_focus) {
-    //ImGui::PushAllowKeyboardFocus(allow_keyboard_focus);
-    (void)allow_keyboard_focus;
+    ImGui::PushAllowKeyboardFocus(allow_keyboard_focus);
     return;
 }
 
 // pop allow keyboard focus
 void ImGui_PopAllowKeyboardFocus() {
-    //ImGui::PopAllowKeyboardFocus();
-    return;
+    ImGui::PopAllowKeyboardFocus();
 }
+
+void ImGui_SetKeyboardFocusHere(int offset = 0) {
+	ImGui::SetKeyboardFocusHere(offset);
+}
+
 
 // push button repeat
 void ImGui_PushButtonRepeat(bool repeat) {
@@ -356,6 +432,11 @@ void ImGui_ProgressBar(float fraction, float size_arg_x, float size_arg_y, const
 // BulletText
 void ImGui_BulletText(const std::string& text) {
     ImGui::BulletText("%s", text.c_str());
+}
+
+//bullet 
+void ImGui_Bullet() {
+	ImGui::Bullet();
 }
 
 ///// WINDOWS PANELS AND GROUPS 
@@ -402,6 +483,17 @@ void ImGui_EndGroup() {
     ImGui::EndGroup();
 }
 
+//begin disabled
+void ImGui_BeginDisabled(bool disabled = true) {
+	ImGui::BeginDisabled(disabled);
+}
+
+//end disabled
+void ImGui_EndDisabled() {
+	ImGui::EndDisabled();
+}
+
+
 // Separator
 void ImGui_Separator() {
     ImGui::Separator();
@@ -446,14 +538,54 @@ void ImGui_SetNextWindowSize(float width, float height) {
     ImGui::SetNextWindowSize(ImVec2(width, height));
 }
 
+void ImGui_SetNextWindowSize(const std::array<float, 2>& size, ImGuiCond cond = 0) {
+	// Use ImVec2 to convert the array to the required type
+	ImVec2 size_vec(size[0], size[1]);
+	ImGui::SetNextWindowSize(size_vec, cond);
+}
+
 // SetNextWindowPos
 void ImGui_SetNextWindowPos(float x, float y) {
     ImGui::SetNextWindowPos(ImVec2(x, y));
 }
 
+void ImGui_SetNextWindowPos(const std::array<float, 2>& pos, ImGuiCond cond = 0) {
+	// Use ImVec2 to convert the array to the required type
+	ImVec2 pos_vec(pos[0], pos[1]);
+	ImGui::SetNextWindowPos(pos_vec, cond);
+}
+
 void ImGui_SetNextWindowCollapsed(bool collapsed, ImGuiCond cond = 0) {
 	ImGui::SetNextWindowCollapsed(collapsed, cond);
 }
+
+void ImGui_SetWindowCollapsed(bool collapsed, ImGuiCond cond = 0) {
+	ImGui::SetWindowCollapsed(collapsed, cond);
+}
+
+//set window focus
+void ImGui_SetWindowFocus(const std::string& name) {
+	ImGui::SetWindowFocus(name.c_str());
+}
+
+// SetNextWindowFocus
+void ImGui_SetNextWindowFocus() {
+	ImGui::SetNextWindowFocus();
+}
+
+
+// SetNextWindowBgAlpha
+void ImGui_SetNextWindowBgAlpha(float alpha) {
+	ImGui::SetNextWindowBgAlpha(alpha);
+}
+
+// SetNextWindowContentSize
+void ImGui_SetNextWindowContentSize(float width, float height) {
+	ImGui::SetNextWindowContentSize(ImVec2(width, height));
+}
+
+
+
 /////////////MENUS AND TOOLBARS
 
 // Menu Bars
@@ -495,6 +627,12 @@ void ImGui_OpenPopup(const std::string& str_id) {
 bool ImGui_BeginPopup(const std::string& str_id) {
     return ImGui::BeginPopup(str_id.c_str());
 }
+
+bool ImGui_BeginPopup(const std::string& str_id, ImGuiWindowFlags flags) {
+	return ImGui::BeginPopup(str_id.c_str(), flags);
+}
+
+
 
 void ImGui_EndPopup() {
     ImGui::EndPopup();
@@ -740,6 +878,188 @@ ImGuiStyle& GetStyle() {
 
 }
 
+void SetStyle(const ImGuiStyle& style) {
+	ImGui::GetStyle() = style;
+}
+
+
+inline static std::array<float, 2> A2(const ImVec2& v) { return { v.x, v.y }; }
+inline static ImVec2 V2(const std::array<float, 2>& a) { return ImVec2(a[0], a[1]); }
+inline static std::array<float, 4> A4(const ImVec4& v) { return { v.x, v.y, v.z, v.w }; }
+inline static ImVec4 V4(const std::array<float, 4>& a) { return ImVec4(a[0], a[1], a[2], a[3]); }
+
+struct StyleConfig {
+private:
+    ImGuiStyle& style;
+    ImGuiStyle  default_style;
+
+public:
+    float       Alpha;
+    float       DisabledAlpha;
+    std::array<float, 2> WindowPadding;
+    float       WindowRounding;
+    float       WindowBorderSize;
+    std::array<float, 2> WindowMinSize;
+    std::array<float, 2> WindowTitleAlign;
+    int         WindowMenuButtonPosition;
+    float       ChildRounding;
+    float       ChildBorderSize;
+    float       PopupRounding;
+    float       PopupBorderSize;
+    std::array<float, 2> FramePadding;
+    float       FrameRounding;
+    float       FrameBorderSize;
+    std::array<float, 2> ItemSpacing;
+    std::array<float, 2> ItemInnerSpacing;
+    std::array<float, 2> CellPadding;
+    std::array<float, 2> TouchExtraPadding;
+    float       IndentSpacing;
+    float       ColumnsMinSpacing;
+    float       ScrollbarSize;
+    float       ScrollbarRounding;
+    float       GrabMinSize;
+    float       GrabRounding;
+    float       LogSliderDeadzone;
+    float       TabRounding;
+    float       TabBorderSize;
+    float       TabMinWidthForCloseButton;
+    int         ColorButtonPosition;
+    std::array<float, 2> ButtonTextAlign;
+    std::array<float, 2> SelectableTextAlign;
+    float       SeparatorTextBorderSize;
+    std::array<float, 2> SeparatorTextAlign;
+    std::array<float, 2> SeparatorTextPadding;
+    std::array<float, 2> DisplayWindowPadding;
+    std::array<float, 2> DisplaySafeAreaPadding;
+    float       MouseCursorScale;
+    bool        AntiAliasedLines;
+    bool        AntiAliasedLinesUseTex;
+    bool        AntiAliasedFill;
+    float       CurveTessellationTol;
+    float       CircleTessellationMaxError;
+    std::array<float, 4> Colors[ImGuiCol_COUNT];
+
+    StyleConfig()
+        : style(ImGui::GetStyle())
+        , default_style(ImGui::GetStyle())  // <-- copies the whole struct, including Colors[]
+    {
+        Pull(); // populate your POD fields from the live style
+    }
+
+    // Copy everything from live ImGui::GetStyle() into these properties
+    void Pull() {
+        const ImGuiStyle& s = style;
+
+        Alpha = s.Alpha;
+        DisabledAlpha = s.DisabledAlpha;
+        WindowPadding = A2(s.WindowPadding);
+        WindowRounding = s.WindowRounding;
+        WindowBorderSize = s.WindowBorderSize;
+        WindowMinSize = A2(s.WindowMinSize);
+        WindowTitleAlign = A2(s.WindowTitleAlign);
+        WindowMenuButtonPosition = (int)s.WindowMenuButtonPosition;
+        ChildRounding = s.ChildRounding;
+        ChildBorderSize = s.ChildBorderSize;
+        PopupRounding = s.PopupRounding;
+        PopupBorderSize = s.PopupBorderSize;
+        FramePadding = A2(s.FramePadding);
+        FrameRounding = s.FrameRounding;
+        FrameBorderSize = s.FrameBorderSize;
+        ItemSpacing = A2(s.ItemSpacing);
+        ItemInnerSpacing = A2(s.ItemInnerSpacing);
+        CellPadding = A2(s.CellPadding);
+        TouchExtraPadding = A2(s.TouchExtraPadding);
+        IndentSpacing = s.IndentSpacing;
+        ColumnsMinSpacing = s.ColumnsMinSpacing;
+        ScrollbarSize = s.ScrollbarSize;
+        ScrollbarRounding = s.ScrollbarRounding;
+        GrabMinSize = s.GrabMinSize;
+        GrabRounding = s.GrabRounding;
+        LogSliderDeadzone = s.LogSliderDeadzone;
+        TabRounding = s.TabRounding;
+        TabBorderSize = s.TabBorderSize;
+        TabMinWidthForCloseButton = s.TabMinWidthForCloseButton;
+        ColorButtonPosition = (int)s.ColorButtonPosition;
+        ButtonTextAlign = A2(s.ButtonTextAlign);
+        SelectableTextAlign = A2(s.SelectableTextAlign);
+        SeparatorTextBorderSize = s.SeparatorTextBorderSize;
+        SeparatorTextAlign = A2(s.SeparatorTextAlign);
+        SeparatorTextPadding = A2(s.SeparatorTextPadding);
+        DisplayWindowPadding = A2(s.DisplayWindowPadding);
+        DisplaySafeAreaPadding = A2(s.DisplaySafeAreaPadding);
+        MouseCursorScale = s.MouseCursorScale;
+        AntiAliasedLines = s.AntiAliasedLines;
+        AntiAliasedLinesUseTex = s.AntiAliasedLinesUseTex;
+        AntiAliasedFill = s.AntiAliasedFill;
+        CurveTessellationTol = s.CurveTessellationTol;
+        CircleTessellationMaxError = s.CircleTessellationMaxError;
+
+        for (int i = 0; i < ImGuiCol_COUNT; ++i)
+            Colors[i] = A4(s.Colors[i]);
+    }
+
+    // Write all properties back into ImGui::GetStyle()
+    void Push() const {
+        ImGuiStyle& s = style;
+
+        s.Alpha = Alpha;
+        s.DisabledAlpha = DisabledAlpha;
+        s.WindowPadding = V2(WindowPadding);
+        s.WindowRounding = WindowRounding;
+        s.WindowBorderSize = WindowBorderSize;
+        s.WindowMinSize = V2(WindowMinSize);
+        s.WindowTitleAlign = V2(WindowTitleAlign);
+        s.WindowMenuButtonPosition = (ImGuiDir)WindowMenuButtonPosition;
+        s.ChildRounding = ChildRounding;
+        s.ChildBorderSize = ChildBorderSize;
+        s.PopupRounding = PopupRounding;
+        s.PopupBorderSize = PopupBorderSize;
+        s.FramePadding = V2(FramePadding);
+        s.FrameRounding = FrameRounding;
+        s.FrameBorderSize = FrameBorderSize;
+        s.ItemSpacing = V2(ItemSpacing);
+        s.ItemInnerSpacing = V2(ItemInnerSpacing);
+        s.CellPadding = V2(CellPadding);
+        s.TouchExtraPadding = V2(TouchExtraPadding);
+        s.IndentSpacing = IndentSpacing;
+        s.ColumnsMinSpacing = ColumnsMinSpacing;
+        s.ScrollbarSize = ScrollbarSize;
+        s.ScrollbarRounding = ScrollbarRounding;
+        s.GrabMinSize = GrabMinSize;
+        s.GrabRounding = GrabRounding;
+        s.LogSliderDeadzone = LogSliderDeadzone;
+        s.TabRounding = TabRounding;
+        s.TabBorderSize = TabBorderSize;
+        s.TabMinWidthForCloseButton = TabMinWidthForCloseButton;
+        s.ColorButtonPosition = (ImGuiDir)ColorButtonPosition;
+        s.ButtonTextAlign = V2(ButtonTextAlign);
+        s.SelectableTextAlign = V2(SelectableTextAlign);
+        s.SeparatorTextBorderSize = SeparatorTextBorderSize;
+        s.SeparatorTextAlign = V2(SeparatorTextAlign);
+        s.SeparatorTextPadding = V2(SeparatorTextPadding);
+        s.DisplayWindowPadding = V2(DisplayWindowPadding);
+        s.DisplaySafeAreaPadding = V2(DisplaySafeAreaPadding);
+        s.MouseCursorScale = MouseCursorScale;
+        s.AntiAliasedLines = AntiAliasedLines;
+        s.AntiAliasedLinesUseTex = AntiAliasedLinesUseTex;
+        s.AntiAliasedFill = AntiAliasedFill;
+        s.CurveTessellationTol = CurveTessellationTol;
+        s.CircleTessellationMaxError = CircleTessellationMaxError;
+
+        for (int i = 0; i < ImGuiCol_COUNT; ++i)
+            s.Colors[i] = V4(Colors[i]);
+    }
+
+    void Reset() {
+        if (!ImGui::GetCurrentContext())
+            throw std::runtime_error("ImGui context not initialized");
+        style = default_style; // <-- restore snapshot into live style
+        Pull();                // <-- refresh your POD properties to reflect restored values
+    }
+
+};
+
+
 //get_cursor_pos
 std::array<float, 2> ImGui_GetCursorPos() {
     ImVec2 pos = ImGui::GetCursorPos();
@@ -818,6 +1138,16 @@ float ImGui_GetWindowHeight() {
     return ImGui::GetWindowHeight();
 }
 
+void ImGui_SetWindowPos(float x, float y, ImGuiCond cond = 0) {
+	ImGui::SetWindowPos(ImVec2(x, y), cond);
+}
+
+void ImGui_SetWindowSize(float width, float height, ImGuiCond cond = 0) {
+	ImGui::SetWindowSize(ImVec2(width, height), cond);
+}
+
+
+
 // GetContentRegionAvail
 std::array<float, 2> ImGui_GetContentRegionAvail() {
     ImVec2 size = ImGui::GetContentRegionAvail();
@@ -870,11 +1200,52 @@ bool ImGui_IsMouseDragging(int button, float lock_threshold) {
 	return ImGui::IsMouseDragging(button, lock_threshold);
 }
 
+std::array<float, 2> ImGui_GetMouseDragDelta(int button, float lock_threshold) {
+	ImVec2 delta = ImGui::GetMouseDragDelta(button, lock_threshold);
+	return { delta.x, delta.y };
+}
+
+//reset mouse delta
+void ImGui_ResetMouseDragDelta(int button) {
+	ImGui::ResetMouseDragDelta(button);
+}
+
 
 // Hovering
 bool ImGui_IsItemHovered() {
     return ImGui::IsItemHovered();
 }
+
+//is any item hovered
+bool ImGui_IsAnyItemHovered() {
+	return ImGui::IsAnyItemHovered();
+}
+
+// IsItemActive
+bool ImGui_IsItemActive() {
+	return ImGui::IsItemActive();
+}
+
+// is any item active
+bool ImGui_IsAnyItemActive() {
+	return ImGui::IsAnyItemActive();
+}
+
+// IsItemFocused
+bool ImGui_IsItemFocused() {
+	return ImGui::IsItemFocused();
+}
+
+//is any item focused
+bool ImGui_IsAnyItemFocused() {
+	return ImGui::IsAnyItemFocused();
+}
+
+// IsItemVisible
+bool ImGui_IsItemVisible() {
+	return ImGui::IsItemVisible();
+}
+
 
 bool ImGui_IsItemClicked(int button) {
 	return ImGui::IsItemClicked(button);
@@ -900,20 +1271,8 @@ bool ImGui_IsWindowAppearing() {
 	return ImGui::IsWindowAppearing();
 }
 
-// Active
-bool ImGui_IsItemActive() {
-    return ImGui::IsItemActive();
-}
 
-//IsItemFocused
-bool ImGui_IsItemFocused() {
-	return ImGui::IsItemFocused();
-}
 
-// IsItemVisible
-bool ImGui_IsItemVisible() {
-	return ImGui::IsItemVisible();
-}
 
 // IsItemEdited
 bool ImGui_IsItemEdited() {
@@ -1049,6 +1408,10 @@ void ImGui_SetNextItemOpen(bool is_open, ImGuiCond cond = 0) {
 
 void ImGui_SetNextItemWidth(float item_width) {
 	ImGui::SetNextItemWidth(item_width);
+}
+
+void ImGui_SetItemAllowOverlap() {
+	ImGui::SetItemAllowOverlap();
 }
 
 //GetItemRectMin
@@ -1357,6 +1720,22 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
         .value("Headers", ImGuiTableRowFlags_Headers)
         .export_values();
 
+    py::enum_<ImDrawFlagsWrapper>(m, "DrawFlags")
+        .value("_NoFlag", ImDrawFlagsWrapper::None)
+        .value("Closed", ImDrawFlagsWrapper::Closed)
+        .value("RoundCornersTopLeft", ImDrawFlagsWrapper::RoundCornersTopLeft)
+        .value("RoundCornersTopRight", ImDrawFlagsWrapper::RoundCornersTopRight)
+        .value("RoundCornersBottomLeft", ImDrawFlagsWrapper::RoundCornersBottomLeft)
+        .value("RoundCornersBottomRight", ImDrawFlagsWrapper::RoundCornersBottomRight)
+        .value("RoundCornersNone", ImDrawFlagsWrapper::RoundCornersNone)
+        .value("RoundCornersTop", ImDrawFlagsWrapper::RoundCornersTop)
+        .value("RoundCornersBottom", ImDrawFlagsWrapper::RoundCornersBottom)
+        .value("RoundCornersLeft", ImDrawFlagsWrapper::RoundCornersLeft)
+        .value("RoundCornersRight", ImDrawFlagsWrapper::RoundCornersRight)
+        .value("RoundCornersAll", ImDrawFlagsWrapper::RoundCornersAll)
+        .value("RoundCornersDefault", ImDrawFlagsWrapper::RoundCornersDefault)
+        .export_values();
+	
 
 
     // Focused Flags
@@ -1383,7 +1762,12 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
         return static_cast<ImGuiHoveredFlags_>(static_cast<int>(a) | static_cast<int>(b));
             });
 
-
+	py::enum_<ImGuiMouseButton_>(m, "MouseButton")
+		.value("Left", ImGuiMouseButton_Left)
+		.value("Right", ImGuiMouseButton_Right)
+		.value("Middle", ImGuiMouseButton_Middle)
+		.value("Count", ImGuiMouseButton_COUNT)
+		.export_values();
 
     // Bind the ImGuiIO structure
     py::class_<SafeImGuiIO>(m, "ImGuiIO")
@@ -1486,12 +1870,50 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
         return static_cast<ImGuiColWrapper>(static_cast<int>(a) | static_cast<int>(b));
             });
 
+    //ImguiCond
+	py::enum_<ImGuiCond_>(m, "ImGuiCond")
+		.value("_None", ImGuiCond_None)
+		.value("Always", ImGuiCond_Always)
+		.value("Once", ImGuiCond_Once)
+		.value("FirstUseEver", ImGuiCond_FirstUseEver)
+		.value("Appearing", ImGuiCond_Appearing)
+		.export_values()
+		.def("__or__", [](ImGuiCond_ a, ImGuiCond_ b) {
+		return static_cast<ImGuiCond_>(static_cast<int>(a) | static_cast<int>(b));
+			});
+
+    //ImGuiComboFlags
+	py::enum_<ImGuiComboFlags_>(m, "ImGuiComboFlags")
+		.value("NoFlag", ImGuiComboFlags_None)
+		.value("PopupAlignLeft", ImGuiComboFlags_PopupAlignLeft)
+		.value("HeightSmall", ImGuiComboFlags_HeightSmall)
+		.value("HeightRegular", ImGuiComboFlags_HeightRegular)
+		.value("HeightLarge", ImGuiComboFlags_HeightLarge)
+		.value("HeightLargest", ImGuiComboFlags_HeightLargest)
+		.value("NoArrowButton", ImGuiComboFlags_NoArrowButton)
+		.value("NoPreview", ImGuiComboFlags_NoPreview)
+		.export_values()
+		.def("__or__", [](ImGuiComboFlags_ a, ImGuiComboFlags_ b) {
+		return static_cast<ImGuiComboFlags_>(static_cast<int>(a) | static_cast<int>(b));
+			});
+
     // Basic Widgets
 	m.def("new_line", &ImGui_NewLine, "Inserts a new line in ImGui");
     m.def("text", &ImGui_Text, "Displays a text in ImGui");
     m.def("text_wrapped", &ImGui_TextWrapped, "Displays a text_wrapped in ImGui");
     m.def("text_colored", &ImGui_TextColored, "Displays a text in a colored font in ImGui");
     m.def("text_disabled", &ImGui_TextDisabled, "Displays a text in a disabled font in ImGui");
+
+    m.def("TextV", &ImGui_TextV);
+    m.def("TextColoredV", &ImGui_TextColoredV);
+    m.def("TextDisabledV", &ImGui_TextDisabledV);
+    m.def("TextWrappedV", &ImGui_TextWrappedV);
+    m.def("LabelTextV", &ImGui_LabelTextV);
+    m.def("BulletTextV", &ImGui_BulletTextV);
+    m.def("InputTextMultiline", &ImGui_InputTextMultiline,
+        py::arg("label"), py::arg("text"),
+        py::arg("size"), py::arg("flags") = 0);
+
     //m.def("text_ex", &ImGui_TextEx, "Displays a text with flags in ImGui");
     m.def("text_unformatted", &ImGui_TextUnformatted, "Displays an unformatted text in ImGui");
 	m.def("text_scaled", &ImGui_TextScaled, "Displays a scaled text in ImGui");
@@ -1525,6 +1947,8 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
 	m.def("input_int", py::overload_cast<const std::string&, int, int, int, ImGuiInputTextFlags>(&ImGui_InputInt), "InputInt with flags");
 
     m.def("combo", &ImGui_Combo, "Creates a combo box in ImGui");
+	m.def("begin_combo", &ImGui_BeginCombo, "Begins a combo box in ImGui");
+	m.def("end_combo", &ImGui_EndCombo, "Ends a combo box in ImGui");
 	m.def("selectable", &ImGui_Selectable, "Creates a selectable item in ImGui");
     m.def("color_edit3", &ImGui_ColorEdit3, "A function to create a color editor (RGB)");
     m.def("color_edit4", &ImGui_ColorEdit4, "Creates an RGBA color editor in ImGui");
@@ -1640,14 +2064,16 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
     m.def("pop_item_width", &ImGui_PopItemWidth, "Pops an item width in ImGui");
     m.def("push_text_wrap_pos", &ImGui_PushTextWrapPos, "Pushes a text wrap position in ImGui");
     m.def("pop_text_wrap_pos", &ImGui_PopTextWrapPos, "Pops a text wrap position in ImGui");
-    //m.def("push_allow_keyboard_focus", &ImGui_PushAllowKeyboardFocus, "Pushes an allow keyboard focus in ImGui");
-    //m.def("pop_allow_keyboard_focus", &ImGui_PopAllowKeyboardFocus, "Pops an allow keyboard focus in ImGui");
+    m.def("push_allow_keyboard_focus", &ImGui_PushAllowKeyboardFocus, "Pushes an allow keyboard focus in ImGui");
+    m.def("pop_allow_keyboard_focus", &ImGui_PopAllowKeyboardFocus, "Pops an allow keyboard focus in ImGui");
+	m.def("set_keyboard_focus_here", &ImGui_SetKeyboardFocusHere, "Sets keyboard focus to the next item in ImGui");
     m.def("push_button_repeat", &ImGui_PushButtonRepeat, "Pushes a button repeat in ImGui");
     m.def("pop_button_repeat", &ImGui_PopButtonRepeat, "Pops a button repeat in ImGui");
 
 	m.def("progress_bar", py::overload_cast<float, float, const std::string&>(&ImGui_ProgressBar), "Displays a progress bar with a custom label in ImGui");
 	m.def("progress_bar", py::overload_cast<float, float, float, const std::string&>(&ImGui_ProgressBar), "Displays a progress bar with custom size and label in ImGui");
     m.def("bullet_text", &ImGui_BulletText, "Displays bullet text in ImGui");
+	m.def("bullet", &ImGui_Bullet, "Displays a bullet in ImGui");
 
     // Windows, Panels, and Groups
     m.def("begin", py::overload_cast<const std::string&>(&ImGui_Begin), "Begin an ImGui window with just a name");
@@ -1672,6 +2098,8 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
     m.def("end_child", &ImGui_EndChild, "Ends the current child window in ImGui");
     m.def("begin_group", &ImGui_BeginGroup, "Begins a new group in ImGui");
     m.def("end_group", &ImGui_EndGroup, "Ends the current group in ImGui");
+	m.def("begin_disabled", &ImGui_BeginDisabled, "Begins a disabled block in ImGui");
+	m.def("end_disabled", &ImGui_EndDisabled, "Ends the disabled block in ImGui");
     m.def("separator", &ImGui_Separator, "Inserts a separator line in ImGui");
     m.def("same_line", &ImGui_SameLine, "Positions widgets on the same line in ImGui");
     m.def("spacing", &ImGui_Spacing, "Inserts vertical spacing in ImGui");
@@ -1687,9 +2115,36 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
     m.def("columns", &ImGui_Columns, "Creates columns in ImGui");
     m.def("next_column", &ImGui_NextColumn, "Moves to the next column in ImGui");
     m.def("end_columns", &ImGui_EndColumns, "Ends the columns in ImGui");
-    m.def("set_next_window_size", &ImGui_SetNextWindowSize, "Sets the size of the next window in ImGui");
-    m.def("set_next_window_pos", &ImGui_SetNextWindowPos, "Sets the position of the next window in ImGui");
+    m.def("set_next_window_size",
+        py::overload_cast<float, float>(&ImGui_SetNextWindowSize),
+        py::arg("width"), py::arg("height"),
+        "Set next window size with width and height");
+
+    m.def("set_next_window_size",
+        py::overload_cast<const std::array<float, 2>&, ImGuiCond>(&ImGui_SetNextWindowSize),
+        py::arg("size"), py::arg("cond") = 0,
+        "Set next window size with array and optional condition");
+
+
+    m.def("set_next_window_pos", 
+		py::overload_cast<float, float>(&ImGui_SetNextWindowPos),
+		py::arg("x"), py::arg("y"),
+		"Set next window position with x and y coordinates");
+
+	m.def("set_next_window_pos",
+		py::overload_cast<const std::array<float, 2>&, ImGuiCond>(&ImGui_SetNextWindowPos),
+		py::arg("pos"), py::arg("cond") = 0,
+		"Set next window position with array and optional condition");
+
 	m.def("set_next_window_collapsed", &ImGui_SetNextWindowCollapsed, "Sets the collapsed state of the next window in ImGui");
+	m.def("set_window_collapsed", &ImGui_SetWindowCollapsed, "Sets the collapsed state of the current window in ImGui");
+	m.def("set_window_focus", &ImGui_SetWindowFocus, "Sets the focus for the current window in ImGui");
+    m.def("set_next_window_focus", &ImGui_SetNextWindowFocus, "Sets the focus for the next window in ImGui");
+	m.def("set_next_window_bg_alpha", &ImGui_SetNextWindowBgAlpha, "Sets the background alpha for the next window in ImGui");
+	m.def("set_next_window_content_size",
+		py::overload_cast<float, float>(&ImGui_SetNextWindowContentSize),
+		py::arg("width"), py::arg("height"),
+		"Set next window content size with width and height");
 
     // Menus and Toolbars
     m.def("begin_menu_bar", &ImGui_BeginMenuBar, "Begins a menu bar in ImGui");
@@ -1702,7 +2157,11 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
 
     // Popups and Modals
     m.def("open_popup", &ImGui_OpenPopup, "Opens a popup in ImGui");
-    m.def("begin_popup", &ImGui_BeginPopup, "Begins a popup in ImGui");
+	m.def("begin_popup", py::overload_cast<const std::string&>(&ImGui_BeginPopup), "Begin a popup window with just a name");
+	m.def("begin_popup",
+		py::overload_cast<const std::string&, ImGuiWindowFlags>(&ImGui_BeginPopup),
+		"Begin a popup window with a name and window flags");
+
     m.def("end_popup", &ImGui_EndPopup, "Ends the popup in ImGui");
     m.def("begin_popup_modal",
         py::overload_cast<const std::string&, bool*>(ImGui_BeginPopupModal),
@@ -1772,13 +2231,14 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
     m.def("draw_list_add_quad", &ImDrawList_AddQuad, "Draws a quadrilateral in the draw list");
     m.def("draw_list_add_quad_filled", &ImDrawList_AddQuadFilled, "Draws a filled quadrilateral in the draw list, taking four points (x1, y1), (x2, y2), (x3, y3), (x4, y4) and a color.");
 
-
-
     //Windows
     m.def("get_window_pos", &ImGui_GetWindowPos, "Get the current window position (x, y)");
     m.def("get_window_size", &ImGui_GetWindowSize, "Get the current window size (width, height)");
     m.def("get_window_width", &ImGui_GetWindowWidth, "Get the current window width");
     m.def("get_window_height", &ImGui_GetWindowHeight, "Get the current window height");
+
+	m.def("set_window_pos", &ImGui_SetWindowPos, "Set the current window position (x, y)");
+	m.def("set_window_size", &ImGui_SetWindowSize, "Set the current window size (width, height)");
     m.def("get_content_region_avail", &ImGui_GetContentRegionAvail, "Get the available content region size (width, height)");
     m.def("get_content_region_max", &ImGui_GetContentRegionMax, "Get the maximum content region size (width, height)");
     m.def("get_window_content_region_min", &ImGui_GetWindowContentRegionMin, "Get the minimum content region within the window (x, y)");
@@ -1792,10 +2252,15 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
 	m.def("is_mouse_down", &ImGui_IsMouseDown, "Checks if the mouse button is down");
 	m.def("is_mouse_released", &ImGui_IsMouseReleased, "Checks if the mouse button is released");
 	m.def("is_mouse_dragging", &ImGui_IsMouseDragging, "Checks if the mouse is dragging");
+	m.def("get_mouse_drag_delta", &ImGui_GetMouseDragDelta, "Gets the mouse drag delta");
+	m.def("reset_mouse_drag_delta", &ImGui_ResetMouseDragDelta, "Resets the mouse drag delta");
     m.def("is_item_hovered", &ImGui_IsItemHovered, "Checks if the last item is hovered");
+	m.def("is_any_item_hovered", &ImGui_IsAnyItemHovered, "Checks if any item is hovered");
 	m.def("is_item_clicked", &ImGui_IsItemClicked, "Checks if the last item is clicked");
     m.def("is_item_active", &ImGui_IsItemActive, "Checks if the last item is active");
+	m.def("is_any_item_active", &ImGui_IsAnyItemActive, "Checks if any item is active");
 	m.def("is_item_focused", &ImGui_IsItemFocused, "Checks if the last item is focused");
+	m.def("is_any_item_focused", &ImGui_IsAnyItemFocused, "Checks if any item is focused");
 	m.def("is_item_visible", &ImGui_IsItemVisible, "Checks if the last item is visible");
 	m.def("is_item_edited", &ImGui_IsItemEdited, "Checks if the last item is edited");
 	m.def("is_item_deactivated", &ImGui_IsItemDeactivated, "Checks if the last item is deactivated");
@@ -1829,6 +2294,7 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
     m.def("get_tree_node_to_label_spacing", &ImGui_GetTreeNodeToLabelSpacing);
     m.def("set_next_item_open", &ImGui_SetNextItemOpen, py::arg("is_open"), py::arg("cond") = 0);
 	m.def("set_next_item_width", &ImGui_SetNextItemWidth, py::arg("item_width"));
+	m.def("set_item_allow_overlap", &ImGui_SetItemAllowOverlap, "Allows the last item to overlap with other items in ImGui");
 	m.def("get_item_rect_min", &ImGui_GetItemRectMin, "Returns the minimum rectangle of the last item");
 	m.def("get_item_rect_max", &ImGui_GetItemRectMax, "Returns the maximum rectangle of the last item");
 	m.def("get_item_rect_size", &ImGui_GetItemRectSize, "Returns the size of the last item rectangle");
@@ -1840,6 +2306,80 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
 	m.def("dummy", &Dummy, "Creates a dummy in ImGui");
 
 
+    // Safer ctor: ensure context exists before constructing (prevents crash)
+    m.doc() = "StyleConfig <-> ImGui::GetStyle() sync";
+    py::class_<StyleConfig>(m, "StyleConfig")
+        .def(py::init([]() {
+        if (!ImGui::GetCurrentContext())
+            throw std::runtime_error("ImGui context not initialized (call ImGui::CreateContext() first).");
+        return StyleConfig();
+            }))
+        .def("Pull", &StyleConfig::Pull)
+        .def("Push", &StyleConfig::Push)
+		.def("Reset", &StyleConfig::Reset)
+
+        // ---- Scalars ----
+        .def_readwrite("Alpha", &StyleConfig::Alpha)
+        .def_readwrite("DisabledAlpha", &StyleConfig::DisabledAlpha)
+        .def_readwrite("WindowRounding", &StyleConfig::WindowRounding)
+        .def_readwrite("WindowBorderSize", &StyleConfig::WindowBorderSize)
+        .def_readwrite("ChildRounding", &StyleConfig::ChildRounding)
+        .def_readwrite("ChildBorderSize", &StyleConfig::ChildBorderSize)
+        .def_readwrite("PopupRounding", &StyleConfig::PopupRounding)
+        .def_readwrite("PopupBorderSize", &StyleConfig::PopupBorderSize)
+        .def_readwrite("FrameRounding", &StyleConfig::FrameRounding)
+        .def_readwrite("FrameBorderSize", &StyleConfig::FrameBorderSize)
+        .def_readwrite("IndentSpacing", &StyleConfig::IndentSpacing)
+        .def_readwrite("ColumnsMinSpacing", &StyleConfig::ColumnsMinSpacing)
+        .def_readwrite("ScrollbarSize", &StyleConfig::ScrollbarSize)
+        .def_readwrite("ScrollbarRounding", &StyleConfig::ScrollbarRounding)
+        .def_readwrite("GrabMinSize", &StyleConfig::GrabMinSize)
+        .def_readwrite("GrabRounding", &StyleConfig::GrabRounding)
+        .def_readwrite("LogSliderDeadzone", &StyleConfig::LogSliderDeadzone)
+        .def_readwrite("TabRounding", &StyleConfig::TabRounding)
+        .def_readwrite("TabBorderSize", &StyleConfig::TabBorderSize)
+        .def_readwrite("TabMinWidthForCloseButton", &StyleConfig::TabMinWidthForCloseButton)
+        .def_readwrite("SeparatorTextBorderSize", &StyleConfig::SeparatorTextBorderSize)
+        .def_readwrite("MouseCursorScale", &StyleConfig::MouseCursorScale)
+        .def_readwrite("CurveTessellationTol", &StyleConfig::CurveTessellationTol)
+        .def_readwrite("CircleTessellationMaxError", &StyleConfig::CircleTessellationMaxError)
+
+        // ---- Arrays (vec2-like) ----
+        .def_readwrite("WindowPadding", &StyleConfig::WindowPadding)
+        .def_readwrite("WindowMinSize", &StyleConfig::WindowMinSize)
+        .def_readwrite("WindowTitleAlign", &StyleConfig::WindowTitleAlign)
+        .def_readwrite("FramePadding", &StyleConfig::FramePadding)
+        .def_readwrite("ItemSpacing", &StyleConfig::ItemSpacing)
+        .def_readwrite("ItemInnerSpacing", &StyleConfig::ItemInnerSpacing)
+        .def_readwrite("CellPadding", &StyleConfig::CellPadding)
+        .def_readwrite("TouchExtraPadding", &StyleConfig::TouchExtraPadding)
+        .def_readwrite("ButtonTextAlign", &StyleConfig::ButtonTextAlign)
+        .def_readwrite("SelectableTextAlign", &StyleConfig::SelectableTextAlign)
+        .def_readwrite("SeparatorTextAlign", &StyleConfig::SeparatorTextAlign)
+        .def_readwrite("SeparatorTextPadding", &StyleConfig::SeparatorTextPadding)
+        .def_readwrite("DisplayWindowPadding", &StyleConfig::DisplayWindowPadding)
+        .def_readwrite("DisplaySafeAreaPadding", &StyleConfig::DisplaySafeAreaPadding)
+
+        // ---- Bools ----
+        .def_readwrite("AntiAliasedLines", &StyleConfig::AntiAliasedLines)
+        .def_readwrite("AntiAliasedLinesUseTex", &StyleConfig::AntiAliasedLinesUseTex)
+        .def_readwrite("AntiAliasedFill", &StyleConfig::AntiAliasedFill)
+
+        // ---- Enums as ints ----
+        .def_readwrite("WindowMenuButtonPosition", &StyleConfig::WindowMenuButtonPosition)
+        .def_readwrite("ColorButtonPosition", &StyleConfig::ColorButtonPosition)
+
+        // color helpers: copy 4 floats as-is (no scaling)
+        .def("get_color", [](StyleConfig& self, int idx) {
+        if (idx < 0 || idx >= ImGuiCol_COUNT) throw std::out_of_range("ImGuiCol index");
+        const auto& c = self.Colors[idx];
+        return py::make_tuple(c[0], c[1], c[2], c[3]);
+            })
+        .def("set_color", [](StyleConfig& self, int idx, float r, float g, float b, float a) {
+        if (idx < 0 || idx >= ImGuiCol_COUNT) throw std::out_of_range("ImGuiCol index");
+        self.Colors[idx] = { r,g,b,a };       // <-- 1:1 assign, no transform
+            });
 }
+
 
 

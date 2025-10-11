@@ -153,6 +153,22 @@ enum class FocusedFlags {
     RootAndChildWindows = ImGuiFocusedFlags_RootAndChildWindows,
 };
 
+enum class ImDrawFlagsWrapper {
+	None = ImDrawFlags_None,
+	Closed = ImDrawFlags_Closed,
+	RoundCornersTopLeft = ImDrawFlags_RoundCornersTopLeft,
+	RoundCornersTopRight = ImDrawFlags_RoundCornersTopRight,
+	RoundCornersBottomLeft = ImDrawFlags_RoundCornersBottomLeft,
+	RoundCornersBottomRight = ImDrawFlags_RoundCornersBottomRight,
+	RoundCornersNone = ImDrawFlags_RoundCornersNone,
+	RoundCornersTop = ImDrawFlags_RoundCornersTop,
+	RoundCornersBottom = ImDrawFlags_RoundCornersBottom,
+	RoundCornersLeft = ImDrawFlags_RoundCornersLeft,
+	RoundCornersRight = ImDrawFlags_RoundCornersRight,
+	RoundCornersAll = ImDrawFlags_RoundCornersAll,
+	RoundCornersDefault = ImDrawFlags_RoundCornersAll
+};
+
 enum class HoveredFlags {
     Nothing = ImGuiHoveredFlags_None,
     ChildWindows = ImGuiHoveredFlags_ChildWindows,
@@ -231,6 +247,8 @@ enum class ImGuiColWrapper {
 };
 
 
+
+
 // Bitwise OR operator for WindowFlags enum class
 inline WindowFlags operator|(WindowFlags lhs, WindowFlags rhs) {
     using T = std::underlying_type_t<WindowFlags>;
@@ -255,3 +273,14 @@ inline TableFlags operator&(TableFlags lhs, TableFlags rhs) {
     using T = std::underlying_type_t<TableFlags>;
     return static_cast<TableFlags>(static_cast<T>(lhs) & static_cast<T>(rhs));
 }
+
+inline ImDrawFlagsWrapper operator|(ImDrawFlagsWrapper lhs, ImDrawFlagsWrapper rhs) {
+	using T = std::underlying_type_t<ImDrawFlagsWrapper>;
+	return static_cast<ImDrawFlagsWrapper>(static_cast<T>(lhs) | static_cast<T>(rhs));
+}
+
+inline ImDrawFlagsWrapper operator&(ImDrawFlagsWrapper lhs, ImDrawFlagsWrapper rhs) {
+	using T = std::underlying_type_t<ImDrawFlagsWrapper>;
+	return static_cast<ImDrawFlagsWrapper>(static_cast<T>(lhs) & static_cast<T>(rhs));
+}
+

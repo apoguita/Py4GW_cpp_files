@@ -57,7 +57,8 @@ public:
 	
     void RefreshDrawList();
     Point2D GetMouseCoords();
-    float findZ(float x, float y, float pz);
+    float findZ(float x, float y, uint32_t pz);
+	uint32_t FindZPlane(float x, float y, uint32_t zplane);
     Point2D WorldToScreen(float x, float y, float z);
     Point3D GetMouseWorldPos();
 
@@ -129,6 +130,23 @@ public:
         std::tuple<int, int, int, int> bg_color,
         std::tuple<int, int, int, int> tint_color,
         int frame_padding);
+
+	void DrawTextureInForegound(
+		const std::tuple<float, float>& pos,
+		const std::tuple<float, float>& size,
+		const std::string& texture_path,
+		const std::tuple<float, float>& uv0,
+		const std::tuple<float, float>& uv1,
+		const std::tuple<int, int, int, int>& tint);
+
+    void DrawTextureInDrawlist(
+        const std::tuple<float, float>& pos,
+        const std::tuple<float, float>& size,
+        const std::string& texture_path,
+        const std::tuple<float, float>& uv0,
+        const std::tuple<float, float>& uv1,
+        const std::tuple<int, int, int, int>& tint);
+
 
 	bool IsMouseClicked(int button);
     Point2D GetDisplaySize();

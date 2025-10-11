@@ -310,6 +310,7 @@ bool PyParty::KickHenchman(int henchman_id) {
 }
 
 bool PyParty::KickPlayer(int player_id) {
+	auto player_name = GetPlayerNameByLoginNumber(player_id);
     return GW::PartyMgr::KickPlayer(player_id);  // Changed to snake_case
 }
 

@@ -199,6 +199,13 @@ public:
 
     }
 
+    static void TestMouseClickAction(uint32_t frame_id, uint32_t current_state, uint32_t wparam_value = 0, uint32_t lparam = 0) {
+        GW::GameThread::Enqueue([frame_id, current_state, wparam_value, lparam]() {
+            GW::UI::TestMouseClickAction(frame_id, current_state, wparam_value, lparam);
+            });
+
+    }
+
 	static uint32_t GetRootFrameID() {
 		GW::UI::Frame* frame = GW::UI::GetRootFrame();
 		if (!frame) {
@@ -298,29 +305,49 @@ public:
 		return GW::UI::GetFrameArray();
 	}
 
-	static void KeyDown(uint32_t key, uint32_t frame_id) {
-		GW::GameThread::Enqueue([key, frame_id]() {
-			GW::UI::ControlAction key_action = static_cast<GW::UI::ControlAction>(key);
-			GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
-			GW::UI::Keydown(key_action, frame);
-			});
-	}
+    // Press and hold a key (down only)
+    static void KeyDown(uint32_t key, uint32_t frame_id) {
+        GW::GameThread::Enqueue([key, frame_id]() {
+            // Convert the integer into a ControlAction enum value
+            GW::UI::ControlAction key_action = static_cast<GW::UI::ControlAction>(key);
 
-	static void KeyUp(uint32_t key, uint32_t frame_id) {
-		GW::GameThread::Enqueue([key, frame_id]() {
-			GW::UI::ControlAction key_action = static_cast<GW::UI::ControlAction>(key);
-			GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
-			GW::UI::Keyup(key_action, frame);
-			});
-	}
+            GW::UI::Frame* frame = nullptr;
+            if (frame_id != 0) {
+                frame = GW::UI::GetFrameById(frame_id);
+            }
 
-	static void KeyPress(uint32_t key, uint32_t frame_id) {
-		GW::GameThread::Enqueue([key, frame_id]() {
-			GW::UI::ControlAction key_action = static_cast<GW::UI::ControlAction>(key);
-			GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
-			GW::UI::Keypress(key_action, frame);
-			});
-	}
+            // Call the actual UI function
+            GW::UI::Keydown(key_action, frame);
+            });
+    }
+
+    // Release a key (up only)
+    static void KeyUp(uint32_t key, uint32_t frame_id) {
+        GW::GameThread::Enqueue([key, frame_id]() {
+            GW::UI::ControlAction key_action = static_cast<GW::UI::ControlAction>(key);
+
+            GW::UI::Frame* frame = nullptr;
+            if (frame_id != 0) {
+                frame = GW::UI::GetFrameById(frame_id);
+            }
+
+            GW::UI::Keyup(key_action, frame);
+            });
+    }
+
+    // Simulate a full keypress (down + up)
+    static void KeyPress(uint32_t key, uint32_t frame_id) {
+        GW::GameThread::Enqueue([key, frame_id]() {
+            GW::UI::ControlAction key_action = static_cast<GW::UI::ControlAction>(key);
+
+            GW::UI::Frame* frame = nullptr;
+            if (frame_id != 0) {
+                frame = GW::UI::GetFrameById(frame_id);
+            }
+
+            GW::UI::Keypress(key_action, frame);
+            });
+    }
 
     static std::vector<uintptr_t> GetWindowPosition(uint32_t window_id) {
 	    std::vector<uintptr_t> result;

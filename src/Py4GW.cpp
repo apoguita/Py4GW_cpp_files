@@ -24,6 +24,15 @@ bool auto_scroll = true;
 Timer script_timer;
 Timer script_timer2;
 
+struct DeferredMixedCommand {
+    std::function<void()> action;
+    Timer timer;
+    int delay_ms;
+    bool active = false;
+};
+
+DeferredMixedCommand mixed_deferred;
+
 // Initialize merchant interaction (setup callbacks)
 
 void Py4GW::OnPriceReceived(uint32_t item_id, uint32_t price)
@@ -1482,16 +1491,235 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
 	if (script_state2 == ScriptState::Running && !script_content2.empty()) {
 		ExecutePythonScript2();
 	}
+
+    if (mixed_deferred.active && mixed_deferred.timer.hasElapsed(mixed_deferred.delay_ms)) {
+        if (mixed_deferred.action) {
+            mixed_deferred.action();
+        }
+        mixed_deferred.active = false;
+    }
+
     
 }
 
+// Wrapper functions for script control
+bool Py4GW_LoadScript(const std::string& path) {
+    strcpy(script_path, path.c_str());
+    return LoadAndExecuteScriptOnce();
+}
 
+bool Py4GW_RunScript() {
+    if (script_state == ScriptState::Stopped) {
+        if (LoadAndExecuteScriptOnce()) {
+            script_state = ScriptState::Running;
+            script_timer.reset();
+            Log("Py4GW", "Script started from binding.", MessageType::Notice);
+            return true;
+        }
+    }
+    return false;
+}
+
+void Py4GW_StopScript() {
+    ResetScriptEnvironment();
+    script_state = ScriptState::Stopped;
+    script_timer.stop();
+    Log("Py4GW", "Script stopped from binding.", MessageType::Notice);
+}
+
+bool Py4GW_PauseScript() {
+    if (script_state == ScriptState::Running) {
+        script_state = ScriptState::Paused;
+        script_timer.Pause();
+        Log("Py4GW", "Script paused from binding.", MessageType::Notice);
+        return true;
+    }
+    return false;
+}
+
+bool Py4GW_ResumeScript() {
+    if (script_state == ScriptState::Paused) {
+        script_state = ScriptState::Running;
+        script_timer.Resume();
+        Log("Py4GW", "Script resumed from binding.", MessageType::Notice);
+        return true;
+    }
+    return false;
+}
+
+std::string Py4GW_GetScriptStatus() {
+    switch (script_state) {
+    case ScriptState::Running: return "Running";
+    case ScriptState::Paused:  return "Paused";
+    case ScriptState::Stopped: return "Stopped";
+    default: return "Unknown";
+    }
+}
+
+
+void ScheduleDeferredAction(std::function<void()> fn, int delay_ms) {
+    mixed_deferred.action = fn;
+    mixed_deferred.delay_ms = delay_ms;
+    mixed_deferred.timer.reset();
+    mixed_deferred.timer.start();
+    mixed_deferred.active = true;
+}
+
+// === Mixed deferred wrappers ===
+void Py4GW_DeferLoadAndRun(const std::string& path, int delay_ms) {
+    ScheduleDeferredAction([path]() {
+        strcpy(script_path, path.c_str());
+        if (LoadAndExecuteScriptOnce()) {
+            script_state = ScriptState::Running;
+            script_timer.reset();
+            Log("Py4GW", "Deferred: script loaded and started.", MessageType::Notice);
+        }
+        }, delay_ms);
+}
+
+void Py4GW_DeferStopLoadAndRun(const std::string& path, int delay_ms) {
+    ScheduleDeferredAction([path]() {
+        Py4GW_StopScript();
+        strcpy(script_path, path.c_str());
+        if (LoadAndExecuteScriptOnce()) {
+            script_state = ScriptState::Running;
+            script_timer.reset();
+            Log("Py4GW", "Deferred: stopped, loaded and started.", MessageType::Notice);
+        }
+        }, delay_ms);
+}
+
+void Py4GW_DeferStopAndRun(int delay_ms) {
+    ScheduleDeferredAction([]() {
+        Py4GW_StopScript();
+        Py4GW_RunScript();
+        Log("Py4GW", "Deferred: stopped and restarted.", MessageType::Notice);
+        }, delay_ms);
+}
 
 
 HWND Py4GW::get_gw_window_handle() { 
     return GW::MemoryMgr::GetGWWindowHandle();
     //return gw_window_handle; 
 }
+
+void ResizeWindow(int width, int height) {
+    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
+    if (!hwnd) return;
+
+    RECT rect;
+    GetWindowRect(hwnd, &rect);
+    MoveWindow(hwnd, rect.left, rect.top, width, height, TRUE);
+}
+
+void MoveWindowTo(int x, int y) {
+    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
+    if (!hwnd) return;
+
+    RECT rect;
+    GetWindowRect(hwnd, &rect);
+    int width = rect.right - rect.left;
+    int height = rect.bottom - rect.top;
+    MoveWindow(hwnd, x, y, width, height, TRUE);
+}
+
+void SetWindowGeometry(int x, int y, int width, int height) {
+    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
+    if (!hwnd) return;
+
+    RECT rect;
+    GetWindowRect(hwnd, &rect);
+
+    if (x < 0) x = rect.left;
+    if (y < 0) y = rect.top;
+    if (width < 0)  width = rect.right - rect.left;
+    if (height < 0) height = rect.bottom - rect.top;
+
+    MoveWindow(hwnd, x, y, width, height, TRUE);
+}
+
+
+std::tuple<int, int, int, int> GetWindowRectFn() {
+    HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
+    RECT rect;
+    if (hwnd && GetWindowRect(hwnd, &rect)) {
+        return { rect.left, rect.top, rect.right, rect.bottom };
+    }
+    return { 0, 0, 0, 0 };
+}
+
+std::tuple<int, int, int, int> GetClientRectFn() {
+	HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
+	RECT rect;
+	if (hwnd && GetClientRect(hwnd, &rect)) {
+		return { rect.left, rect.top, rect.right, rect.bottom };
+	}
+	return { 0, 0, 0, 0 };
+}
+
+void SetWindowTitle(const std::string& title) {
+    HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
+    if (!hwnd || title.empty()) return;
+
+    // Step 1: update the window title buffer
+    SendMessageA(hwnd, WM_SETTEXT, 0, (LPARAM)title.c_str());
+
+    // Step 2: force Windows to redraw the caption itself
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
+    HDC hdc = GetWindowDC(hwnd);
+    if (hdc) {
+        RECT rect;
+        GetWindowRect(hwnd, &rect);
+        OffsetRect(&rect, -rect.left, -rect.top); // normalize to (0,0)
+        // Ask Windows to draw the caption using its buffer
+        DrawCaption(hwnd, hdc, &rect, DC_TEXT);
+        ReleaseDC(hwnd, hdc);
+    }
+
+    // Step 3: read back for confirmation
+    char buf[256] = { 0 };
+    GetWindowTextA(hwnd, buf, sizeof(buf));
+    MessageBoxA(nullptr, buf, "After Set + Redraw", MB_OK);
+}
+
+
+bool IsWindowActive() {
+    return GW::MemoryMgr::GetGWWindowHandle() == GetActiveWindow();
+}
+
+bool IsWindowMinimized() {
+    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
+    return hwnd && IsIconic(hwnd);
+}
+
+bool IsWindowInBackground() {
+    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
+    return hwnd && GetActiveWindow() != hwnd;
+}
+
+void SetBorderless(bool enable) {
+    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
+    if (!hwnd) return;
+
+    LONG style = GetWindowLong(hwnd, GWL_STYLE);
+
+    if (enable) {
+        style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU);
+    }
+    else {
+        style |= (WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU);
+    }
+
+    SetWindowLong(hwnd, GWL_STYLE, style);
+
+    // apply changes
+    SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
+}
+
+
 
 
 PYBIND11_EMBEDDED_MODULE(Py4GW, m)
@@ -1543,7 +1771,50 @@ PYBIND11_EMBEDDED_MODULE(Py4GW, m)
     console.def("get_gw_window_handle", []() -> uintptr_t {
         return reinterpret_cast<uintptr_t>(Py4GW::get_gw_window_handle());
         }, "Get the Guild Wars window handle as an integer");
+    
+	console.def("get_projects_path", []() -> std::string {
+		return dllDirectory;
+		}, "Get the path where Py4GW.dll is located");
 
+
+	console.def("resize_window", &ResizeWindow, "Resize the Guild Wars window", py::arg("width"), py::arg("height"));
+	console.def("move_window_to", &MoveWindowTo, "Move the Guild Wars window to (x, y)", py::arg("x"), py::arg("y"));
+	console.def("set_window_geometry", &SetWindowGeometry, "Set the Guild Wars window geometry (x, y, width, height). Use -1 to keep current value.", py::arg("x"), py::arg("y"), py::arg("width"), py::arg("height"));
+	console.def("get_window_rect", &GetWindowRectFn, "Get the Guild Wars window rectangle (left, top, right, bottom)");
+	console.def("get_client_rect", &GetClientRectFn, "Get the Guild Wars client rectangle (left, top, right, bottom)");
+    console.def("set_window_title", [](py::str s) {
+        std::string w = py::cast<std::string>(s); // Python str -> wstring
+        SetWindowTitle(w);
+        }, py::arg("title"));
+ 
+	console.def("is_window_active", &IsWindowActive, "Check if the Guild Wars window is active (focused)");
+	console.def("is_window_minimized", &IsWindowMinimized, "Check if the Guild Wars window is minimized");
+	console.def("is_window_in_background", &IsWindowInBackground, "Check if the Guild Wars window is in the background (not focused)");
+	console.def("set_borderless", &SetBorderless, "Enable or disable borderless window mode for Guild Wars", py::arg("enable"));
+
+    // === Script Control Bindings ===
+    console.def("load", &Py4GW_LoadScript, "Load a Python script from path", py::arg("path"));
+    console.def("run", &Py4GW_RunScript, "Run the currently loaded script");
+    console.def("stop", &Py4GW_StopScript, "Stop the currently running script");
+    console.def("pause", &Py4GW_PauseScript, "Pause the running script");
+    console.def("resume", &Py4GW_ResumeScript, "Resume the paused script");
+    console.def("status", &Py4GW_GetScriptStatus, "Get current script status (Running, Paused, Stopped)");
+    console.def("defer_load_and_run", &Py4GW_DeferLoadAndRun,
+        "Stop current if needed, then load and run new script after delay (ms)",
+        py::arg("path"), py::arg("delay_ms") = 1000);
+
+    console.def("defer_stop_load_and_run", &Py4GW_DeferStopLoadAndRun,
+        "Force stop, then load and run new script after delay (ms)",
+        py::arg("path"), py::arg("delay_ms") = 1000);
+
+    console.def("defer_stop_and_run", &Py4GW_DeferStopAndRun,
+        "Stop current script, then rerun it after delay (ms)",
+        py::arg("delay_ms") = 1000);
+
+
+
+
+    
     py::class_<PingTracker>(m, "PingHandler")
         .def(py::init<>())                         // Constructor
         .def("Terminate", &PingTracker::Terminate) // Manual cleanup

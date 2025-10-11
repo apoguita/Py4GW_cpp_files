@@ -249,7 +249,8 @@ void bind_camera(py::module_& m) {
 		.def("ComputeCameraPos", &PyCamera::ComputeCameraPos)
 		.def("UpdateCameraPos", &PyCamera::UpdateCameraPos)
 		.def("SetCameraPos", &PyCamera::SetCameraPos, py::arg("x"), py::arg("y"), py::arg("z"))
-		.def("SetLookAtTarget", &PyCamera::SetLookAtTarget, py::arg("x"), py::arg("y"), py::arg("z"));
+		.def("SetLookAtTarget", &PyCamera::SetLookAtTarget, py::arg("x"), py::arg("y"), py::arg("z"))
+		.def("SetFog", &PyCamera::SetFog, py::arg("fog"));
 }
 
 

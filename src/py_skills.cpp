@@ -21,7 +21,7 @@ void Skill::GetContext() {
         Target = skill->target;
         SkillEquipType = skill->skill_equip_type;
         Overcast = skill->overcast;
-        EnergyCost = skill->energy_cost;
+		EnergyCost = skill->GetEnergyCost();
         HealthCost = skill->health_cost;
         Adrenaline = skill->adrenaline;
         Activation = skill->activation;
@@ -58,6 +58,10 @@ void Skill::GetContext() {
         IsStacking = skill->IsStacking();
         IsNonStacking = skill->IsNonStacking();
         IsUnused = skill->IsUnused();
+
+		h0004 = skill->h0004;
+		h0032 = skill->h0032;
+		h0037 = skill->h0037;
     }
 }
 
@@ -145,7 +149,10 @@ void bind_Skill(py::module_& m) {
         .def_readonly("is_unused", &Skill::IsUnused)
         .def_readonly("adrenaline_a", &Skill::adrenaline_a)
         .def_readonly("adrenaline_b", &Skill::adrenaline_b)
-        .def_readonly("recharge2", &Skill::recharge);
+        .def_readonly("recharge2", &Skill::recharge)
+		.def_readonly("h0004", &Skill::h0004)
+		.def_readonly("h0032", &Skill::h0032)
+		.def_readonly("h0037", &Skill::h0037);
 }
 
 PYBIND11_EMBEDDED_MODULE(PySkill, m) {

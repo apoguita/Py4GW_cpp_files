@@ -34,6 +34,7 @@ public:
     uint32_t max_balth;
     uint32_t current_skill_points;
     uint32_t total_earned_skill_points;
+    std::vector<std::pair<int, int>> party_morale;
 
 
 

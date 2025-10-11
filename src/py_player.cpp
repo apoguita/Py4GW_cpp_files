@@ -73,6 +73,23 @@ void PyPlayer::ResetContext() {
 	total_earned_skill_points = 0;
 }
 
+inline uint32_t PickHighestValid(uint32_t a, uint32_t b) {
+    constexpr uint32_t INVALID_LOW = 0;
+    constexpr uint32_t INVALID_HIGH = std::numeric_limits<uint32_t>::max();
+
+    bool a_valid = (a != INVALID_LOW && a != INVALID_HIGH);
+    bool b_valid = (b != INVALID_LOW && b != INVALID_HIGH);
+
+    if (a_valid && b_valid)
+        return std::max(a, b);
+    if (a_valid)
+        return a;
+    if (b_valid)
+        return b;
+
+    return 0;
+}
+
 void PyPlayer::GetContext() {
     auto instance_type = GW::Map::GetInstanceType();
     bool is_map_ready = (GW::Map::GetIsMapLoaded()) && (!GW::Map::GetIsObserving()) && (instance_type != GW::Constants::InstanceType::Loading);
@@ -100,7 +117,7 @@ void PyPlayer::GetContext() {
     if (GW::Map::GetIsMapLoaded()) {
         GW::WorldContext* world_context = GW::GetWorldContext();
         if (world_context) {
-            wchar_t*  waccount_name = world_context->accountInfo->account_name;
+            wchar_t* waccount_name = world_context->accountInfo->account_name;
             account_name = std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(waccount_name);
 
             const auto char_context = GW::GetCharContext();
@@ -115,22 +132,47 @@ void PyPlayer::GetContext() {
             qualifier_points = world_context->accountInfo->qualifier_points;
             rank = world_context->accountInfo->rank;
             tournament_reward_points = world_context->accountInfo->tournament_reward_points;
-            morale = world_context->morale;
-            experience = world_context->experience;
-            current_kurzick = world_context->current_kurzick;
-            total_earned_kurzick = world_context->total_earned_kurzick;
+            morale = PickHighestValid(world_context->morale, world_context->morale_dupe);
+
+            std::vector<std::pair<int, int>> party_morale;
+
+            auto party_morale_info = world_context->player_morale_info;
+            party_morale.clear();
+
+            constexpr size_t MAX_PARTY_SIZE = 16; // Safety cap to prevent runaway loops
+            const uint32_t UINT_MAX_VALUE = std::numeric_limits<uint32_t>::max();
+
+            for (size_t i = 0; i < MAX_PARTY_SIZE && party_morale_info; ++i) {
+                uint32_t pm_agent_id = party_morale_info->agent_id;
+                uint32_t pm_morale = party_morale_info->morale;
+
+                // Stop if invalid/garbage data
+                if (pm_agent_id == 0 || pm_agent_id == UINT_MAX_VALUE)
+                    break;
+
+                party_morale.emplace_back(static_cast<int>(pm_agent_id),
+                    static_cast<int>(pm_morale));
+
+                // Advance to next struct (array-like traversal)
+                ++party_morale_info;
+            }
+
+
+            experience = PickHighestValid(world_context->experience, world_context->experience_dupe);
+            current_kurzick = PickHighestValid(world_context->current_kurzick, world_context->current_kurzick_dupe);
+            total_earned_kurzick = PickHighestValid(world_context->total_earned_kurzick, world_context->total_earned_kurzick_dupe);
             max_kurzick = world_context->max_kurzick;
-            current_luxon = world_context->current_luxon;
-            total_earned_luxon = world_context->total_earned_luxon;
+            current_luxon = PickHighestValid(world_context->current_luxon, world_context->current_luxon_dupe);
+            total_earned_luxon = PickHighestValid(world_context->total_earned_luxon, world_context->total_earned_luxon_dupe);
             max_luxon = world_context->max_luxon;
-            current_imperial = world_context->current_imperial;
-            total_earned_imperial = world_context->total_earned_imperial;
+            current_imperial = PickHighestValid(world_context->current_imperial, world_context->current_imperial_dupe);
+            total_earned_imperial = PickHighestValid(world_context->total_earned_imperial, world_context->total_earned_imperial_dupe);
             max_imperial = world_context->max_imperial;
-            current_balth = world_context->current_balth;
-            total_earned_balth = world_context->total_earned_balth;
+            current_balth = PickHighestValid(world_context->current_balth, world_context->current_balth_dupe);
+            total_earned_balth = PickHighestValid(world_context->total_earned_balth, world_context->total_earned_balth_dupe);
             max_balth = world_context->max_balth;
-            current_skill_points = world_context->current_skill_points;
-            total_earned_skill_points = world_context->total_earned_skill_points;
+            current_skill_points = PickHighestValid(world_context->current_skill_points, world_context->current_skill_points_dupe);
+            total_earned_skill_points = PickHighestValid(world_context->total_earned_skill_points, world_context->total_earned_skill_points_dupe);
         }
     }
 
@@ -811,6 +853,7 @@ void BindPyPlayer(py::module_& m) {
         .def_readonly("rank", &PyPlayer::rank)  // Bind the rank attribute
         .def_readonly("tournament_reward_points", &PyPlayer::tournament_reward_points)  // Bind the tournament_reward_points attribute
         .def_readonly("morale", &PyPlayer::morale)  // Bind the morale attribute
+		.def_readonly("party_morale", &PyPlayer::party_morale)  // Bind the party_morale attribute
         .def_readonly("experience", &PyPlayer::experience)  // Bind the experience attribute
         .def_readonly("current_kurzick", &PyPlayer::current_kurzick)  // Bind the current_kurzick attribute
         .def_readonly("total_earned_kurzick", &PyPlayer::total_earned_kurzick)  // Bind the total_earned_kurzick attribute
