@@ -94,24 +94,24 @@ void UIFrame::GetContext() {
 	field22_0x58 = frame->field22_0x58;
 	field23_0x5c = frame->field23_0x5c;
 	field24_0x60 = frame->field24_0x60;
-	field25_0x64 = frame->field25_0x64;
-	field26_0x68 = frame->field26_0x68;
-	field27_0x6c = frame->field27_0x6c;
-	field28_0x70 = frame->field28_0x70;
-	field29_0x74 = frame->field29_0x74;
-	field30_0x78 = frame->field30_0x78;
-	field31_0x7c = FillVectorFromPointerArray(frame->field31_0x7c);
-	field32_0x8c = frame->field32_0x8c;
-	field33_0x90 = frame->field33_0x90;
-	field34_0x94 = frame->field34_0x94;
-	field35_0x98 = frame->field35_0x98;
-	field36_0x9c = frame->field36_0x9c;
-	field40_0xb8 = frame->field40_0xb8;
-	field41_0xbc = frame->field41_0xbc;
-	field42_0xc0 = frame->field42_0xc0;
-	field43_0xc4 = frame->field43_0xc4;
-	field44_0xc8 = frame->field44_0xc8;
-	field45_0xcc = frame->field45_0xcc;
+	field25_0x6c = frame->field25_0x6c;
+	field26_0x70 = frame->field26_0x70;
+	field27_0x74 = frame->field27_0x74;
+	field28_0x78 = frame->field28_0x78;
+	field29_0x7c = frame->field29_0x7c;
+	field30_0x80 = frame->field30_0x80;
+	field31_0x84 = FillVectorFromPointerArray(frame->field31_0x84);
+	field32_0x94 = frame->field32_0x94;
+	field33_0x98 = frame->field33_0x98;
+	field34_0x9c = frame->field34_0x9c;
+	field35_0xa0 = frame->field35_0xa0;
+	field36_0xa4 = frame->field36_0xa4;
+	field40_0xc0 = frame->field40_0xc0;
+	field41_0xc4 = frame->field41_0xc4;
+	field42_0xc8 = frame->field42_0xc8;
+	field43_0xcc = frame->field43_0xcc;
+	field44_0xd0 = frame->field44_0xd0;
+	field45_0xd4 = frame->field45_0xd4;
 	position.top = frame->position.top;
 	position.bottom = frame->position.bottom;
 	position.left = frame->position.left;
@@ -151,9 +151,9 @@ void UIFrame::GetContext() {
 	position.viewport_scale_x = frame->position.GetViewportScale(root).x;
 	position.viewport_scale_y = frame->position.GetViewportScale(root).y;
 
-	field63_0x114 = frame->field63_0x114;
-	field64_0x118 = frame->field64_0x118;
-	field65_0x11c = frame->field65_0x11c;
+	field63_0x11c = frame->field63_0x11c;
+	field64_0x120 = frame->field64_0x120;
+	field65_0x124 = frame->field65_0x124;
 
 	relation.parent_id = parent ? parent->frame_id : 0;
 	relation.field67_0x124 = frame->relation.field67_0x124;
@@ -161,34 +161,39 @@ void UIFrame::GetContext() {
 	relation.frame_hash_id = frame->relation.frame_hash_id;
 	relation.siblings = GetSiblingFrameIDs(frame->frame_id);
 
-	field73_0x13c = frame->field73_0x13c;
-	field74_0x140 = frame->field74_0x140;
-	field75_0x144 = frame->field75_0x144;
-	field76_0x148 = frame->field76_0x148;
-	field77_0x14c = frame->field77_0x14c;
-	field78_0x150 = frame->field78_0x150;
-	field79_0x154 = frame->field79_0x154;
-	field80_0x158 = frame->field80_0x158;
-	field81_0x15c = frame->field81_0x15c;
-	field82_0x160 = frame->field82_0x160;
-	field83_0x164 = frame->field83_0x164;
-	field84_0x168 = frame->field84_0x168;
-	field85_0x16c = frame->field85_0x16c;
-	field86_0x170 = frame->field86_0x170;
-	field87_0x174 = frame->field87_0x174;
-	field88_0x178 = frame->field88_0x178;
-	field89_0x17c = frame->field89_0x17c;
-	field90_0x180 = frame->field90_0x180;
-	field91_0x184 = frame->field91_0x184;
-	field92_0x188 = frame->field92_0x188;
-	field93_0x18c = frame->field93_0x18c;
-	field94_0x190 = frame->field94_0x190;
-	field95_0x194 = frame->field95_0x194;
-	field96_0x198 = frame->field96_0x198;
-	field97_0x19c = frame->field97_0x19c;
-	field98_0x1a0 = frame->field98_0x1a0;
+	field73_0x144 = frame->field73_0x144;
+	field74_0x148 = frame->field74_0x148;
+	field75_0x14c = frame->field75_0x14c;
+	field76_0x150 = frame->field76_0x150;
+	field77_0x154 = frame->field77_0x154;
+	field78_0x158 = frame->field78_0x158;
+	field79_0x15c = frame->field79_0x15c;
+	field80_0x160 = frame->field80_0x160;
+	field81_0x164 = frame->field81_0x164;
+	field82_0x168 = frame->field82_0x168;
+	field83_0x16c = frame->field83_0x16c;
+	field84_0x170 = frame->field84_0x170;
+	field85_0x174 = frame->field85_0x174;
+	field86_0x178 = frame->field86_0x178;
+	field87_0x17c = frame->field87_0x17c;
+	field88_0x180 = frame->field88_0x180;
+	field89_0x184 = frame->field89_0x184;
+	field90_0x188 = frame->field90_0x188;
+	frame_state = frame->frame_state;
+	field92_0x190 = frame->field92_0x190;
+	field93_0x194 = frame->field93_0x194;
+	field94_0x198 = frame->field94_0x198;
+	field95_0x19c = frame->field95_0x19c;
+	field96_0x1a0 = frame->field96_0x1a0;
+	field97_0x1a4 = frame->field97_0x1a4;
+	field98_0x1a8 = frame->field98_0x1a8;
 	//TooltipInfo* tooltip_info;
-	field100_0x1a8 = frame->field100_0x1a8;
+	field100_0x1b0 = frame->field100_0x1b0;
+	field101_0x1b4 = frame->field101_0x1b4;
+	field102_0x1b8 = frame->field102_0x1b8;
+	field103_0x1bc = frame->field103_0x1bc;
+	field104_0x1c0 = frame->field104_0x1c0;
+	field105_0x1c4 = frame->field105_0x1c4;
 
 	is_visible = frame->IsVisible();
 	is_created = frame->IsCreated();
@@ -273,58 +278,63 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		.def_readwrite("field22_0x58", &UIFrame::field22_0x58)
 		.def_readwrite("field23_0x5c", &UIFrame::field23_0x5c)
 		.def_readwrite("field24_0x60", &UIFrame::field24_0x60)
-		.def_readwrite("field25_0x64", &UIFrame::field25_0x64)
-		.def_readwrite("field26_0x68", &UIFrame::field26_0x68)
-		.def_readwrite("field27_0x6c", &UIFrame::field27_0x6c)
-		.def_readwrite("field28_0x70", &UIFrame::field28_0x70)
-		.def_readwrite("field29_0x74", &UIFrame::field29_0x74)
-		.def_readwrite("field30_0x78", &UIFrame::field30_0x78)
-		.def_readwrite("field31_0x7c", &UIFrame::field31_0x7c)
-		.def_readwrite("field32_0x8c", &UIFrame::field32_0x8c)
-		.def_readwrite("field33_0x90", &UIFrame::field33_0x90)
-		.def_readwrite("field34_0x94", &UIFrame::field34_0x94)
-		.def_readwrite("field35_0x98", &UIFrame::field35_0x98)
-		.def_readwrite("field36_0x9c", &UIFrame::field36_0x9c)
+		.def_readwrite("field25_0x6c", &UIFrame::field25_0x6c)
+		.def_readwrite("field26_0x70", &UIFrame::field26_0x70)
+		.def_readwrite("field27_0x74", &UIFrame::field27_0x74)
+		.def_readwrite("field28_0x78", &UIFrame::field28_0x78)
+		.def_readwrite("field29_0x7c", &UIFrame::field29_0x7c)
+		.def_readwrite("field30_0x80", &UIFrame::field30_0x80)
+		.def_readwrite("field31_0x84", &UIFrame::field31_0x84)
+		.def_readwrite("field32_0x94", &UIFrame::field32_0x94)
+		.def_readwrite("field33_0x98", &UIFrame::field33_0x98)
+		.def_readwrite("field34_0x9c", &UIFrame::field34_0x9c)
+		.def_readwrite("field35_0xa0", &UIFrame::field35_0xa0)
+		.def_readwrite("field36_0xa4", &UIFrame::field36_0xa4)
 		.def_readwrite("frame_callbacks", &UIFrame::frame_callbacks)
 		.def_readwrite("child_offset_id", &UIFrame::child_offset_id)
-		.def_readwrite("field40_0xb8", &UIFrame::field40_0xb8)
-		.def_readwrite("field41_0xbc", &UIFrame::field41_0xbc)
-		.def_readwrite("field42_0xc0", &UIFrame::field42_0xc0)
-		.def_readwrite("field43_0xc4", &UIFrame::field43_0xc4)
-		.def_readwrite("field44_0xc8", &UIFrame::field44_0xc8)
-		.def_readwrite("field45_0xcc", &UIFrame::field45_0xcc)
+		.def_readwrite("field40_0xc0", &UIFrame::field40_0xc0)
+		.def_readwrite("field41_0xc4", &UIFrame::field41_0xc4)
+		.def_readwrite("field42_0xc8", &UIFrame::field42_0xc8)
+		.def_readwrite("field43_0xcc", &UIFrame::field43_0xcc)
+		.def_readwrite("field44_0xd0", &UIFrame::field44_0xd0)
+		.def_readwrite("field45_0xd4", &UIFrame::field45_0xd4)
 		.def_readonly("position", &UIFrame::position)
-		.def_readwrite("field63_0x114", &UIFrame::field63_0x114)
-		.def_readwrite("field64_0x118", &UIFrame::field64_0x118)
-		.def_readwrite("field65_0x11c", &UIFrame::field65_0x11c)
+		.def_readwrite("field63_0x11c", &UIFrame::field63_0x11c)
+		.def_readwrite("field64_0x120", &UIFrame::field64_0x120)
+		.def_readwrite("field65_0x124", &UIFrame::field65_0x124)
 		.def_readwrite("relation", &UIFrame::relation)
-		.def_readwrite("field73_0x13c", &UIFrame::field73_0x13c)
-		.def_readwrite("field74_0x140", &UIFrame::field74_0x140)
-		.def_readwrite("field75_0x144", &UIFrame::field75_0x144)
-		.def_readwrite("field76_0x148", &UIFrame::field76_0x148)
-		.def_readwrite("field77_0x14c", &UIFrame::field77_0x14c)
-		.def_readwrite("field78_0x150", &UIFrame::field78_0x150)
-		.def_readwrite("field79_0x154", &UIFrame::field79_0x154)
-		.def_readwrite("field80_0x158", &UIFrame::field80_0x158)
-		.def_readwrite("field81_0x15c", &UIFrame::field81_0x15c)
-		.def_readwrite("field82_0x160", &UIFrame::field82_0x160)
-		.def_readwrite("field83_0x164", &UIFrame::field83_0x164)
-		.def_readwrite("field84_0x168", &UIFrame::field84_0x168)
-		.def_readwrite("field85_0x16c", &UIFrame::field85_0x16c)
-		.def_readwrite("field86_0x170", &UIFrame::field86_0x170)
-		.def_readwrite("field87_0x174", &UIFrame::field87_0x174)
-		.def_readwrite("field88_0x178", &UIFrame::field88_0x178)
-		.def_readwrite("field89_0x17c", &UIFrame::field89_0x17c)
-		.def_readwrite("field90_0x180", &UIFrame::field90_0x180)
-		.def_readwrite("field91_0x184", &UIFrame::field91_0x184)
-		.def_readwrite("field92_0x188", &UIFrame::field92_0x188)
-		.def_readwrite("field93_0x18c", &UIFrame::field93_0x18c)
-		.def_readwrite("field94_0x190", &UIFrame::field94_0x190)
-		.def_readwrite("field95_0x194", &UIFrame::field95_0x194)
-		.def_readwrite("field96_0x198", &UIFrame::field96_0x198)
-		.def_readwrite("field97_0x19c", &UIFrame::field97_0x19c)
-		.def_readwrite("field98_0x1a0", &UIFrame::field98_0x1a0)
-		.def_readwrite("field100_0x1a8", &UIFrame::field100_0x1a8)
+		.def_readwrite("field73_0x144", &UIFrame::field73_0x144)
+		.def_readwrite("field74_0x148", &UIFrame::field74_0x148)
+		.def_readwrite("field75_0x14c", &UIFrame::field75_0x14c)
+		.def_readwrite("field76_0x150", &UIFrame::field76_0x150)
+		.def_readwrite("field77_0x154", &UIFrame::field77_0x154)
+		.def_readwrite("field78_0x158", &UIFrame::field78_0x158)
+		.def_readwrite("field79_0x15c", &UIFrame::field79_0x15c)
+		.def_readwrite("field80_0x160", &UIFrame::field80_0x160)
+		.def_readwrite("field81_0x164", &UIFrame::field81_0x164)
+		.def_readwrite("field82_0x168", &UIFrame::field82_0x168)
+		.def_readwrite("field83_0x16c", &UIFrame::field83_0x16c)
+		.def_readwrite("field84_0x170", &UIFrame::field84_0x170)
+		.def_readwrite("field85_0x174", &UIFrame::field85_0x174)
+		.def_readwrite("field86_0x178", &UIFrame::field86_0x178)
+		.def_readwrite("field87_0x17c", &UIFrame::field87_0x17c)
+		.def_readwrite("field88_0x180", &UIFrame::field88_0x180)
+		.def_readwrite("field89_0x184", &UIFrame::field89_0x184)
+		.def_readwrite("field90_0x188", &UIFrame::field90_0x188)
+		.def_readwrite("frame_state", &UIFrame::frame_state)
+		.def_readwrite("field92_0x190", &UIFrame::field92_0x190)
+		.def_readwrite("field93_0x194", &UIFrame::field93_0x194)
+		.def_readwrite("field94_0x198", &UIFrame::field94_0x198)
+		.def_readwrite("field95_0x19c", &UIFrame::field95_0x19c)
+		.def_readwrite("field96_0x1a0", &UIFrame::field96_0x1a0)
+		.def_readwrite("field97_0x1a4", &UIFrame::field97_0x1a4)
+		.def_readwrite("field98_0x1a8", &UIFrame::field98_0x1a8)
+		.def_readwrite("field100_0x1b0", &UIFrame::field100_0x1b0)
+		.def_readwrite("field101_0x1b4", &UIFrame::field101_0x1b4)
+		.def_readwrite("field102_0x1b8", &UIFrame::field102_0x1b8)
+		.def_readwrite("field103_0x1bc", &UIFrame::field103_0x1bc)
+		.def_readwrite("field104_0x1c0", &UIFrame::field104_0x1c0)
+		.def_readwrite("field105_0x1c4", &UIFrame::field105_0x1c4)
 
 		// Methods
 		.def("get_context", &UIFrame::GetContext);

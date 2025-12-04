@@ -68,8 +68,11 @@ namespace {
     {
         InitializeCriticalSection(&mutex);
 
-        uintptr_t address = Scanner::Find("\x8b\x75\x08\xdd\xd9\xf6\xc4\x41","xxxxxxxx",-0x20);
-        LeaveGameThread_Func = (Render_t)address;
+        //uintptr_t address = Scanner::Find("\x8b\x75\x08\xdd\xd9\xf6\xc4\x41","xxxxxxxx",-0x20);
+        //uintptr_t address = Scanner::Find("\x8b\x75\x08\x57\x8b\x7d\x0c\xdd", "xxxxxxxx", -0x20); //dec 3
+        //LeaveGameThread_Func = (Render_t)address;
+        
+        LeaveGameThread_Func = (Render_t)Scanner::ToFunctionStart(Scanner::FindAssertion("FrApi.cpp", "renderElapsed >= 0", 0, 0), 0x300);
 
 		Logger::AssertAddress("LeaveGameThread_Func", (uintptr_t)LeaveGameThread_Func);
 

@@ -27,14 +27,25 @@ namespace GW {
 
     typedef TList<VisibleEffect> VisibleEffectList;
 
+    struct EquipmentVTable {
+        void(__fastcall* Destroy)(void* this_ptr);
+        void(__fastcall* GetItemClassFlags)(void* this_ptr, uint32_t edx, uint32_t slot);
+        void(__fastcall* EquipItem)(void* this_ptr, uint32_t edx, uint32_t slot);
+        void(__fastcall* LoadModelMaybe)(void* this_ptr, uint32_t edx, uint32_t slot);
+        void(__fastcall* RemoveItem)(void* this_ptr, uint32_t edx, uint32_t slot);
+        void(__fastcall* RefreshModelMaybe)(void* this_ptr);
+        bool(__fastcall* ModelRelatedBooleanCheck)(void* this_ptr);
+        uint32_t(__fastcall* GetType)(void* this_ptr);
+    };
+
     // Courtesy of DerMonech14
     struct Equipment {
 
-        /* +h0000 */ void     *vtable;
+        /* +h0000 */ EquipmentVTable* vtable;
         /* +h0004 */ uint32_t h0004;            // always 2 ?
-        /* +h0008 */ uint32_t h0008;            // Ptr PlayerModelFile?
+        /* +h0008 */ void* model_handle;            // Ptr PlayerModelFile?
         /* +h000C */ uint32_t h000C;            // 
-        /* +h0010 */ ItemData* reft_hand_ptr;   // Ptr Bow, Hammer, Focus, Daggers, Scythe
+        /* +h0010 */ ItemData* left_hand_ptr;   // Ptr Bow, Hammer, Focus, Daggers, Scythe
         /* +h0014 */ ItemData* right_hand_ptr;  // Ptr Sword, Spear, Staff, Daggers, Axe, Zepter, Bundle
         /* +h0018 */ uint32_t h0018;            // 
         /* +h001C */ ItemData* shield_ptr;      // Ptr Shield
@@ -70,7 +81,48 @@ namespace GW {
                 /* +h00D4 */ ItemID item_id_costume_head;
             };
         };
+        /* +h00D8 */ uint32_t h00D8[0xD];   // Padding to reach 0x10C (52 bytes = 13 uint32_t)
+        inline uint32_t GetType() {
+            return vtable->GetType(this);
+        }
+        inline bool RedrawEquipmentSlot(uint32_t slot) {
+            if (!(slot < _countof(items) && items[slot].model_file_id))
+                return false;
+            return vtable->EquipItem(this, 0, slot), true;
+        }
+        inline bool UndrawEquipmentSlot(uint32_t slot) {
+            if (!(slot < _countof(items) && items[slot].model_file_id))
+                return false;
+            return vtable->RemoveItem(this, 0, slot), true;
+        }
     };
+    //static_assert(sizeof(NPCEquipment) == 0x10C);
+
+    struct PlayerEquipment : Equipment {
+        /* +h010C */ uint32_t h010C;         // From constructor param_3
+        /* +h0110 */ uint32_t h0110[0xB2];   // Padding (178 uint32_t = 0x2C8 bytes)
+        /* +h03D8 */ uint32_t equipment_flags; // Equipment redraw flags (0xFFFFFFFF = needs draw, 0x00000000 = fully drawn)
+        /* +h03DC */ uint32_t h03DC;         // Initialized to 0
+        /* +h03E0 */ uint32_t visibility_flags; // Equipment visibility flags (0xFFFFFFFF initial)
+        /* +h03E4 */ uint32_t h03E4;         // param_1 from constructor
+        /* +h03E8 */ uint32_t h03E8[4];      // Padding to reach 0x3F8 (16 bytes)
+
+        // Check if any equipment is waiting for redraw (any bits set)
+        inline bool PendingRedraw() {
+            return equipment_flags != 0;
+        }
+
+        // Check if equipment needs initial draw (all bits set)
+        inline bool PendingFirstDraw() {
+            return equipment_flags == 0xFFFFFFFF;
+        }
+
+        // Check if equipment is fully drawn (all bits cleared)
+        inline bool IsFullyDrawn() {
+            return equipment_flags == 0;
+        }
+    };
+    //static_assert(sizeof(PlayerEquipment) == 0x3F8);
 
     struct TagInfo {
         /* +h0000 */ uint16_t guild_id;

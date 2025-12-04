@@ -339,8 +339,8 @@ namespace {
             WorldMapState_Addr = *(uintptr_t*)address;
 
 
-        //address = Scanner::Find("\x83\xfb\x46\x73\x14", "xxxxx", -0x34);
-        address = Scanner::Find("\x83\xfb\x47\x73\x14", "xxxxx", -0x34);
+        //address = Scanner::Find("\x83\xfb\x47\x73\x14", "xxxxx", -0x34);
+        address = Scanner::Find("\x83\xfb\x54\x73\x14", "xxxxx", -0x34);
         if (address) {
             SendFrameUIMessageById_Func = (SendFrameUIMessageById_pt)address;
             SendFrameUIMessage_Func = (SendFrameUIMessage_pt)Scanner::FunctionFromNearCall(address + 0x67);
@@ -348,17 +348,20 @@ namespace {
 
 
         // @TODO: Grab the seeding context from memory, write this ourselves!
-        address = Scanner::Find("\x85\xc0\x74\x0d\x6a\xff\x50", "xxxxxxx", 0x7);
+        //address = Scanner::Find("\x85\xc0\x74\x0d\x6a\xff\x50", "xxxxxxx", 0x7);
+        address = Scanner::Find("\x85\xc0\x74\x10\x6a\xff\x50", "xxxxxxx", 0x7);
         CreateHashFromWchar_Func = (CreateHashFromWchar_pt)GW::Scanner::FunctionFromNearCall(address);
 
 
 
         // @TODO: Grab the relationship array from memory, write this ourselves!
-        address = Scanner::FindAssertion("\\Code\\Engine\\Controls\\CtlView.cpp", "pageId", 0, 0x19);
+        //address = Scanner::FindAssertion("\\Code\\Engine\\Controls\\CtlView.cpp", "pageId", 0, 0x19);
+        address = Scanner::FindAssertion("\\Code\\Engine\\Controls\\CtlView.cpp", "pageId", 0, 0x16);
         GetChildFrameId_Func = (GetChildFrameId_pt)GW::Scanner::FunctionFromNearCall(address);
 
 
-        GetRootFrame_Func = (GetRootFrame_pt)Scanner::Find("\x05\xe0\xfe\xff\xff\xc3", "xxxxxx", -0x3c);
+        //GetRootFrame_Func = (GetRootFrame_pt)Scanner::Find("\x05\xe0\xfe\xff\xff\xc3", "xxxxxx", -0x3c);
+        GetRootFrame_Func = (GetRootFrame_pt)Scanner::Find("\x05\xd8\xfe\xff\xff\xc3", "xxxxxx", -0x3c);
 
 
         //SendUIMessage_Func = (SendUIMessage_pt)Scanner::ToFunctionStart(Scanner::Find("\xE8\x00\x00\x00\x00\x5D\xC3\x89\x45\x08\x5D\xE9", "x????xxxxxxx"));
@@ -385,7 +388,8 @@ namespace {
             PreferencesInitialised_Addr = *(uintptr_t*)address;
 
 
-        address = GW::Scanner::Find("\x8d\x85\x78\xf7\xff\xff\x50", "xxxxxxx", 0x7);
+        //address = GW::Scanner::Find("\x8d\x85\x78\xf7\xff\xff\x50", "xxxxxxx", 0x7);
+        address = GW::Scanner::Find("\x8d\x85\x74\xf7\xff\xff\x50", "xxxxxxx", 0x7);
         address = GW::Scanner::FunctionFromNearCall(address); // BuildLoginStruct
         if (address) {
             GetCommandLineFlag_Func = (GetFlagPreference_pt)GW::Scanner::FunctionFromNearCall(address + 0xf);
@@ -411,20 +415,25 @@ namespace {
 
 
 
-        address = GW::Scanner::Find("\x83\xc4\x1c\x81\xfe\x20\x03\x00\x00", "xxxxxxxxx", 0x31);
+        //address = GW::Scanner::Find("\x83\xc4\x1c\x81\xfe\x20\x03\x00\x00", "xxxxxxxxx", 0x31);
+        address = GW::Scanner::Find("\x83\xc4\x1c\x81\xfe\x20\x03\x00\x00", "xxxxxxxxx", 0x49);
         SetInGameUIScale_Func = (SetInGameUIScale_pt)GW::Scanner::FunctionFromNearCall(address);
 
 
-        address = GW::Scanner::FindAssertion("\\Code\\Gw\\Ui\\Game\\CharCreate\\CharCreate.cpp", "msg.summaryBytes <= NET_CHARACTER_SUMMARY_MAX", 0, -0x62);
+        //address = GW::Scanner::FindAssertion("\\Code\\Gw\\Ui\\Game\\CharCreate\\CharCreate.cpp", "msg.summaryBytes <= NET_CHARACTER_SUMMARY_MAX", 0, -0x62);
+        address = GW::Scanner::FindAssertion("\\Code\\Gw\\Ui\\Game\\CharCreate\\CharCreate.cpp", "msg.summaryBytes <= NET_CHARACTER_SUMMARY_MAX", 0, -0x82);
         SetStringPreference_Func = (SetStringPreference_pt)GW::Scanner::FunctionFromNearCall(address);
 
 
         address = GW::Scanner::FindAssertion("\\Code\\Gw\\Ui\\Dialog\\DlgOptGr.cpp", "No valid case for switch variable 'quality'", 0, 0);
         if (address) {
-            SetEnumPreference_Func = (SetEnumPreference_pt)GW::Scanner::FunctionFromNearCall(address - 0x84);
+            //SetEnumPreference_Func = (SetEnumPreference_pt)GW::Scanner::FunctionFromNearCall(address - 0x84);
+            SetEnumPreference_Func = (SetEnumPreference_pt)GW::Scanner::FunctionFromNearCall(address - 0x8d);
             SetFlagPreference_Func = (SetFlagPreference_pt)GW::Scanner::FunctionFromNearCall(address - 0x3b);
-            SetNumberPreference_Func = (SetNumberPreference_pt)GW::Scanner::FunctionFromNearCall(address - 0x61);
-            SetInGameStaticPreference_Func = (SetInGameStaticPreference_pt)GW::Scanner::FunctionFromNearCall(address - 0xf6);
+            //SetNumberPreference_Func = (SetNumberPreference_pt)GW::Scanner::FunctionFromNearCall(address - 0x61);
+            SetNumberPreference_Func = (SetNumberPreference_pt)GW::Scanner::FunctionFromNearCall(address - 0x6a);
+            //SetInGameStaticPreference_Func = (SetInGameStaticPreference_pt)GW::Scanner::FunctionFromNearCall(address - 0xf6);
+            SetInGameStaticPreference_Func = (SetInGameStaticPreference_pt)GW::Scanner::FunctionFromNearCall(address - 0xff);
             TriggerTerrainRerender_Func = (TriggerTerrainRerender_pt)GW::Scanner::FunctionFromNearCall(address - 0x36);
         }
 
@@ -465,22 +474,26 @@ namespace {
 
 
         ValidateAsyncDecodeStr = (ValidateAsyncDecodeStr_pt)Scanner::ToFunctionStart(Scanner::Find("\x83\xC4\x10\x3B\xC6\x5E\x74\x14", "xxxxxxxx"));
-        AsyncDecodeStringPtr = (DoAsyncDecodeStr_pt)Scanner::ToFunctionStart(Scanner::Find("\x8b\x47\x14\x8d\x9f\x80\xfe\xff\xff", "xxxxxxxxx"));
+        //AsyncDecodeStringPtr = (DoAsyncDecodeStr_pt)Scanner::ToFunctionStart(Scanner::Find("\x8b\x47\x14\x8d\x9f\x80\xfe\xff\xff", "xxxxxxxxx"));
+        AsyncDecodeStringPtr = (DoAsyncDecodeStr_pt)Scanner::ToFunctionStart(Scanner::Find("\x57\x83\x7e\x30\x00\x74\x14\x68\xc9", "xxxxxxxxx"));
 
         // NB: "p:\\code\\engine\\sound\\sndmain.cpp", "(unsigned)type < arrsize(s_volume)" works, but also matches SetVolume()
-        SetVolume_Func = (SetVolume_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x8b\x75\x08\x83\xfe\x05\x72\x14\x68\x5b\x04\x00\x00\xba", "xxxxxxxxxxxxxx"));
+        //SetVolume_Func = (SetVolume_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x8b\x75\x08\x83\xfe\x05\x72\x14\x68\x5b\x04\x00\x00\xba", "xxxxxxxxxxxxxx"));
+        SetVolume_Func = (SetVolume_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x8b\x75\x08\x83\xfe\x05\x72\x14\x68\x67\x04\x00\x00\xba", "xxxxxxxxxxxxxx"));
 
         SetMasterVolume_Func = (SetMasterVolume_pt)Scanner::ToFunctionStart(Scanner::Find("\xd9\x45\x08\x83\xc6\x1c\x83\xef\x01\x75\xea\x5f\xdd\xd8\x5e\x5d", "xxxxxxxxxxxxxxxx"));
         DrawOnCompass_Func = (DrawOnCompass_pt)Scanner::ToFunctionStart(Scanner::FindAssertion("\\Code\\Gw\\Char\\CharMsg.cpp", "knotCount <= arrsize(message.knotData)", 0, 0));
 
-        CreateUIComponent_Func = (CreateUIComponent_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x33\xd2\x89\x45\x08\xb9\xac\x01\x00\x00", "xxxxxxxxxx"));
+        //CreateUIComponent_Func = (CreateUIComponent_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x33\xd2\x89\x45\x08\xb9\xac\x01\x00\x00", "xxxxxxxxxx"));
+        CreateUIComponent_Func = (CreateUIComponent_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x33\xd2\x89\x45\x08\xb9\xc8\x01\x00\x00", "xxxxxxxxxx"));
 
 
         // Graphics renderer related
 
         address = GW::Scanner::Find("\x74\x12\x6a\x16\x6a\x00", "xxxxxx", 0x6);
         GetGraphicsRendererValue_Func = (GetGraphicsRendererValue_pt)GW::Scanner::FunctionFromNearCall(address);
-        SetGraphicsRendererValue_Func = (SetGraphicsRendererValue_pt)Scanner::ToFunctionStart(Scanner::Find("\x68\x75\x0a\x00\x00", "xxxxx"));
+        //SetGraphicsRendererValue_Func = (SetGraphicsRendererValue_pt)Scanner::ToFunctionStart(Scanner::Find("\x68\x75\x0a\x00\x00", "xxxxx"));
+        SetGraphicsRendererValue_Func = (SetGraphicsRendererValue_pt)Scanner::ToFunctionStart(Scanner::Find("\x68\x8e\x07\x00\x00\xba\x18\x1f", "xxxxxxxx"));
 
 
         address = GW::Scanner::FindAssertion("\\Code\\Gw\\Ui\\Dialog\\DlgOptGr.cpp", "multiSampleIndex != CTL_DROPLIST_INDEX_NULL", 0, -0x46);
@@ -866,13 +879,13 @@ namespace GW {
 
             GW::UI::UIPacket::kMouseAction action{};
             
-            action.child_frame_id_dupe = action.child_frame_id = btn_frame->child_offset_id;
+            action.child_offset_id = action.frame_id = btn_frame->child_offset_id;
             struct button_param {
                 uint32_t unk;
                 uint32_t wparam;
                 uint32_t lparam;
             };
-            button_param wparam = { 0, btn_frame->field100_0x1a8,0 };
+            button_param wparam = { 0, btn_frame->field100_0x1b0,0 };
             action.wparam = &wparam;
             action.current_state = 0x6;
 
@@ -889,8 +902,8 @@ namespace GW {
                     return false;
 
                 GW::UI::UIPacket::kMouseAction action{};
-                action.child_frame_id = target_frame->child_offset_id;
-                action.child_frame_id_dupe = target_frame->child_offset_id;
+                action.frame_id = target_frame->child_offset_id;
+                action.child_offset_id = target_frame->child_offset_id;
 
                 struct button_param { uint32_t unk; uint32_t wparam; uint32_t lparam; };
                 button_param param = { 0, wparam, lparam };
@@ -911,8 +924,8 @@ namespace GW {
                 return false;
 
             GW::UI::UIPacket::kMouseAction action{};
-            action.child_frame_id = target_frame->child_offset_id;
-            action.child_frame_id_dupe = target_frame->child_offset_id;
+            action.frame_id = target_frame->child_offset_id;
+            action.child_offset_id = target_frame->child_offset_id;
 
             struct button_param { uint32_t unk; uint32_t wparam; uint32_t lparam; };
             button_param param = { 0, wparam, lparam };
