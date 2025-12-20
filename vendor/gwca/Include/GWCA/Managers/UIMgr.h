@@ -536,6 +536,11 @@ namespace GW {
         
         
         namespace UIPacket {
+            struct kSendCallTarget {
+                CallTargetType call_type;
+                uint32_t agent_id;
+            };
+
             struct kMouseCoordsClick {
                 float offset_x;
                 float offset_y;
@@ -753,11 +758,6 @@ namespace GW {
             struct kSendChangeTarget {
                 uint32_t target_id;
                 uint32_t auto_target_id;
-            };
-
-            struct kSendCallTarget {
-                CallTargetType call_type;
-                uint32_t agent_id;
             };
 
             struct kGetColor {

@@ -47,10 +47,20 @@ namespace {
 
     uint32_t current_target_id = 0;
 
+    typedef void(*CallTarget_pt)(CallTargetType type, uint32_t agent_id);
+    CallTarget_pt CallTarget_Func = 0, CallTarget_Ret = 0;
+
     void OnChangeTarget_Func(uint32_t agent_id, uint32_t auto_target_id) {
         GW::Hook::EnterHook();
         UI::UIPacket::kSendChangeTarget packet = { agent_id, auto_target_id };
         UI::SendUIMessage(UI::UIMessage::kSendChangeTarget, &packet);
+        GW::Hook::LeaveHook();
+    };
+
+    void OnCallTarget_Func(CallTargetType type, uint32_t target_id) {
+        GW::Hook::EnterHook();
+        UI::UIPacket::kSendCallTarget packet = { type, target_id };
+        UI::SendUIMessage(UI::UIMessage::kSendCallTarget, &packet);
         GW::Hook::LeaveHook();
     };
 
@@ -128,6 +138,12 @@ namespace {
             const auto msg = static_cast<GW::UI::ChangeTargetUIMsg*>(wparam);
             current_target_id = msg->manual_target_id;
         } break;
+        case UI::UIMessage::kSendCallTarget: {
+            if (CallTarget_Ret) {
+                const auto packet = static_cast<UI::UIPacket::kSendCallTarget*>(wparam);
+                CallTarget_Ret(packet->call_type, packet->agent_id);
+            }
+        } break;
         case UI::UIMessage::kSendWorldAction: {
             if (DoWorldActon_Ret) {
                 const auto msg = static_cast<UI::UIPacket::kSendWorldAction*>(wparam);
@@ -169,6 +185,9 @@ namespace {
         int success = HookBase::CreateHook((void**)&DoWorldActon_Func, OnDoWorldActon_Func, (void**)&DoWorldActon_Ret);
         Logger::AssertHook("DoWorldActon_Func", success);
 
+        success = HookBase::CreateHook((void**)&CallTarget_Func, OnCallTarget_Func, (void**)&CallTarget_Ret);
+		Logger::AssertHook("CallTarget_Func", success);
+
         success = HookBase::CreateHook((void**)&SendAgentDialog_Func, OnSendAgentDialog_Func, (void**)&SendAgentDialog_Ret);
 		Logger::AssertHook("SendAgentDialog_Func", success);
         success = HookBase::CreateHook((void**)&SendGadgetDialog_Func, OnSendGadgetDialog_Func, (void**)&SendGadgetDialog_Ret);
@@ -197,6 +216,8 @@ namespace {
     }
     void EnableHooks() {
         //return; // Temporarily disable gamethread hooks to investigate issues
+        if (CallTarget_Func)
+            HookBase::EnableHooks(DoWorldActon_Func);
         if (DoWorldActon_Func)
             HookBase::EnableHooks(DoWorldActon_Func);
         if (SendAgentDialog_Func)
@@ -209,6 +230,8 @@ namespace {
         }
     }
     void DisableHooks() {
+        if (CallTarget_Func)
+            HookBase::DisableHooks(DoWorldActon_Func);
         if (DoWorldActon_Func)
             HookBase::DisableHooks(DoWorldActon_Func);
         if (SendAgentDialog_Func)
@@ -219,6 +242,8 @@ namespace {
         UI::RemoveUIMessageCallback(&UIMessage_Entry);
     }
     void Exit() {
+        if (CallTarget_Func)
+            HookBase::RemoveHook(DoWorldActon_Func);
         if (DoWorldActon_Func)
             HookBase::RemoveHook(DoWorldActon_Func);
         if (SendAgentDialog_Func)
@@ -343,6 +368,17 @@ namespace GW {
 
         }
 
+        AgentLiving* GetAgentLivingByID(uint32_t agent_id) { //Reimplement; this was removed from GWCA
+            auto* agents = agent_id ? GetAgentArray() : nullptr;
+            if (agents && agent_id < agents->size()) {
+                Agent* a = agents->at(agent_id);
+                if (a && a->GetIsLivingType()) {
+                    return a->GetAsAgentLiving();
+                }
+            }
+            return nullptr;
+        }
+
         Agent* GetPlayerByID(uint32_t player_id) {
             return GetAgentByID(PlayerMgr::GetPlayerAgentId(player_id));
         }
@@ -390,6 +426,28 @@ namespace GW {
         }
 
 
+        bool CallTarget(const AgentLiving* agent) {
+            if (!agent)
+                return false;
+
+            if (agent->allegiance == GW::Constants::Allegiance::Enemy) {
+                const auto* target = GW::Agents::GetTarget();
+                if (!target)
+                    return false;
+                UI::UIPacket::kSendCallTarget call_packet = UI::UIPacket::kSendCallTarget{
+                    GW::CallTargetType::AttackingOrTargetting,
+                    target->agent_id
+                };
+                return GW::UI::SendUIMessage(GW::UI::UIMessage::kSendCallTarget, &call_packet);
+            }
+            UI::UIPacket::kSendWorldAction packet = { WorldActionId::InteractPlayerOrOther, agent->agent_id, true };
+            return UI::SendUIMessage(UI::UIMessage::kSendWorldAction, &packet);
+        }
+
+        bool CallTarget(uint32_t agent_id) {
+            return CallTarget(GW::Agents::GetAgentLivingByID(agent_id));
+        }
+
         wchar_t* GetPlayerNameByLoginNumber(uint32_t login_number) {
             return PlayerMgr::GetPlayerName(login_number);
         }
@@ -402,6 +460,30 @@ namespace GW {
         uint32_t GetHeroAgentID(uint32_t hero_index) {
             return PartyMgr::GetHeroAgentID(hero_index);
         }
+
+        uint32_t GetHenchmanAgentId(uint32_t henchmanId) {
+            NPCArray* npcs = GetNPCArray();
+            if (npcs) {
+                uint32_t agentId = 0;
+                for (uint32_t i = 0; i < npcs->size(); ++i) {
+                    NPC npc = (*npcs)[i];
+                    if (npc.model_file_id == 0) continue;
+                    agentId++;
+                    if (henchmanId == i) return agentId;
+                }
+            }
+            return 0;
+        }
+
+        bool CancelAction() {
+            Agent* player = GetControlledCharacter();
+            if (player)
+            {
+                return UI::Keypress(UI::ControlAction_CancelAction);
+            }
+            return false;
+        }
+
 
         PlayerArray* GetPlayerArray() {
             auto* w = GetWorldContext();
