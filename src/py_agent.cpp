@@ -309,41 +309,48 @@ bool name_ready = false;
 
 std::string local_WStringToString(const std::wstring& s)
 {
-    // @Cleanup: ASSERT used incorrectly here; value passed could be from anywhere!
     if (s.empty()) {
-        return "Error In Wstring";
+        return {};
     }
-    // NB: GW uses code page 0 (CP_ACP)
-    const auto size_needed = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, s.data(), static_cast<int>(s.size()), nullptr, 0, nullptr, nullptr);
-    if (size_needed > 0) {
-        std::string out(size_needed, '\0');
-        WideCharToMultiByte(CP_UTF8,0,s.data(),static_cast<int>(s.size()),out.data(),size_needed,nullptr,nullptr);
-        return out;
-    }
-    
-    // ---- Fallback: sanitize / escape ----
-    std::string escaped;
-    escaped.reserve(s.size() * 6);
 
-    for (wchar_t wc : s) {
-        if (wc >= 32 && wc <= 126) {
-            escaped.push_back(static_cast<char>(wc));
-        }
-        else if (wc == L'\n') {
-            escaped += "\\n";
-        }
-        else if (wc == L'\t') {
-            escaped += "\\t";
-        }
-        else {
-            char buf[8];
-            snprintf(buf, sizeof(buf), "\\x%04X", static_cast<uint16_t>(wc));
-            escaped += buf;
-        }
+    // Trim at first null wchar
+    size_t len = s.find(L'\0');
+    if (len == std::wstring::npos) {
+        len = s.size();
     }
-    
-    return escaped;
+
+    const int size_needed = WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        s.data(),
+        static_cast<int>(len),
+        nullptr,
+        0,
+        nullptr,
+        nullptr
+    );
+
+    if (size_needed <= 0) {
+        return {};
+    }
+
+    std::string out(size_needed, '\0');
+
+    WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        s.data(),
+        static_cast<int>(len),
+        out.data(),
+        size_needed,
+        nullptr,
+        nullptr
+    );
+
+    return out;
 }
+
+
 
 
 
@@ -1177,7 +1184,6 @@ void bind_PyGadgetAgent(py::module_& m) {
         .def_readonly("h00C4", &PyGadgetAgent::h00C4)  // Expose h00C4 as a read-write attribute
         .def_readonly("h00C8", &PyGadgetAgent::h00C8)  // Expose h00C8 as a read-write attribute
         .def_readonly("h00D4", &PyGadgetAgent::h00D4)  // Expose h00D4 as a read-write attribute
-        .def_readonly("extra_type", &PyGadgetAgent::extra_type)  // Expose extra_type as a read-write attribute
         .def_readonly("gadget_id", &PyGadgetAgent::gadget_id);  // Expose gadget_id as a read-write attribute
 }
 

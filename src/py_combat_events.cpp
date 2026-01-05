@@ -148,7 +148,7 @@ void CombatEventQueue::PushEvent(const RawCombatEvent& event) {
  * with other packets that may not have the skill_id.
  */
 void CombatEventQueue::OnSkillActivate(GW::Packet::StoC::SkillActivate* packet) {
-    uint32_t now = GetTickCount();
+    uint32_t now = GetTickCount64 ();
     PushEvent(RawCombatEvent(now, CombatEventTypes::SKILL_ACTIVATE_PACKET,
         packet->agent_id, packet->skill_id, 0, 0.0f));
 }
@@ -169,7 +169,7 @@ void CombatEventQueue::OnSkillActivate(GW::Packet::StoC::SkillActivate* packet) 
  * - energygain: Energy gained
  */
 void CombatEventQueue::OnGenericValue(GW::Packet::StoC::GenericValue* packet) {
-    uint32_t now = GetTickCount();
+    uint32_t now = GetTickCount64();
 
     using namespace GW::Packet::StoC::GenericValueID;
 
@@ -271,7 +271,7 @@ void CombatEventQueue::OnGenericValue(GW::Packet::StoC::GenericValue* packet) {
  * - target_id = target/victim
  */
 void CombatEventQueue::OnGenericValueTarget(GW::Packet::StoC::GenericValueTarget* packet) {
-    uint32_t now = GetTickCount();
+    uint32_t now = GetTickCount64();
 
     using namespace GW::Packet::StoC::GenericValueID;
 
@@ -317,7 +317,7 @@ void CombatEventQueue::OnGenericValueTarget(GW::Packet::StoC::GenericValueTarget
  * - energy_spent: Energy consumed, float_value = energy as fraction of max
  */
 void CombatEventQueue::OnGenericFloat(GW::Packet::StoC::GenericFloat* packet) {
-    uint32_t now = GetTickCount();
+    uint32_t now = GetTickCount64();
 
     using namespace GW::Packet::StoC::GenericValueID;
 
@@ -358,7 +358,7 @@ void CombatEventQueue::OnGenericFloat(GW::Packet::StoC::GenericFloat* packet) {
  * Example: float_value = 0.15 on a target with 480 HP = 72 damage
  */
 void CombatEventQueue::OnGenericModifier(GW::Packet::StoC::GenericModifier* packet) {
-    uint32_t now = GetTickCount();
+    uint32_t now = GetTickCount64();
 
     using namespace GW::Packet::StoC::GenericValueID;
 
@@ -428,7 +428,7 @@ Note:
 )doc";
 
     // Event type constants
-    py::module_ types = m.def_submodule("EventType", "Combat event type constants");
+    py::module_ types = m.def_submodule("PyEventType", "Combat event type constants");
     types.attr("SKILL_ACTIVATED") = CombatEventTypes::SKILL_ACTIVATED;
     types.attr("ATTACK_SKILL_ACTIVATED") = CombatEventTypes::ATTACK_SKILL_ACTIVATED;
     types.attr("SKILL_STOPPED") = CombatEventTypes::SKILL_STOPPED;
@@ -455,7 +455,7 @@ Note:
     types.attr("SKILL_ACTIVATE_PACKET") = CombatEventTypes::SKILL_ACTIVATE_PACKET;
 
     // RawCombatEvent struct
-    py::class_<RawCombatEvent>(m, "RawCombatEvent")
+    py::class_<RawCombatEvent>(m, "PyRawCombatEvent")
         .def(py::init<>())
         .def_readonly("timestamp", &RawCombatEvent::timestamp)
         .def_readonly("event_type", &RawCombatEvent::event_type)
@@ -476,7 +476,7 @@ Note:
         });
 
     // CombatEventQueue class
-    py::class_<CombatEventQueue>(m, "CombatEventQueue")
+    py::class_<CombatEventQueue>(m, "PyCombatEventQueue")
         .def(py::init<>())
         .def("Initialize", &CombatEventQueue::Initialize,
             "Initialize packet callbacks (call once at startup)")
