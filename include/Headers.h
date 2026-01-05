@@ -304,6 +304,8 @@ extern Timer salvage_timer;
 
 #include "py_quest.h"
 
+#include "py_combat_events.h"
+
 #include "SpecialSkilldata.h"
 //#include "HeroAI.h"
 
