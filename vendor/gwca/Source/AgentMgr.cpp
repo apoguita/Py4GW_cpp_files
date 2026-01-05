@@ -567,5 +567,12 @@ namespace GW {
             UI::AsyncDecodeStr(str, &res);
             return true;
         }
+
+
+		bool AsyncDecodeStr(wchar_t* enc_str, std::wstring& res) {
+            if (!enc_str) return false;
+            UI::AsyncDecodeStr(enc_str, &res);
+            return true;	
+		}
     }
 } // namespace GW

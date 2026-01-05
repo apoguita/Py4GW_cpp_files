@@ -418,5 +418,9 @@ public:
 	void ResetContext();
 	bool IsValid(int agent_id);
 
+    static uintptr_t GetAgentEncNamePtr(uint32_t agent_id);
+
+    static std::string GetNameByID(uint32_t agent_id);
+
 };
 

@@ -315,9 +315,34 @@ std::string local_WStringToString(const std::wstring& s)
     }
     // NB: GW uses code page 0 (CP_ACP)
     const auto size_needed = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, s.data(), static_cast<int>(s.size()), nullptr, 0, nullptr, nullptr);
-    std::string strTo(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), strTo.data(), size_needed, NULL, NULL);
-    return strTo;
+    if (size_needed > 0) {
+        std::string out(size_needed, '\0');
+        WideCharToMultiByte(CP_UTF8,0,s.data(),static_cast<int>(s.size()),out.data(),size_needed,nullptr,nullptr);
+        return out;
+    }
+    
+    // ---- Fallback: sanitize / escape ----
+    std::string escaped;
+    escaped.reserve(s.size() * 6);
+
+    for (wchar_t wc : s) {
+        if (wc >= 32 && wc <= 126) {
+            escaped.push_back(static_cast<char>(wc));
+        }
+        else if (wc == L'\n') {
+            escaped += "\\n";
+        }
+        else if (wc == L'\t') {
+            escaped += "\\t";
+        }
+        else {
+            char buf[8];
+            snprintf(buf, sizeof(buf), "\\x%04X", static_cast<uint16_t>(wc));
+            escaped += buf;
+        }
+    }
+    
+    return escaped;
 }
 
 
@@ -329,16 +354,12 @@ struct AgentNameData {
 };
 
 // Global map for storing multiple agent name requests
-static std::unordered_map<uint32_t, AgentNameData> agent_name_map;
+static std::unordered_map<std::string, AgentNameData> agent_name_map;
+static std::unordered_set<std::string> agent_name_pending;
 
-void PyLivingAgent::RequestName() {
+std::string _GetNameByID(uint32_t agent_id)
+{
     const auto agentid = agent_id;
-
-    // Main thread: safe to update here
-    GW::GameThread::Enqueue([agentid]() {
-        agent_name_map[agentid].name_ready = false;
-        agent_name_map[agentid].agent_name = "";
-        });
 
     auto in_cinematic = GW::Map::GetIsInCinematic();
     auto instance_type = GW::Map::GetInstanceType();
@@ -348,27 +369,41 @@ void PyLivingAgent::RequestName() {
         GW::GameThread::Enqueue([]() {
             agent_name_map.clear();
             });
-        return;
+        return "";
     }
 
-    if (agentid == 0) {
-        GW::GameThread::Enqueue([agentid]() {
-            agent_name_map[agentid].agent_name = "Invalid ID";
-            agent_name_map[agentid].name_ready = true;
-            });
-        return;
-    }
+    if (agentid == 0)
+        return "";
 
     auto agent = GW::Agents::GetAgentByID(agentid);
-    if (!agent) {
-        GW::GameThread::Enqueue([agentid]() {
-            agent_name_map[agentid].agent_name = "Invalid ID";
-            agent_name_map[agentid].name_ready = true;
-            });
-        return;
-    }
+    if (!agent)
+        return "";
 
-    std::thread([agentid]() {
+    // ===== get encoded string and make it the key =====
+    wchar_t* enc = GW::Agents::GetAgentEncName(agentid);
+    if (!enc)
+        return "";
+
+    std::wstring enc_w(enc);
+    std::string key = local_WStringToString(enc_w);
+
+    // ===== already decoded? =====
+    if (agent_name_map[key].name_ready)
+        return agent_name_map[key].agent_name;
+
+    // ===== prevent duplicate async fetch =====
+    if (agent_name_pending.count(key) != 0)
+        return "";
+
+    agent_name_pending.insert(key);
+
+    // ===== reset entry before decoding =====
+    GW::GameThread::Enqueue([key]() {
+        agent_name_map[key].name_ready = false;
+        agent_name_map[key].agent_name = "";
+        });
+
+    std::thread([agentid, key]() {
         std::wstring temp_name;
         auto start_time = std::chrono::steady_clock::now();
 
@@ -384,37 +419,49 @@ void PyLivingAgent::RequestName() {
             auto is_map_ready = GW::Map::GetIsMapLoaded() && !GW::Map::GetIsObserving() && instance_type != GW::Constants::InstanceType::Loading;
 
             if (!is_map_ready || in_cinematic) {
-                GW::GameThread::Enqueue([]() {
-                    agent_name_map.clear();
-                    });
+                GW::GameThread::Enqueue([]() { agent_name_map.clear(); });
+                agent_name_pending.erase(key);
                 return;
             }
 
-            if (std::chrono::steady_clock::now() - start_time >= std::chrono::milliseconds(500)) {
-                GW::GameThread::Enqueue([agentid]() {
-                    agent_name_map[agentid].agent_name = "Timeout";
-                    agent_name_map[agentid].name_ready = true;
+            if (std::chrono::steady_clock::now() - start_time >= std::chrono::milliseconds(1500)) {
+                GW::GameThread::Enqueue([key]() {
+                    agent_name_map[key].agent_name = "Timeout";
+                    agent_name_map[key].name_ready = true;
                     });
+                agent_name_pending.erase(key);
                 return;
             }
         }
 
-        GW::GameThread::Enqueue([agentid, name_str = local_WStringToString(temp_name)]() {
-            agent_name_map[agentid].agent_name = name_str;
-            agent_name_map[agentid].name_ready = true;
+        GW::GameThread::Enqueue([key, name_str = local_WStringToString(temp_name)]() {
+            agent_name_map[key].agent_name = name_str;
+            agent_name_map[key].name_ready = true;
             });
 
+        agent_name_pending.erase(key);
         }).detach();
+
+    return "";
+}
+
+
+void PyLivingAgent::RequestName() {
+	_GetNameByID(agent_id);
 }
 
 
 bool PyLivingAgent::IsAgentNameReady() {
-    return agent_name_map[agent_id].name_ready;
+    wchar_t* enc = GW::Agents::GetAgentEncName(agent_id);
+    if (!enc) return false;
+    std::string key = local_WStringToString(std::wstring(enc));
+    return agent_name_map[key].name_ready;
 }
 
 std::string PyLivingAgent::GetName() {
-    return agent_name_map[agent_id].agent_name;
+    return _GetNameByID(agent_id);
 }
+
 
 
 
@@ -754,6 +801,23 @@ bool PyAgent::IsValid(int agent_id) {
 	if (!agent) return false;
     return true;
 }
+
+
+uintptr_t PyAgent::GetAgentEncNamePtr(uint32_t agent_id)
+{
+    return reinterpret_cast<uintptr_t>(GW::Agents::GetAgentEncName(agent_id));
+}
+
+
+
+
+std::string PyAgent::GetNameByID(uint32_t agent_id) {
+	return _GetNameByID(agent_id);
+}
+
+
+
+
 
 std::vector<PyAgent> agent_ids = {};
 std::chrono::steady_clock::time_point last_agent_array_update = std::chrono::steady_clock::now();
@@ -1145,37 +1209,46 @@ void bind_PyAgent(py::module_& m) {
         .def_readonly("item_agent", &PyAgent::item_agent)  // Access to the item_agent object
         .def_readonly("gadget_agent", &PyAgent::gadget_agent)  // Access to the gadget_agent object
         .def_readonly("attributes", &PyAgent::attributes)  // Access to the attributes object
-        
-		//.def_readonly("h0004", &PyAgent::h0004)  // Access to the h0004 field
-		//.def_readonly("h0008", &PyAgent::h0008)  // Access to the h0008 field
-		//.def_readonly("h000C", &PyAgent::h000C)  // Access to the h000C field
-		.def_readonly("instance_timer_in_frames", &PyAgent::instance_timer_in_frames)  // Access to the instance_timer_in_frames field
-		.def_readonly("timer2", &PyAgent::timer2)  // Access to the timer2 field
-		.def_readonly("model_width1", &PyAgent::model_width1)  // Access to the model_width1 field
-		.def_readonly("model_height1", &PyAgent::model_height1)  // Access to the model_height1 field
-		.def_readonly("model_width2", &PyAgent::model_width2)  // Access to the model_width2 field
-		.def_readonly("model_height2", &PyAgent::model_height2)  // Access to the model_height2 field
-		.def_readonly("model_width3", &PyAgent::model_width3)  // Access to the model_width3 field
-		.def_readonly("model_height3", &PyAgent::model_height3)  // Access to the model_height3 field
-		.def_readonly("name_properties", &PyAgent::name_properties)  // Access to the name_properties field
-		.def_readonly("ground", &PyAgent::ground)  // Access to the ground field
-		//.def_readonly("h0060", &PyAgent::h0060)  // Access to the h0060 field
-		.def_readonly("terrain_normal", &PyAgent::terrain_normal)  // Access to the terrain_normal field
-		//.def_readonly("h0070", &PyAgent::h0070)  // Access to the h0070 field
-		.def_readonly("name_tag_x", &PyAgent::name_tag_x)  // Access to the name_tag_x field
-		.def_readonly("name_tag_y", &PyAgent::name_tag_y)  // Access to the name_tag_y field
-		.def_readonly("name_tag_z", &PyAgent::name_tag_z)  // Access to the name_tag_z field
-		.def_readonly("visual_effects", &PyAgent::visual_effects)  // Access to the visual_effects field
-		//.def_readonly("h0092", &PyAgent::h0092)  // Access to the h0092 field
-		//.def_readonly("h0094", &PyAgent::h0094)  // Access to the h0094 field
-		//.def_readonly("_type", &PyAgent::_type)  // Access to the type field
-		//.def_readonly("h00B4", &PyAgent::h00B4)  // Access to the h00B4 field
-		//.def_readonly("instance_timer", &PyAgent::instance_timer)  // Access to the instance_timer field
-		//.def_readonly("rand1", &PyAgent::rand1)  // Access to the rand1 field
-		//.def_readonly("rand2", &PyAgent::rand2)  // Access to the rand2 field
+
+        //.def_readonly("h0004", &PyAgent::h0004)  // Access to the h0004 field
+        //.def_readonly("h0008", &PyAgent::h0008)  // Access to the h0008 field
+        //.def_readonly("h000C", &PyAgent::h000C)  // Access to the h000C field
+        .def_readonly("instance_timer_in_frames", &PyAgent::instance_timer_in_frames)  // Access to the instance_timer_in_frames field
+        .def_readonly("timer2", &PyAgent::timer2)  // Access to the timer2 field
+        .def_readonly("model_width1", &PyAgent::model_width1)  // Access to the model_width1 field
+        .def_readonly("model_height1", &PyAgent::model_height1)  // Access to the model_height1 field
+        .def_readonly("model_width2", &PyAgent::model_width2)  // Access to the model_width2 field
+        .def_readonly("model_height2", &PyAgent::model_height2)  // Access to the model_height2 field
+        .def_readonly("model_width3", &PyAgent::model_width3)  // Access to the model_width3 field
+        .def_readonly("model_height3", &PyAgent::model_height3)  // Access to the model_height3 field
+        .def_readonly("name_properties", &PyAgent::name_properties)  // Access to the name_properties field
+        .def_readonly("ground", &PyAgent::ground)  // Access to the ground field
+        //.def_readonly("h0060", &PyAgent::h0060)  // Access to the h0060 field
+        .def_readonly("terrain_normal", &PyAgent::terrain_normal)  // Access to the terrain_normal field
+        //.def_readonly("h0070", &PyAgent::h0070)  // Access to the h0070 field
+        .def_readonly("name_tag_x", &PyAgent::name_tag_x)  // Access to the name_tag_x field
+        .def_readonly("name_tag_y", &PyAgent::name_tag_y)  // Access to the name_tag_y field
+        .def_readonly("name_tag_z", &PyAgent::name_tag_z)  // Access to the name_tag_z field
+        .def_readonly("visual_effects", &PyAgent::visual_effects)  // Access to the visual_effects field
+        //.def_readonly("h0092", &PyAgent::h0092)  // Access to the h0092 field
+        //.def_readonly("h0094", &PyAgent::h0094)  // Access to the h0094 field
+        //.def_readonly("_type", &PyAgent::_type)  // Access to the type field
+        //.def_readonly("h00B4", &PyAgent::h00B4)  // Access to the h00B4 field
+        //.def_readonly("instance_timer", &PyAgent::instance_timer)  // Access to the instance_timer field
+        //.def_readonly("rand1", &PyAgent::rand1)  // Access to the rand1 field
+        //.def_readonly("rand2", &PyAgent::rand2)  // Access to the rand2 field
 
         .def_static("GetRawAgentArray", &GetRawAgentArray)  // Static method to get raw agent array
-	    .def_static("GetMovementStuckArray", &GetMovementStuckArray);  // Static method to get movement stuck array
+        .def_static("GetMovementStuckArray", &GetMovementStuckArray)  // Static method to get movement stuck array
+
+		.def_static("GetAgentEncNamePtr", &PyAgent::GetAgentEncNamePtr,
+			py::arg("agent_id"),
+			"Get the pointer to the encoded agent name for the given agent ID")
+
+		.def_static("GetNameByID", &PyAgent::GetNameByID,
+			py::arg("agent_id"),
+			"Get the decoded name of the agent by its ID");
+		
 
 }
 
