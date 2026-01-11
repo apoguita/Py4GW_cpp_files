@@ -37,6 +37,37 @@
 
 namespace py = pybind11;
 
+// Backwards compatibility: create namespace with constexpr aliases to enum class values
+// This allows existing code using CombatEventTypes::FOO to continue working
+namespace CombatEventTypes {
+    constexpr uint32_t SKILL_ACTIVATED = to_uint(CombatEventType::SKILL_ACTIVATED);
+    constexpr uint32_t ATTACK_SKILL_ACTIVATED = to_uint(CombatEventType::ATTACK_SKILL_ACTIVATED);
+    constexpr uint32_t SKILL_STOPPED = to_uint(CombatEventType::SKILL_STOPPED);
+    constexpr uint32_t SKILL_FINISHED = to_uint(CombatEventType::SKILL_FINISHED);
+    constexpr uint32_t ATTACK_SKILL_FINISHED = to_uint(CombatEventType::ATTACK_SKILL_FINISHED);
+    constexpr uint32_t INTERRUPTED = to_uint(CombatEventType::INTERRUPTED);
+    constexpr uint32_t INSTANT_SKILL_ACTIVATED = to_uint(CombatEventType::INSTANT_SKILL_ACTIVATED);
+    constexpr uint32_t ATTACK_SKILL_STOPPED = to_uint(CombatEventType::ATTACK_SKILL_STOPPED);
+    constexpr uint32_t ATTACK_STARTED = to_uint(CombatEventType::ATTACK_STARTED);
+    constexpr uint32_t ATTACK_STOPPED = to_uint(CombatEventType::ATTACK_STOPPED);
+    constexpr uint32_t MELEE_ATTACK_FINISHED = to_uint(CombatEventType::MELEE_ATTACK_FINISHED);
+    constexpr uint32_t DISABLED = to_uint(CombatEventType::DISABLED);
+    constexpr uint32_t KNOCKED_DOWN = to_uint(CombatEventType::KNOCKED_DOWN);
+    constexpr uint32_t CASTTIME = to_uint(CombatEventType::CASTTIME);
+    constexpr uint32_t DAMAGE = to_uint(CombatEventType::DAMAGE);
+    constexpr uint32_t CRITICAL = to_uint(CombatEventType::CRITICAL);
+    constexpr uint32_t ARMOR_IGNORING = to_uint(CombatEventType::ARMOR_IGNORING);
+    constexpr uint32_t EFFECT_APPLIED = to_uint(CombatEventType::EFFECT_APPLIED);
+    constexpr uint32_t EFFECT_REMOVED = to_uint(CombatEventType::EFFECT_REMOVED);
+    constexpr uint32_t EFFECT_ON_TARGET = to_uint(CombatEventType::EFFECT_ON_TARGET);
+    constexpr uint32_t ENERGY_GAINED = to_uint(CombatEventType::ENERGY_GAINED);
+    constexpr uint32_t ENERGY_SPENT = to_uint(CombatEventType::ENERGY_SPENT);
+    constexpr uint32_t SKILL_DAMAGE = to_uint(CombatEventType::SKILL_DAMAGE);
+    constexpr uint32_t SKILL_ACTIVATE_PACKET = to_uint(CombatEventType::SKILL_ACTIVATE_PACKET);
+    constexpr uint32_t SKILL_RECHARGE = to_uint(CombatEventType::SKILL_RECHARGE);
+    constexpr uint32_t SKILL_RECHARGED = to_uint(CombatEventType::SKILL_RECHARGED);
+}
+
 // ============================================================================
 // Lifecycle Implementation
 // ============================================================================
