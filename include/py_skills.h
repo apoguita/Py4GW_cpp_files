@@ -54,7 +54,7 @@ public:
 class Skill {
 public:
     SkillID ID = 0;
-    CampaignWrapper CampaignData = static_cast<int>(SafeCampaign::Undefined);
+    int CampaignData = static_cast<int>(6 /*SafeCampaign::Undefined*/);
     SkillType Type = static_cast<int>(GW::Constants::SkillType::Skill);
     int Special = 0;
     int ComboReq = 0;

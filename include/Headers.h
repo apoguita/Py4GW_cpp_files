@@ -276,7 +276,6 @@ extern Timer salvage_timer;
 #include "py_agent.h"
 #include "py_items.h"
 #include "py_inventory.h"
-#include "py_map.h"
 #include "py_missionmap.h"
 #include "py_skills.h"
 #include "py_skillbar.h"
@@ -290,8 +289,6 @@ extern Timer salvage_timer;
 #include "py_pathing_maps.h"
 #include "py_party.h"
 #include "py_effects.h"
-
-
 
 #include "py_ui.h"
 
@@ -307,10 +304,10 @@ extern Timer salvage_timer;
 #include "py_combat_events.h"
 
 #include "SpecialSkilldata.h"
-//#include "HeroAI.h"
-
-
-
+#include "VirtualInput.h""
+#include "WindowCfg.h"
+#include "PyScanner.h"
+#include "PyPointers.h"
 
 
 #endif // PCH_H

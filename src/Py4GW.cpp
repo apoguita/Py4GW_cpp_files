@@ -7,6 +7,10 @@
 
 namespace py = pybind11;
 
+/* ------------------------------------------------------------------*/
+/* ------------------- TYPES AND GLOBALS ----------------------------*/
+/* ------------------------------------------------------------------*/
+
 #define GAME_CMSG_INTERACT_GADGET (0x004F)      // 79
 #define GAME_CMSG_SEND_SIGNPOST_DIALOG (0x0051) // 81
 
@@ -32,6 +36,88 @@ struct DeferredMixedCommand {
 };
 
 DeferredMixedCommand mixed_deferred;
+
+
+bool p_open = true;
+bool scroll_to_bottom = false;
+ImGuiTextBuffer buffer;
+ImVector<int> line_offsets;
+
+enum class MessageType {
+    Info,        // General information
+    Warning,     // Warnings about potential issues
+    Error,       // Non-fatal errors
+    Debug,       // Debugging information
+    Success,     // Successful operation
+    Performance, // Performance and profiling logs
+    Notice       // Notices and tips
+};
+
+struct LogEntry {
+    std::string timestamp;
+    std::string module_name;
+    std::string message;
+    MessageType message_type;
+};
+
+std::vector<LogEntry> log_entries;
+
+enum class ScriptState { Stopped, Running, Paused };
+
+ScriptState script_state = ScriptState::Stopped;
+
+static char script_path[260] = "";
+std::string script_content;
+py::object custom_scope;
+py::object script_module;
+py::object main_function;
+
+ScriptState script_state2 = ScriptState::Stopped;
+
+std::string script_path2 = "";
+std::string script_content2;
+py::object custom_scope2;
+py::object script_module2;
+py::object main_function2;
+
+bool show_console = false;
+
+ImVec2 console_pos = ImVec2(5, 30);
+ImVec2 console_size = ImVec2(800, 700);
+bool console_collapsed = false;
+bool show_compact_console_ini = false;
+
+ImVec2 compact_console_pos = ImVec2(5, 30);
+bool compact_console_collapsed = false;
+
+GlobalMouseClass GlobalMouse;
+
+using FrameCallbackId = uint64_t;
+
+struct FrameCallback {
+    FrameCallbackId id;
+    std::string name;
+    py::object fn;
+};
+
+static std::vector<FrameCallback> g_frame_callbacks;
+static std::mutex g_frame_callbacks_mutex;
+static FrameCallbackId g_next_callback_id = 1;
+
+bool debug = false;
+
+bool show_modal = false;
+bool modal_result_ok = false;
+bool first_run = true;
+bool console_open = true;
+
+bool check_login_screen = true;
+
+
+
+/* ------------------------------------------------------------------*/
+/* ------------------------ CALLBACKS -------------------------------*/
+/* ------------------------------------------------------------------*/
 
 // Initialize merchant interaction (setup callbacks)
 
@@ -122,61 +208,9 @@ void Py4GW::InitializeMerchantCallbacks()
         });
 }
 
-
-
-bool Py4GW::Initialize() {
-    py::initialize_interpreter();
-    InitializeMerchantCallbacks();
-
-    DebugMessage(L"Py4GW, Initialized.");
- 
-	return true;
-    
-}
-
-void Py4GW::Terminate() {
-    GW::DisableHooks();
-    GW::Terminate();
-    if (Py_IsInitialized()) {
-        py::finalize_interpreter();
-    }
-}
-
-bool p_open = true;
-bool scroll_to_bottom = false;
-ImGuiTextBuffer buffer;
-ImVector<int> line_offsets;
-
-void ScrollToBottom()
-{
-    scroll_to_bottom = true;
-}
-
-void Clear()
-{
-    buffer.clear();
-    line_offsets.clear();
-    line_offsets.push_back(0);
-}
-
-enum class MessageType {
-    Info,        // General information
-    Warning,     // Warnings about potential issues
-    Error,       // Non-fatal errors
-    Debug,       // Debugging information
-    Success,     // Successful operation
-    Performance, // Performance and profiling logs
-    Notice       // Notices and tips
-};
-
-struct LogEntry {
-    std::string timestamp;
-    std::string module_name;
-    std::string message;
-    MessageType message_type;
-};
-
-std::vector<LogEntry> log_entries;
+/* ------------------------------------------------------------------*/
+/* -------------------------- Helpers -------------------------------*/
+/* ------------------------------------------------------------------*/
 
 std::string TrimString(const std::string& str) {
     const std::string WHITESPACE = " \t\r\n\v\f\u00A0"; // Includes Unicode spaces
@@ -225,15 +259,15 @@ void Log(const std::string& module_name, const std::string& message, MessageType
     log_entries.push_back(entry);
 
     if (!show_console) {
-	    std::string timestamp = GW::Chat::FormatChatMessage("[" + entry.timestamp + "]", 180, 180, 180);
-	    std::string module = GW::Chat::FormatChatMessage("[" + entry.module_name + "]", 100, 190, 255);
-    
+        std::string timestamp = GW::Chat::FormatChatMessage("[" + entry.timestamp + "]", 180, 180, 180);
+        std::string module = GW::Chat::FormatChatMessage("[" + entry.module_name + "]", 100, 190, 255);
+
         class rgb {
-	    public:
-		    int r, g, b;
-		    rgb(int r, int g, int b) : r(r), g(g), b(b) {}
-	    } color(255, 255, 255);
-    
+        public:
+            int r, g, b;
+            rgb(int r, int g, int b) : r(r), g(g), b(b) {}
+        } color(255, 255, 255);
+
         switch (type) {
         case MessageType::Info:         color = { 255, 255, 255 }; break;
         case MessageType::Error:        color = { 255, 0, 0 }; break;
@@ -245,33 +279,14 @@ void Log(const std::string& module_name, const std::string& message, MessageType
         default:                        color = { 255, 255, 255 }; break;
         }
 
-	    std::string formatted_message = message;
+        std::string formatted_message = message;
         std::replace(formatted_message.begin(), formatted_message.end(), '\\', '/');
         std::string formatted_chunk = GW::Chat::FormatChatMessage(formatted_message, color.r, color.g, color.b);
-        
+
         formatted_chunk = timestamp + " " + module + " " + formatted_chunk;
 
         GW::Chat::SendFakeChat(GW::Chat::Channel::CHANNEL_EMOTE, formatted_chunk);
     }
-}
-
-// Function to load and execute Python scripts
-std::string LoadPythonScript(const std::string& file_path)
-{
-    std::ifstream script_file(file_path);
-    if (!script_file.is_open()) {
-        Log("Py4GW", "Failed to open script file: " + file_path, MessageType::Error);
-        return "";
-    }
-
-    std::stringstream v_buffer;
-    v_buffer << script_file.rdbuf();
-
-    if (v_buffer.str().empty()) {
-        Log("Py4GW", "Script file is empty: " + file_path, MessageType::Error);
-    }
-
-    return v_buffer.str();
 }
 
 void SaveLogToFile(const std::string& filename)
@@ -292,6 +307,18 @@ void SaveLogToFile(const std::string& filename)
     }
 
     Log("Py4GW", "Log saved to " + filename);
+}
+
+void ScrollToBottom()
+{
+    scroll_to_bottom = true;
+}
+
+void Clear()
+{
+    buffer.clear();
+    line_offsets.clear();
+    line_offsets.push_back(0);
 }
 
 std::string OpenFileDialog()
@@ -347,23 +374,87 @@ std::string SaveFileDialog()
     }
 }
 
-enum class ScriptState { Stopped, Running, Paused };
 
-ScriptState script_state = ScriptState::Stopped;
+std::string GetCredits()
+{
+    return "Py4GW v3.0.0, Apoguita - 2024,2026";
+}
 
-static char script_path[260] = "";
-std::string script_content;
-py::object custom_scope;
-py::object script_module;
-py::object main_function;
+std::string GetLicense()
+{
+    return std::string("MIT License\n\n") + "Copyright " + GetCredits() +
+        "\n\n"
+        "Permission is hereby granted, free of charge, to any person obtaining a copy\n"
+        "of this software and associated documentation files (the \"Software\"), to deal\n"
+        "in the Software without restriction, including without limitation the rights\n"
+        "to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n"
+        "copies of the Software, and to permit persons to whom the Software is\n"
+        "furnished to do so, subject to the following conditions:\n\n"
+        "The above copyright notice and this permission notice shall be included in\n"
+        "all copies or substantial portions of the Software.\n\n"
+        "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n"
+        "IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n"
+        "FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n"
+        "AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n"
+        "LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n"
+        "OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n"
+        "THE SOFTWARE.\n";
+}
 
-ScriptState script_state2 = ScriptState::Stopped;
 
-std::string script_path2 = "";
-std::string script_content2;
-py::object custom_scope2;
-py::object script_module2;
-py::object main_function2;
+bool AllowedToRender() {
+    const auto map = GW::Map::GetMapInfo();
+    const auto instance_type = GW::Map::GetInstanceType();
+
+    if (!map) return false;
+
+    if (map->GetIsPvP()) return false;
+
+    if (map->GetIsGuildHall()) {
+        return instance_type == GW::Constants::InstanceType::Outpost;
+    }
+
+    return true;
+}
+
+bool ChangeWorkingDirectory(const std::string& new_directory) {
+    std::wstring wide_directory = std::wstring(new_directory.begin(), new_directory.end());
+    return SetCurrentDirectoryW(wide_directory.c_str()) != 0;
+}
+
+static uint64_t Get_Tick_Count64() {
+    return GetTickCount64();
+}
+
+HWND Py4GW::get_gw_window_handle() {
+    return GW::MemoryMgr::GetGWWindowHandle();
+    //return gw_window_handle; 
+}
+
+
+
+/* ------------------------------------------------------------------*/
+/* -------------------------- Python --------------------------------*/
+/* ------------------------------------------------------------------*/
+
+// Function to load and execute Python scripts
+std::string LoadPythonScript(const std::string& file_path)
+{
+    std::ifstream script_file(file_path);
+    if (!script_file.is_open()) {
+        Log("Py4GW", "Failed to open script file: " + file_path, MessageType::Error);
+        return "";
+    }
+
+    std::stringstream v_buffer;
+    v_buffer << script_file.rdbuf();
+
+    if (v_buffer.str().empty()) {
+        Log("Py4GW", "Script file is empty: " + file_path, MessageType::Error);
+    }
+
+    return v_buffer.str();
+}
 
 bool LoadAndExecuteScriptOnce()
 {
@@ -578,6 +669,199 @@ void ExecutePythonCommand(const std::string& command)
     }
 }
 
+
+// Wrapper functions for script control
+bool Py4GW_LoadScript(const std::string& path) {
+    strcpy(script_path, path.c_str());
+    return LoadAndExecuteScriptOnce();
+}
+
+bool Py4GW_RunScript() {
+    if (script_state == ScriptState::Stopped) {
+        if (LoadAndExecuteScriptOnce()) {
+            script_state = ScriptState::Running;
+            script_timer.reset();
+            Log("Py4GW", "Script started from binding.", MessageType::Notice);
+            return true;
+        }
+    }
+    return false;
+}
+
+void Py4GW_StopScript() {
+    ResetScriptEnvironment();
+    script_state = ScriptState::Stopped;
+    script_timer.stop();
+    Log("Py4GW", "Script stopped from binding.", MessageType::Notice);
+}
+
+bool Py4GW_PauseScript() {
+    if (script_state == ScriptState::Running) {
+        script_state = ScriptState::Paused;
+        script_timer.Pause();
+        Log("Py4GW", "Script paused from binding.", MessageType::Notice);
+        return true;
+    }
+    return false;
+}
+
+bool Py4GW_ResumeScript() {
+    if (script_state == ScriptState::Paused) {
+        script_state = ScriptState::Running;
+        script_timer.Resume();
+        Log("Py4GW", "Script resumed from binding.", MessageType::Notice);
+        return true;
+    }
+    return false;
+}
+
+std::string Py4GW_GetScriptStatus() {
+    switch (script_state) {
+    case ScriptState::Running: return "Running";
+    case ScriptState::Paused:  return "Paused";
+    case ScriptState::Stopped: return "Stopped";
+    default: return "Unknown";
+    }
+}
+
+
+void ScheduleDeferredAction(std::function<void()> fn, int delay_ms) {
+    mixed_deferred.action = fn;
+    mixed_deferred.delay_ms = delay_ms;
+    mixed_deferred.timer.reset();
+    mixed_deferred.timer.start();
+    mixed_deferred.active = true;
+}
+
+// === Mixed deferred wrappers ===
+void Py4GW_DeferLoadAndRun(const std::string& path, int delay_ms) {
+    ScheduleDeferredAction([path]() {
+        strcpy(script_path, path.c_str());
+        if (LoadAndExecuteScriptOnce()) {
+            script_state = ScriptState::Running;
+            script_timer.reset();
+            Log("Py4GW", "Deferred: script loaded and started.", MessageType::Notice);
+        }
+        }, delay_ms);
+}
+
+void Py4GW_DeferStopLoadAndRun(const std::string& path, int delay_ms) {
+    ScheduleDeferredAction([path]() {
+        Py4GW_StopScript();
+        strcpy(script_path, path.c_str());
+        if (LoadAndExecuteScriptOnce()) {
+            script_state = ScriptState::Running;
+            script_timer.reset();
+            Log("Py4GW", "Deferred: stopped, loaded and started.", MessageType::Notice);
+        }
+        }, delay_ms);
+}
+
+void Py4GW_DeferStopAndRun(int delay_ms) {
+    ScheduleDeferredAction([]() {
+        Py4GW_StopScript();
+        Py4GW_RunScript();
+        Log("Py4GW", "Deferred: stopped and restarted.", MessageType::Notice);
+        }, delay_ms);
+}
+
+void EnqueuePythonCallback(py::function func) {
+    // move func into the lambda so it stays alive
+    GW::GameThread::Enqueue([func = std::move(func)]() mutable {
+        // We're now running on the GW game thread here
+        py::gil_scoped_acquire gil;
+        try {
+            func();  // Call the Python function with no args
+        }
+        catch (const py::error_already_set& e) {
+            // TODO: log this somewhere sane
+            // Logger::Instance().LogError(e.what(), "PyGameThread");
+        }
+        });
+}
+
+
+
+/* ------------------------------------------------------------------*/
+/* ----------------- Python Frame Callbacks -------------------------*/
+/* ------------------------------------------------------------------*/
+
+FrameCallbackId RegisterFrameCallback(const std::string& name, py::function fn)
+{
+    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
+
+    // If callback with same name exists, replace function, keep id
+    for (auto& cb : g_frame_callbacks) {
+        if (cb.name == name) {
+            cb.fn = std::move(fn);
+            return cb.id;
+        }
+    }
+
+    // Otherwise, register new callback
+    FrameCallbackId id = g_next_callback_id++;
+    g_frame_callbacks.push_back({
+        id,
+        name,
+        std::move(fn)
+        });
+
+    return id;
+}
+
+
+bool RemoveFrameCallbackById(FrameCallbackId id)
+{
+    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
+
+    auto it = std::remove_if(
+        g_frame_callbacks.begin(),
+        g_frame_callbacks.end(),
+        [&](const FrameCallback& cb) {
+            return cb.id == id;
+        }
+    );
+
+    if (it == g_frame_callbacks.end())
+        return false;
+
+    g_frame_callbacks.erase(it, g_frame_callbacks.end());
+    return true;
+}
+
+bool RemoveFrameCallbackByName(const std::string& name)
+{
+    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
+
+    auto it = std::remove_if(
+        g_frame_callbacks.begin(),
+        g_frame_callbacks.end(),
+        [&](const FrameCallback& cb) {
+            return cb.name == name;
+        }
+    );
+
+    if (it == g_frame_callbacks.end())
+        return false;
+
+    g_frame_callbacks.erase(it, g_frame_callbacks.end());
+    return true;
+}
+
+void RemoveAllFrameCallbacks()
+{
+    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
+    g_frame_callbacks.clear();
+}
+
+
+
+
+/* ------------------------------------------------------------------*/
+/* -------------------------- ImGui ---------------------------------*/
+/* ------------------------------------------------------------------*/
+
+
 int TextEditCallback(ImGuiInputTextCallbackData* data)
 {
     switch (data->EventFlag) {
@@ -629,17 +913,6 @@ void ShowTooltipInternal(const char* tooltipText)
         ImGui::EndTooltip();
     }
 }
-
-bool show_console = false;
-
-ImVec2 console_pos = ImVec2(5, 30);
-ImVec2 console_size = ImVec2(800, 700);
-bool console_collapsed = false;
-bool show_compact_console_ini = false;
-
-ImVec2 compact_console_pos = ImVec2(5, 30);
-bool compact_console_collapsed = false;
-
 
 
 void DrawConsole(const char* title, bool* new_p_open = nullptr)
@@ -921,9 +1194,6 @@ void DrawConsole(const char* title, bool* new_p_open = nullptr)
     ImGui::End(); // Close the main window
 }
 
-
-
-
 void DrawCompactConsole(bool* new_p_open = nullptr) {
     ImGui::SetNextWindowPos(compact_console_pos, ImGuiCond_Once);
     ImGui::SetNextWindowCollapsed(compact_console_collapsed, ImGuiCond_Once);
@@ -1056,378 +1326,43 @@ void DrawCompactConsole(bool* new_p_open = nullptr) {
     ImGui::End();
 }
 
+/* ------------------------------------------------------------------*/
+/* ---------------------- DLL Handling ------------------------------*/
+/* ------------------------------------------------------------------*/
 
-std::string GetCredits()
-{ 
-    return "Py4GW v3.0.0, Apoguita - 2024,2025";
-}
+bool Py4GW::Initialize() {
+    py::initialize_interpreter();
+    InitializeMerchantCallbacks();
 
-std::string GetLicense()
-{
-    return std::string("MIT License\n\n") + "Copyright " + GetCredits() +
-        "\n\n"
-        "Permission is hereby granted, free of charge, to any person obtaining a copy\n"
-        "of this software and associated documentation files (the \"Software\"), to deal\n"
-        "in the Software without restriction, including without limitation the rights\n"
-        "to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n"
-        "copies of the Software, and to permit persons to whom the Software is\n"
-        "furnished to do so, subject to the following conditions:\n\n"
-        "The above copyright notice and this permission notice shall be included in\n"
-        "all copies or substantial portions of the Software.\n\n"
-        "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n"
-        "IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n"
-        "FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n"
-        "AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n"
-        "LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n"
-        "OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n"
-        "THE SOFTWARE.\n";
-}
-
-GlobalMouseClass GlobalMouse;
-
-
-bool AllowedToRender() {
-    const auto map = GW::Map::GetMapInfo();
-    const auto instance_type = GW::Map::GetInstanceType();
-
-    if (!map) return false;
-
-    if (map->GetIsPvP()) return false;
-
-    if (map->GetIsGuildHall()) {
-        return instance_type == GW::Constants::InstanceType::Outpost;
-    }
+    DebugMessage(L"Py4GW, Initialized.");
 
     return true;
+
 }
 
-bool ChangeWorkingDirectory(const std::string& new_directory) {
-    std::wstring wide_directory = std::wstring(new_directory.begin(), new_directory.end());
-    return SetCurrentDirectoryW(wide_directory.c_str()) != 0;
+void Py4GW::Terminate() {
+    GW::DisableHooks();
+    GW::Terminate();
+    if (Py_IsInitialized()) {
+        py::finalize_interpreter();
+    }
 }
-
-bool HeroAI_Initialized = false;
 
 void Py4GW::Update() {
-    /*
-    if (HeroAI_Initialized) {
-        if (heroAI->IsAIEnabled() && AllowedToRender()) {
-            heroAI->Update();
-        }
-    }
-    */
+
 }
-
-
-class KeyHandler {
-    HWND targetWindow;
-public:
-	KeyHandler() {
-		targetWindow = gw_client_window_handle;
-	}
-
-    void set_target_window(HWND windowHandle) {
-        targetWindow = windowHandle;
-    }
-
-    HWND get_target_window() const {
-        return targetWindow;
-    }
-
-    /*
-    void send_key(int virtualKeyCode, bool isKeyUp = false) {
-        if (!targetWindow) return;
-
-        // Create the LPARAM with scan code and other flags
-        LPARAM lParam = 1; // Repeat count set to 1
-        lParam |= MapVirtualKey(virtualKeyCode, MAPVK_VK_TO_VSC) << 16; // Add scan code
-        if (isKeyUp) lParam |= 0xC0000000; // Key-up flag and previous key state
-
-        // Send the message directly to the target window
-        SendMessage(targetWindow, isKeyUp ? WM_KEYUP : WM_KEYDOWN, virtualKeyCode, lParam);
-    }*/
-
-    bool is_extended_key(int vk) {
-        switch (vk) {
-        case VK_RIGHT:
-        case VK_LEFT:
-        case VK_UP:
-        case VK_DOWN:
-        case VK_INSERT:
-        case VK_DELETE:
-        case VK_HOME:
-        case VK_END:
-        case VK_PRIOR:  // Page Up
-        case VK_NEXT:   // Page Down
-        case VK_NUMLOCK:
-        case VK_DIVIDE: // Numpad Divide
-        case VK_RETURN: // Only if it's the numpad Enter
-            return true;
-        default:
-            return false;
-        }
-    }
-
-
-    void send_key(int virtualKeyCode, bool isKeyUp = false) {
-        if (!targetWindow) return;
-
-        // Base lParam setup
-        LPARAM lParam = 1; // Repeat count = 1
-        lParam |= MapVirtualKey(virtualKeyCode, MAPVK_VK_TO_VSC) << 16;
-
-        // Check if it's an extended key
-        if (is_extended_key(virtualKeyCode)) {
-            lParam |= 0x01000000;  // Set Extended Key flag
-        }
-
-        if (isKeyUp) {
-            lParam |= 0xC0000000;  // Key-up flag and previous key state
-        }
-
-        SendMessage(targetWindow, isKeyUp ? WM_KEYUP : WM_KEYDOWN, virtualKeyCode, lParam);
-    }
-
-
-    // Press a single key
-    void press_key(int virtualKeyCode) {
-        send_key(virtualKeyCode, false);
-    }
-
-    // Release a single key
-    void release_key(int virtualKeyCode) {
-        send_key(virtualKeyCode, true);
-    }
-
-
-    // Press and release a key (push key)
-    void push_key(int virtualKeyCode) {
-        press_key(virtualKeyCode);
-        Sleep(100); // Small delay to mimic key press duration
-        release_key(virtualKeyCode);
-    }
-
-    // Press a combination of keys
-    void press_key_combo(const std::vector<int>& keys) {
-        for (int key : keys) {
-            press_key(key);
-        }
-    }
-
-    // Release a combination of keys
-    void release_key_combo(const std::vector<int>& keys) {
-        for (int key : keys) {
-            release_key(key);
-        }
-    }
-
-    // Push a combination of keys
-    void push_key_combo(const std::vector<int>& keys) {
-        press_key_combo(keys);
-        Sleep(100); // Mimic a real delay
-        release_key_combo(keys);
-    }
-
-
-};
-
-class MouseHandler {
-    HWND targetWindow;
-
-public:
-    MouseHandler() {
-        targetWindow = gw_client_window_handle;
-    }
-
-    void set_target_window(HWND windowHandle) {
-        targetWindow = windowHandle;
-    }
-
-    HWND get_target_window() const {
-        return targetWindow;
-    }
-
-    // Move mouse virtually within client area (no real cursor movement)
-    void MoveMouse(int x, int y) {
-        if (!targetWindow) return;
-
-        LPARAM lParam = (y << 16) | (x & 0xFFFF);
-        PostMessage(targetWindow, WM_MOUSEMOVE, 0, lParam);
-    }
-
-    // Click (Left=0, Right=1, Middle=2)
-    void Click(int button = 0, int x = 0, int y = 0) {
-        if (!targetWindow) return;
-
-        PressButton(button, x, y);
-        ReleaseButton(button, x, y);
-    }
-
-    // Double Click
-    void DoubleClick(int button = 0, int x = 0, int y = 0) {
-        if (!targetWindow) return;
-
-        LPARAM lParam = (y << 16) | (x & 0xFFFF);
-        UINT msg;
-
-        if (button == 2)
-            msg = WM_MBUTTONDBLCLK;
-        else if (button == 1)
-            msg = WM_RBUTTONDBLCLK;
-        else
-            msg = WM_LBUTTONDBLCLK;
-
-        PostMessage(targetWindow, msg, 0, lParam);
-    }
-
-    // Press button down
-    void PressButton(int button = 0, int x = 0, int y = 0) {
-        if (!targetWindow) return;
-
-        LPARAM lParam = (y << 16) | (x & 0xFFFF);
-        UINT msg;
-
-        if (button == 2)
-            msg = WM_MBUTTONDOWN;
-        else if (button == 1)
-            msg = WM_RBUTTONDOWN;
-        else
-            msg = WM_LBUTTONDOWN;
-
-        PostMessage(targetWindow, msg, 0, lParam);
-    }
-
-    // Release button
-    void ReleaseButton(int button = 0, int x = 0, int y = 0) {
-        if (!targetWindow) return;
-
-        LPARAM lParam = (y << 16) | (x & 0xFFFF);
-        UINT msg;
-
-        if (button == 2)
-            msg = WM_MBUTTONUP;
-        else if (button == 1)
-            msg = WM_RBUTTONUP;
-        else
-            msg = WM_LBUTTONUP;
-
-        PostMessage(targetWindow, msg, 0, lParam);
-    }
-
-    // Scroll (positive = up, negative = down)
-    void Scroll(int delta, int x = 0, int y = 0) {
-        if (!targetWindow) return;
-
-        LPARAM lParam = (y << 16) | (x & 0xFFFF);
-        WPARAM wParam = (delta << 16);  // Scroll amount in high word
-
-        PostMessage(targetWindow, WM_MOUSEWHEEL, wParam, lParam);
-    }
-};
-
-using FrameCallbackId = uint64_t;
-
-struct FrameCallback {
-    FrameCallbackId id;
-    std::string name;
-    py::object fn;
-};
-
-static std::vector<FrameCallback> g_frame_callbacks;
-static std::mutex g_frame_callbacks_mutex;
-static FrameCallbackId g_next_callback_id = 1;
-
-FrameCallbackId RegisterFrameCallback(const std::string& name, py::function fn)
-{
-    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
-
-    // If callback with same name exists, replace function, keep id
-    for (auto& cb : g_frame_callbacks) {
-        if (cb.name == name) {
-            cb.fn = std::move(fn);
-            return cb.id;
-        }
-    }
-
-    // Otherwise, register new callback
-    FrameCallbackId id = g_next_callback_id++;
-    g_frame_callbacks.push_back({
-        id,
-        name,
-        std::move(fn)
-        });
-
-    return id;
-}
-
-
-bool RemoveFrameCallbackById(FrameCallbackId id)
-{
-    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
-
-    auto it = std::remove_if(
-        g_frame_callbacks.begin(),
-        g_frame_callbacks.end(),
-        [&](const FrameCallback& cb) {
-            return cb.id == id;
-        }
-    );
-
-    if (it == g_frame_callbacks.end())
-        return false;
-
-    g_frame_callbacks.erase(it, g_frame_callbacks.end());
-    return true;
-}
-
-bool RemoveFrameCallbackByName(const std::string& name)
-{
-    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
-
-    auto it = std::remove_if(
-        g_frame_callbacks.begin(),
-        g_frame_callbacks.end(),
-        [&](const FrameCallback& cb) {
-            return cb.name == name;
-        }
-    );
-
-    if (it == g_frame_callbacks.end())
-        return false;
-
-    g_frame_callbacks.erase(it, g_frame_callbacks.end());
-    return true;
-}
-
-void RemoveAllFrameCallbacks()
-{
-    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
-    g_frame_callbacks.clear();
-}
-
-
-
-bool debug = false;
-
-bool show_modal = false;
-bool modal_result_ok = false;
-bool first_run = true;
-bool console_open = true;
-
-bool check_login_screen = true;
-
 
 void Py4GW::Draw(IDirect3DDevice9* device) {
 
     if (!g_d3d_device)
         g_d3d_device = device;
 
-	std::string autoexec_file_path = "";
+    std::string autoexec_file_path = "";
 
     if (first_run) {
         ChangeWorkingDirectory(dllDirectory);
         script_path2 = dllDirectory + "/Py4GW_widget_manager.py";
-    
+
         // === INI HANDLING (early load) ===
         IniHandler ini_handler;
         if (ini_handler.Load("Py4GW.ini")) {
@@ -1454,33 +1389,33 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
         }
     }
 
-    
-	bool is_map_loading = GW::Map::GetInstanceType() == GW::Constants::InstanceType::Loading;
 
-	if (show_console || is_map_loading) {
-		DrawConsole("Py4GW Console", &console_open);
-	}
-	else {
-		DrawCompactConsole(&console_open);
-	}
+    bool is_map_loading = GW::Map::GetInstanceType() == GW::Constants::InstanceType::Loading;
+
+    if (show_console || is_map_loading) {
+        DrawConsole("Py4GW Console", &console_open);
+    }
+    else {
+        DrawCompactConsole(&console_open);
+    }
 
     if (first_run) {
         first_run = false;
         console_open = true;
-		modal_result_ok = false;
-		dll_shutdown = false;
-		show_modal = false;
+        modal_result_ok = false;
+        dll_shutdown = false;
+        show_modal = false;
 
         Initialize();
-        
+
         Log("Py4GW", GetCredits(), MessageType::Success);
         Log("Py4GW", "Python interpreter initialized.", MessageType::Success);
-        
+
         reset_merchant_window_item.start();
 
-        
+
         //Widget Manager
-        
+
         if (LoadAndExecuteScriptOnce2()) {
             script_state2 = ScriptState::Running;
             script_timer2.reset(); // Reset and start the timer
@@ -1508,8 +1443,8 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
                 Log("Py4GW", "Script stopped.", MessageType::Notice);
             }
         }
-      
-	}
+
+    }
 
     if (debug) {
         if (ImGui::Begin("debug window")) {
@@ -1518,20 +1453,20 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
             bool want_capture_keyboard = io.WantCaptureKeyboard;
             bool want_text_input = io.WantTextInput;
 
-		    ImGui::Text("WantCaptureMouse: %d", want_capture_mouse);
-		    ImGui::Text("WantCaptureKeyboard: %d", want_capture_keyboard);
-		    ImGui::Text("WantTextInput: %d", want_text_input);
-		    ImGui::Text("Is dragging: %d", is_dragging);
-		    ImGui::Text("Is dragging ImGui: %d", is_dragging_imgui);
-		    ImGui::Text("dragging_initialized: %d", dragging_initialized);
+            ImGui::Text("WantCaptureMouse: %d", want_capture_mouse);
+            ImGui::Text("WantCaptureKeyboard: %d", want_capture_keyboard);
+            ImGui::Text("WantTextInput: %d", want_text_input);
+            ImGui::Text("Is dragging: %d", is_dragging);
+            ImGui::Text("Is dragging ImGui: %d", is_dragging_imgui);
+            ImGui::Text("dragging_initialized: %d", dragging_initialized);
         }
-	    ImGui::End();
+        ImGui::End();
     }
-    
-	if ((!console_open) && (!show_modal)) {
-		show_modal = true;
+
+    if ((!console_open) && (!show_modal)) {
+        show_modal = true;
         ImGui::OpenPopup("Shutdown");
-	}
+    }
 
     // Display the modal
     if (ImGui::BeginPopupModal("Shutdown", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -1572,7 +1507,7 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
             cb.fn();
         }
         catch (const py::error_already_set& e) {
-			continue; // Skip errors in frame callbacks
+            continue; // Skip errors in frame callbacks
         }
     }
 
@@ -1582,10 +1517,10 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
     if (script_state == ScriptState::Running && !script_content.empty()) {
         ExecutePythonScript();
     }
-  
-	if (script_state2 == ScriptState::Running && !script_content2.empty()) {
-		ExecutePythonScript2();
-	}
+
+    if (script_state2 == ScriptState::Running && !script_content2.empty()) {
+        ExecutePythonScript2();
+    }
 
     if (mixed_deferred.active && mixed_deferred.timer.hasElapsed(mixed_deferred.delay_ms)) {
         if (mixed_deferred.action) {
@@ -1595,705 +1530,24 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
     }
 }
 
-// Wrapper functions for script control
-bool Py4GW_LoadScript(const std::string& path) {
-    strcpy(script_path, path.c_str());
-    return LoadAndExecuteScriptOnce();
-}
-
-bool Py4GW_RunScript() {
-    if (script_state == ScriptState::Stopped) {
-        if (LoadAndExecuteScriptOnce()) {
-            script_state = ScriptState::Running;
-            script_timer.reset();
-            Log("Py4GW", "Script started from binding.", MessageType::Notice);
-            return true;
-        }
-    }
-    return false;
-}
-
-void Py4GW_StopScript() {
-    ResetScriptEnvironment();
-    script_state = ScriptState::Stopped;
-    script_timer.stop();
-    Log("Py4GW", "Script stopped from binding.", MessageType::Notice);
-}
-
-bool Py4GW_PauseScript() {
-    if (script_state == ScriptState::Running) {
-        script_state = ScriptState::Paused;
-        script_timer.Pause();
-        Log("Py4GW", "Script paused from binding.", MessageType::Notice);
-        return true;
-    }
-    return false;
-}
-
-bool Py4GW_ResumeScript() {
-    if (script_state == ScriptState::Paused) {
-        script_state = ScriptState::Running;
-        script_timer.Resume();
-        Log("Py4GW", "Script resumed from binding.", MessageType::Notice);
-        return true;
-    }
-    return false;
-}
-
-std::string Py4GW_GetScriptStatus() {
-    switch (script_state) {
-    case ScriptState::Running: return "Running";
-    case ScriptState::Paused:  return "Paused";
-    case ScriptState::Stopped: return "Stopped";
-    default: return "Unknown";
-    }
-}
 
 
-void ScheduleDeferredAction(std::function<void()> fn, int delay_ms) {
-    mixed_deferred.action = fn;
-    mixed_deferred.delay_ms = delay_ms;
-    mixed_deferred.timer.reset();
-    mixed_deferred.timer.start();
-    mixed_deferred.active = true;
-}
+/* ------------------------------------------------------------------*/
+/* --------------------- Python Bindings ----------------------------*/
+/* ------------------------------------------------------------------*/
 
-// === Mixed deferred wrappers ===
-void Py4GW_DeferLoadAndRun(const std::string& path, int delay_ms) {
-    ScheduleDeferredAction([path]() {
-        strcpy(script_path, path.c_str());
-        if (LoadAndExecuteScriptOnce()) {
-            script_state = ScriptState::Running;
-            script_timer.reset();
-            Log("Py4GW", "Deferred: script loaded and started.", MessageType::Notice);
-        }
-        }, delay_ms);
-}
-
-void Py4GW_DeferStopLoadAndRun(const std::string& path, int delay_ms) {
-    ScheduleDeferredAction([path]() {
-        Py4GW_StopScript();
-        strcpy(script_path, path.c_str());
-        if (LoadAndExecuteScriptOnce()) {
-            script_state = ScriptState::Running;
-            script_timer.reset();
-            Log("Py4GW", "Deferred: stopped, loaded and started.", MessageType::Notice);
-        }
-        }, delay_ms);
-}
-
-void Py4GW_DeferStopAndRun(int delay_ms) {
-    ScheduleDeferredAction([]() {
-        Py4GW_StopScript();
-        Py4GW_RunScript();
-        Log("Py4GW", "Deferred: stopped and restarted.", MessageType::Notice);
-        }, delay_ms);
-}
-
-
-HWND Py4GW::get_gw_window_handle() { 
-    return GW::MemoryMgr::GetGWWindowHandle();
-    //return gw_window_handle; 
-}
-
-void ResizeWindow(int width, int height) {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-
-    RECT rect;
-    GetWindowRect(hwnd, &rect);
-    MoveWindow(hwnd, rect.left, rect.top, width, height, TRUE);
-}
-
-void MoveWindowTo(int x, int y) {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-
-    RECT rect;
-    GetWindowRect(hwnd, &rect);
-    int width = rect.right - rect.left;
-    int height = rect.bottom - rect.top;
-    MoveWindow(hwnd, x, y, width, height, TRUE);
-}
-
-void SetWindowGeometry(int x, int y, int width, int height) {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-
-    /*
-    RECT rect;
-    GetWindowRect(hwnd, &rect);
-
-    if (x < 0) x = rect.left;
-    if (y < 0) y = rect.top;
-    if (width < 0)  width = rect.right - rect.left;
-    if (height < 0) height = rect.bottom - rect.top;
-
-    MoveWindow(hwnd, x, y, width, height, TRUE);*/
-
-    RECT rect = { x, y, x + width, y + height };
-    DWORD style = GetWindowLong(hwnd, GWL_STYLE);
-    DWORD exstyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-
-    AdjustWindowRectEx(&rect, style, FALSE, exstyle);
-
-	auto x_delta = 
-
-    MoveWindow(hwnd,
-        x-8, //rect.left,
-        y,
-        rect.right - rect.left,
-        height+8,  //rect.bottom - rect.top,
-        TRUE);
-}
-
-
-std::tuple<int, int, int, int> GetWindowRectFn() {
-    HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    RECT rect;
-    if (hwnd && GetWindowRect(hwnd, &rect)) {
-        return { rect.left, rect.top, rect.right, rect.bottom };
-    }
-    return { 0, 0, 0, 0 };
-}
-
-std::tuple<int, int, int, int> GetClientRectFn() {
-	HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-	RECT rect;
-	if (hwnd && GetClientRect(hwnd, &rect)) {
-		return { rect.left, rect.top, rect.right, rect.bottom };
-	}
-	return { 0, 0, 0, 0 };
-}
-
-
-void SetWindowTitle(const std::wstring& title) {
-    HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-
-    // Show the exact wide string you received (we already did this before)
-    // MessageBoxW(nullptr, title.c_str(), L"DEBUG: Received Title", MB_OK);
-
-    SetWindowTextW(hwnd, title.c_str());
-
-    // Probe what actually got stored (ANSI path)
-    //ProbeCaptionStorage(hwnd);
-}
-
-void SetWindowActive() {
-	const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-	if (!hwnd) return;
-	SetForegroundWindow(hwnd);
-	SetFocus(hwnd);
-	SetActiveWindow(hwnd);
-}
-
-void SetAlwaysOnTop(bool enable) {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-    SetWindowPos(hwnd, enable ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-}
-
-bool IsWindowFocused() {
-    return GW::MemoryMgr::GetGWWindowHandle() == GetFocus();
-}
-
-bool IsWindowActive() {
-    return GW::MemoryMgr::GetGWWindowHandle() == GetActiveWindow();
-}
-
-bool IsWindowMinimized() {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    return hwnd && IsIconic(hwnd);
-}
-
-bool IsWindowInBackground() {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    return hwnd && GetActiveWindow() != hwnd;
-}
-
-
-static bool   g_borderless_applied = false;
-static LONG   g_saved_style = 0;
-static LONG   g_saved_exstyle = 0;
-static RECT   g_saved_rect{};
-
-#ifndef GET_X_LPARAM
-#define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
-#endif
-#ifndef GET_Y_LPARAM
-#define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
-#endif
-
-static void ApplyFrameChange(HWND hwnd) {
-    // Force non-client to recalc
-    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-}
-
-// ==== True borderless (AHK-style) ====
-// Works by subclassing the window and suppressing the non-client area.
-// Tested pattern for legacy/32-bit apps that ignore style changes.
-
-#include <windows.h>
-
-struct BorderlessState {
-    BOOL   enabled = FALSE;
-    BOOL   draggable = TRUE;
-    int    resize_px = 8;   // border width for resize hit-test
-    WNDPROC orig_proc = nullptr;
-};
-
-static const wchar_t* kPropName = L"BL_STATE_PTR";
-
-// Helpers to attach/detach state
-static BorderlessState* GetState(HWND h) {
-    return reinterpret_cast<BorderlessState*>(GetPropW(h, kPropName));
-}
-static void SetState(HWND h, BorderlessState* s) {
-    if (s) SetPropW(h, kPropName, reinterpret_cast<HANDLE>(s));
-    else RemovePropW(h, kPropName);
-}
-
-// Optional: emulate resize/move on NCHITTEST
-static LRESULT HitTestBorderless(HWND h, BorderlessState* st, LPARAM lParam)
+void bind_Game(py::module_& game)
 {
-    if (!st || !st->draggable) return HTCLIENT;
-
-    // Screen client coords
-    POINT pt_screen{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-    POINT pt_client = pt_screen;
-    ScreenToClient(h, &pt_client);
-
-    RECT rc_client{};
-    GetClientRect(h, &rc_client);
-    const int w = rc_client.right - rc_client.left;
-    const int hgt = rc_client.bottom - rc_client.top;
-
-    const int x = pt_client.x;
-    const int y = pt_client.y;
-    const int border = (st->resize_px > 0 ? st->resize_px : 8);
-
-    // If maximized, don't offer resize edges
-    if (IsZoomed(h)) {
-        return HTCAPTION; // drag anywhere
-    }
-
-    const bool left = (x >= 0 && x < border);
-    const bool right = (x <= w && x > w - border);
-    const bool top = (y >= 0 && y < border);
-    const bool bottom = (y <= hgt && y > hgt - border);
-
-    if (top && left)     return HTTOPLEFT;
-    if (top && right)    return HTTOPRIGHT;
-    if (bottom && left)  return HTBOTTOMLEFT;
-    if (bottom && right) return HTBOTTOMRIGHT;
-    if (top)             return HTTOP;
-    if (bottom)          return HTBOTTOM;
-    if (left)            return HTLEFT;
-    if (right)           return HTRIGHT;
-
-    return HTCAPTION; // drag everywhere else
+    game.def("enqueue",&EnqueuePythonCallback,"Enqueue a Python callback to run on the GW game thread");
+    game.def("get_tick_count64",&Get_Tick_Count64,"Get the current tick count as a 64-bit integer");
+    game.def("register_callback",&RegisterFrameCallback,"Register a named per-frame callback (idempotent by name)" );
+    game.def("remove_callback_by_id",&RemoveFrameCallbackById,"Remove a per-frame callback by id");
+    game.def("remove_callback",&RemoveFrameCallbackByName,"Remove a per-frame callback by name");
+    game.def("clear_callbacks", &RemoveAllFrameCallbacks,"Remove all registered per-frame callbacks");
 }
 
-
-static LRESULT CALLBACK BorderlessProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    BorderlessState* st = GetState(hwnd);
-
-    // If state missing or disabled, pass to original immediately
-    if (!st || !st->enabled) {
-        WNDPROC orig = st ? st->orig_proc : reinterpret_cast<WNDPROC>(GetWindowLongPtr(hwnd, GWLP_WNDPROC));
-        return CallWindowProc(orig, hwnd, msg, wParam, lParam);
-    }
-
-    switch (msg) {
-    case WM_NCCALCSIZE:
-        // Return 0 to tell Windows the whole window is client area (no title/borders).
-        if (wParam) return 0;
-        return 0;
-
-    case WM_NCPAINT:
-        // Suppress default non-client painting (title bar, borders).
-        return 0;
-
-    case WM_NCACTIVATE:
-        // Prevent Windows from drawing inactive/active titlebar transitions.
-        return TRUE;
-
-    case WM_STYLECHANGING:
-        // Keep borderless look by stripping frame bits if the app tries to add them.
-        if (wParam == GWL_STYLE) {
-            STYLESTRUCT* ss = reinterpret_cast<STYLESTRUCT*>(lParam);
-            ss->styleNew &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU);
-        }
-        break;
-
-    case WM_NCHITTEST:
-        return HitTestBorderless(hwnd, st, lParam);
-
-    case WM_DESTROY:
-    case WM_NCDESTROY:
-        // Clean up our state when the window is going away
-        if (st && st->orig_proc) {
-            SetWindowLongPtr(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(st->orig_proc));
-        }
-        SetState(hwnd, nullptr);
-        delete st;
-        break;
-    }
-    return CallWindowProc(st->orig_proc, hwnd, msg, wParam, lParam);
-}
-
-// Public API: enable/disable true borderless
-// draggable=true -> window can be dragged by client area; resize via edges (resize_px).
-// After enabling/disabling, we force a frame change so Windows recalculates immediately.
-bool EnableTrueBorderless(HWND hwnd, bool enable, bool draggable = true, int resize_px = 8) {
-    if (!IsWindow(hwnd)) return false;
-
-    BorderlessState* st = GetState(hwnd);
-
-    if (enable) {
-        if (!st) {
-            st = new BorderlessState();
-            st->enabled = TRUE;
-            st->draggable = draggable ? TRUE : FALSE;
-            st->resize_px = (resize_px > 0 ? resize_px : 8);
-            st->orig_proc = reinterpret_cast<WNDPROC>(GetWindowLongPtr(hwnd, GWLP_WNDPROC));
-            SetState(hwnd, st);
-            SetWindowLongPtr(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(BorderlessProc));
-        }
-        else {
-            st->enabled = TRUE;
-            st->draggable = draggable ? TRUE : FALSE;
-            st->resize_px = (resize_px > 0 ? resize_px : 8);
-        }
-
-        // Remove menu if any (some legacy apps use the menu to force a caption)
-        SetMenu(hwnd, NULL);
-
-        // Force re-evaluation of the frame
-        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-        return true;
-    }
-    else {
-        if (st) {
-            // restore original proc
-            if (st->orig_proc) {
-                SetWindowLongPtr(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(st->orig_proc));
-            }
-            SetState(hwnd, nullptr);
-            delete st;
-            // Force re-evaluation so the normal frame comes back
-            SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-            return true;
-        }
-        return false;
-    }
-}
-
-void SetBorderless(bool enable)
+void bind_Console(py::module_& console)
 {
-    bool draggable = false;
-    int resize_px = 8;
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-
-    // Use the robust subclass-based borderless approach
-    EnableTrueBorderless(hwnd, enable, draggable, resize_px);
-}
-
-
-
-// Flash the taskbar button and optionally the window caption to get attention
-void Flash_Window(int repeat_count = 1) {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-
-    FLASHWINFO fw = { 0 };
-    fw.cbSize = sizeof(fw);
-    fw.hwnd = hwnd;
-    fw.dwFlags = FLASHW_TRAY;    // flash only taskbar button
-	fw.uCount = repeat_count;   
-    fw.dwTimeout = 0;
-    FlashWindowEx(&fw);
-}
-
-// Keep flashing until the window comes to foreground
-void RequestAttention() {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-
-    FLASHWINFO fw = { 0 };
-    fw.cbSize = sizeof(fw);
-    fw.hwnd = hwnd;
-    fw.dwFlags = FLASHW_TRAY | FLASHW_TIMERNOFG;  // until foreground
-    fw.uCount = UINT_MAX;
-    fw.dwTimeout = 0;
-    FlashWindowEx(&fw);
-}
-
-// Get current Z-order index (lower index = closer to top)
-int GetZOrder() {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return -1;
-
-    int z = 0;
-    for (HWND h = hwnd; h != NULL; h = GetWindow(h, GW_HWNDPREV)) {
-        z++;
-    }
-    return z;
-}
-
-// Set explicit Z-order relative to another window
-void SetZOrder(int insertAfter) {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-
-    SetWindowPos(
-        hwnd,
-        (HWND)insertAfter, // cast int back to HWND
-        0, 0, 0, 0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
-    );
-}
-
-
-// Push window to bottom of Z-order stack
-void SendWindowToBack() {
-    SetZOrder((int)HWND_BOTTOM);
-}
-
-void BringWindowToFront() {
-    SetZOrder((int)HWND_TOP);
-}
-
-
-// Make the window transparent to mouse clicks (click-through) and/or normal
-void TransparentClickThrough(bool enable) {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-
-    LONG exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-    if (enable) {
-        exStyle |= WS_EX_TRANSPARENT | WS_EX_LAYERED;
-    }
-    else {
-        exStyle &= ~WS_EX_TRANSPARENT;
-    }
-    SetWindowLong(hwnd, GWL_EXSTYLE, exStyle);
-    // required to apply
-    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-}
-
-// Adjust window opacity [0–255]
-void AdjustWindowOpacity(int alpha) {
-    auto ALPHA_BYTE = [](int value) -> BYTE {
-        if (value < 0) return 0;
-        if (value > 255) return 255;
-        return static_cast<BYTE>(value);
-        };
-
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-
-    LONG exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-    if (!(exStyle & WS_EX_LAYERED)) {
-        SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
-    }
-
-    BYTE clamped = ALPHA_BYTE(alpha);
-    SetLayeredWindowAttributes(hwnd, 0, clamped, LWA_ALPHA);
-}
-
-
-// Hide the window (makes it invisible, still running)
-void HideWindow() {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-    ShowWindow(hwnd, SW_HIDE);
-}
-
-// Show the window if hidden
-void ShowWindowAgain() {
-    const HWND hwnd = GW::MemoryMgr::GetGWWindowHandle();
-    if (!hwnd) return;
-    ShowWindow(hwnd, SW_SHOW);
-}
-
-class PyScanner {
-public:
-    // --- Initialize ---
-    static void Initialize(const std::string& module_name = "") {
-        if (module_name.empty())
-            GW::Scanner::Initialize((const char*)nullptr);
-        else
-            GW::Scanner::Initialize(module_name.c_str());
-    }
-
-    // --- Find ---
-    static uintptr_t Find(py::bytes pattern, const std::string& mask,
-        int offset, uint8_t section) {
-        std::string pat = pattern;
-        return GW::Scanner::Find(pat.c_str(), mask.c_str(), offset,
-            (GW::ScannerSection)section);
-    }
-
-    // --- FindInRange ---
-    static uintptr_t FindInRange(py::bytes pattern, const std::string& mask,
-        int offset, uintptr_t start, uintptr_t end) {
-        std::string pat = pattern;
-        return GW::Scanner::FindInRange(pat.c_str(), mask.c_str(), offset,
-            (DWORD)start, (DWORD)end);
-    }
-
-    // --- FunctionFromNearCall ---
-    static uintptr_t FunctionFromNearCall(uintptr_t call_addr,
-        bool check_valid_ptr = true) {
-        return GW::Scanner::FunctionFromNearCall(call_addr, check_valid_ptr);
-    }
-
-    // --- IsValidPtr ---
-    static bool IsValidPtr(uintptr_t addr, uint8_t section) {
-        return GW::Scanner::IsValidPtr(addr, (GW::ScannerSection)section);
-    }
-
-    // --- ToFunctionStart ---
-    static uintptr_t ToFunctionStart(uintptr_t addr,
-        uint32_t scan_range = 0xFF) {
-        return GW::Scanner::ToFunctionStart(addr, scan_range);
-    }
-
-    // --- FindNthUseOfAddress ---
-    static uintptr_t FindNthUseOfAddress(uintptr_t address, size_t nth,
-        int offset, uint8_t section) {
-        return GW::Scanner::FindNthUseOfAddress(address, nth, offset,
-            (GW::ScannerSection)section);
-    }
-
-    // --- FindUseOfAddress ---
-    static uintptr_t FindUseOfAddress(uintptr_t address, int offset,
-        uint8_t section) {
-        return GW::Scanner::FindUseOfAddress(address, offset,
-            (GW::ScannerSection)section);
-    }
-
-    // --- FindUseOfString (ANSI) ---
-    static uintptr_t FindUseOfStringA(const std::string& str, int offset,
-        uint8_t section) {
-        return GW::Scanner::FindUseOfString(str.c_str(), offset,
-            (GW::ScannerSection)section);
-    }
-
-    // --- FindUseOfString (WCHAR) ---
-    static uintptr_t FindUseOfStringW(const std::wstring& str, int offset,
-        uint8_t section) {
-        return GW::Scanner::FindUseOfString(str.c_str(), offset,
-            (GW::ScannerSection)section);
-    }
-
-    // --- FindNthUseOfString (ANSI) ---
-    static uintptr_t FindNthUseOfStringA(const std::string& str, size_t nth,
-        int offset, uint8_t section) {
-        return GW::Scanner::FindNthUseOfString(str.c_str(), nth, offset,
-            (GW::ScannerSection)section);
-    }
-
-    // --- FindNthUseOfString (WCHAR) ---
-    static uintptr_t FindNthUseOfStringW(const std::wstring& str, size_t nth,
-        int offset, uint8_t section) {
-        return GW::Scanner::FindNthUseOfString(str.c_str(), nth, offset,
-            (GW::ScannerSection)section);
-    }
-};
-
-
-void EnqueuePythonCallback(py::function func) {
-    // move func into the lambda so it stays alive
-    GW::GameThread::Enqueue([func = std::move(func)]() mutable {
-        // We're now running on the GW game thread here
-        py::gil_scoped_acquire gil;
-        try {
-            func();  // Call the Python function with no args
-        }
-        catch (const py::error_already_set& e) {
-            // TODO: log this somewhere sane
-            // Logger::Instance().LogError(e.what(), "PyGameThread");
-        }
-        });
-}
-
-static uint64_t Get_Tick_Count64() {
-	return GetTickCount64();
-}
-
-
-PYBIND11_EMBEDDED_MODULE(Py4GW, m)
-{
-    m.doc() = "Py4GW, Python Enabler Library for GuildWars"; // Optional module docstring
-    
-    py::class_<Timer>(m, "Timer")
-        .def(py::init<>())                               // Expose the constructor
-        .def("start", &Timer::start)                     // Bind the start method
-        .def("stop", &Timer::stop)                       // Bind the stop method
-        .def("pause", &Timer::Pause)                     // Bind the Pause method
-        .def("resume", &Timer::Resume)                   // Bind the Resume method
-        .def("is_stopped", &Timer::isStopped)            // Bind the isStopped method
-        .def("is_running", &Timer::isRunning)            // Bind the isRunning method
-        .def("is_paused", &Timer::IsPaused)              // Bind the IsPaused method
-        .def("reset", &Timer::reset)                     // Bind the reset method
-        .def("get_elapsed_time", &Timer::getElapsedTime) // Bind the getElapsedTime method
-        .def("has_elapsed", &Timer::hasElapsed)          // Bind the hasElapsed method
-        .def("__repr__", [](const Timer& t) {            // Optional: Add a Python-like string representation
-        return "<Timer running=" + std::to_string(t.isRunning()) + ">";
-            });
-
-    // Create the 'Console' submodule under 'Py4GW'
-    py::module_ console = m.def_submodule("Console", "Submodule for console logging");
-
-	py::module_ game = m.def_submodule("Game", "Submodule for game functions");
-
-    game.def(
-        "enqueue",
-        &EnqueuePythonCallback,
-        "Enqueue a Python callback to run on the GW game thread"
-    );
-
-	game.def(
-		"get_tick_count64",
-		&Get_Tick_Count64,
-		"Get the current tick count as a 64-bit integer"
-	);
-
-    game.def(
-        "register_callback",
-        &RegisterFrameCallback,
-        "Register a named per-frame callback (idempotent by name)"
-    );
-
-    game.def(
-        "remove_callback_by_id",
-        &RemoveFrameCallbackById,
-        "Remove a per-frame callback by id"
-    );
-
-    game.def(
-        "remove_callback",
-        &RemoveFrameCallbackByName,
-        "Remove a per-frame callback by name"
-    );
-
-    game.def(
-        "clear_callbacks",
-        &RemoveAllFrameCallbacks,
-        "Remove all registered per-frame callbacks"
-    );
-
-
-    // Bind the MessageType enum inside the 'Console' submodule
     py::enum_<MessageType>(console, "MessageType")
         .value("Info", MessageType::Info)
         .value("Warning", MessageType::Warning)
@@ -2302,157 +1556,123 @@ PYBIND11_EMBEDDED_MODULE(Py4GW, m)
         .value("Success", MessageType::Notice)
         .value("Performance", MessageType::Performance)
         .value("Notice", MessageType::Notice)
-        .export_values(); // Expose enum values as Py4GW.Console.MessageType.Info, etc.
+        .export_values();
 
-    // Bind the Log function to the 'Console' submodule
-    console.def(
-        "Log", &Log, "Log a message to the console", py::arg("module_name"), py::arg("message"),
-        py::arg("type") = MessageType::Info // Handle the default argument here
+    console.def("Log",&Log,"Log a message to the console",
+        py::arg("module_name"),
+        py::arg("message"),
+        py::arg("type") = MessageType::Info
     );
 
     console.def("GetCredits", &GetCredits, "Get the credits for the Py4GW library");
     console.def("GetLicense", &GetLicense, "Get the license for the Py4GW library");
-	console.def("change_working_directory", &ChangeWorkingDirectory, "Change the current working directory", py::arg("path"));
+    console.def("change_working_directory",&ChangeWorkingDirectory,"Change the current working directory",
+        py::arg("path")
+    );
+}
 
-    //get_gw_window_handle
-    console.def("get_gw_window_handle", []() -> uintptr_t {
-        return reinterpret_cast<uintptr_t>(Py4GW::get_gw_window_handle());
-        }, "Get the Guild Wars window handle as an integer");
-    
-	console.def("get_projects_path", []() -> std::string {
-		return dllDirectory;
-		}, "Get the path where Py4GW.dll is located");
-
-
-	console.def("resize_window", &ResizeWindow, "Resize the Guild Wars window", py::arg("width"), py::arg("height"));
-	console.def("move_window_to", &MoveWindowTo, "Move the Guild Wars window to (x, y)", py::arg("x"), py::arg("y"));
-	console.def("set_window_geometry", &SetWindowGeometry, "Set the Guild Wars window geometry (x, y, width, height). Use -1 to keep current value.", py::arg("x"), py::arg("y"), py::arg("width"), py::arg("height"));
-	console.def("get_window_rect", &GetWindowRectFn, "Get the Guild Wars window rectangle (left, top, right, bottom)");
-	console.def("get_client_rect", &GetClientRectFn, "Get the Guild Wars client rectangle (left, top, right, bottom)");
-	console.def("set_window_active", &SetWindowActive, "Set the Guild Wars window as active (focused)");
-    console.def("set_window_title", [](const std::wstring& s) {
-        SetWindowTitle(s);
-        }, py::arg("title"));
- 
-	console.def("is_window_active", &IsWindowActive, "Check if the Guild Wars window is active (focused)");
-	console.def("is_window_minimized", &IsWindowMinimized, "Check if the Guild Wars window is minimized");
-	console.def("is_window_in_background", &IsWindowInBackground, "Check if the Guild Wars window is in the background (not focused)");
-	console.def("set_borderless", &SetBorderless, "Enable or disable borderless window mode for Guild Wars", py::arg("enable"));
-	console.def("set_always_on_top", &SetAlwaysOnTop, "Set or unset the Guild Wars window to be always on top", py::arg("enable"));
-	console.def("flash_window", &Flash_Window, "Flash the Guild Wars taskbar button to get attention", py::arg("repeat_count") = 1);
-	console.def("request_attention", &RequestAttention, "Keep flashing the Guild Wars taskbar button until it comes to foreground");
-	console.def("get_z_order", &GetZOrder, "Get the Z-order index of the Guild Wars window (lower index = closer to top)");
+void bind_Environment(py::module_& console)
+{
     console.def(
-        "set_z_order",
-        &SetZOrder,
-        "Set the Z-order of the Guild Wars window relative to another window (default: top)",
-        py::arg("insert_after") = (int)HWND_TOP
+        "get_gw_window_handle",
+        []() -> uintptr_t {
+            return reinterpret_cast<uintptr_t>(
+                Py4GW::get_gw_window_handle()
+                );
+        },
+        "Get the Guild Wars window handle as an integer"
     );
 
-	console.def("send_window_to_back", &SendWindowToBack, "Send the Guild Wars window to the bottom of the Z-order stack");
-	console.def("bring_window_to_front", &BringWindowToFront, "Bring the Guild Wars window to the front of the Z-order stack");
-	console.def("transparent_click_through", &TransparentClickThrough, "Make the Guild Wars window transparent to mouse clicks (click-through)", py::arg("enable"));
-	console.def("adjust_window_opacity", &AdjustWindowOpacity, "Adjust the Guild Wars window opacity (0-255)", py::arg("alpha"));
-	console.def("hide_window", &HideWindow, "Hide the Guild Wars window (makes it invisible, still running)");
-	console.def("show_window", &ShowWindowAgain, "Show the Guild Wars window if hidden");
+    console.def(
+        "get_projects_path",
+        []() -> std::string {
+            return dllDirectory;
+        },
+        "Get the path where Py4GW.dll is located"
+    );
+}
 
+void bind_Window(py::module_& console)
+{
+    console.def("resize_window",&WindowCfg::ResizeWindow,"Resize the Guild Wars window",
+        py::arg("width"), py::arg("height"));
+    console.def("move_window_to",&WindowCfg::MoveWindowTo,"Move the Guild Wars window to (x, y)",
+        py::arg("x"), py::arg("y"));
+    console.def("set_window_geometry",&WindowCfg::SetWindowGeometry,"Set the Guild Wars window geometry (x, y, width, height)",
+        py::arg("x"), py::arg("y"),
+        py::arg("width"), py::arg("height")
+    );
+    console.def("get_window_rect",&WindowCfg::GetWindowRectFn,"Get the Guild Wars window rectangle (left, top, right, bottom)");
+    console.def("get_client_rect",&WindowCfg::GetClientRectFn,"Get the Guild Wars client rectangle (left, top, right, bottom)");
+    console.def("set_window_active",&WindowCfg::SetWindowActive,"Set the Guild Wars window as active (focused)");
+    console.def("set_window_title",
+        [](const std::wstring& title) {
+            WindowCfg::SetWindowTitle(title);
+        },
+        py::arg("title"));
+    console.def("is_window_active",&WindowCfg::IsWindowActive,"Check if the Guild Wars window is active (focused)");
+    console.def("is_window_minimized",&WindowCfg::IsWindowMinimized,"Check if the Guild Wars window is minimized");
+    console.def("is_window_in_background",&WindowCfg::IsWindowInBackground,"Check if the Guild Wars window is in the background");
+    console.def("set_borderless",&WindowCfg::SetBorderless,"Enable or disable borderless window mode",
+        py::arg("enable"));
+    console.def("set_always_on_top", &WindowCfg::SetAlwaysOnTop,"Set or unset always-on-top",
+        py::arg("enable"));
+    console.def("flash_window",&WindowCfg::Flash_Window,"Flash the Guild Wars taskbar button",
+        py::arg("repeat_count") = 1);
+    console.def("request_attention",&WindowCfg::RequestAttention,"Keep flashing until the window comes to foreground");
+    console.def("get_z_order",&WindowCfg::GetZOrder,"Get the Z-order index of the Guild Wars window");
+    console.def("set_z_order",&WindowCfg::SetZOrder,"Set the Z-order of the Guild Wars window relative to another window",
+        py::arg("insert_after") = (int)HWND_TOP);
+    console.def("send_window_to_back",&WindowCfg::SendWindowToBack,"Send the Guild Wars window to the bottom of the Z-order stack");
+    console.def("bring_window_to_front",&WindowCfg::BringWindowToFront,"Bring the Guild Wars window to the front of the Z-order stack");
+    console.def("transparent_click_through",&WindowCfg::TransparentClickThrough,"Make the Guild Wars window click-through",
+        py::arg("enable"));
+    console.def("adjust_window_opacity", &WindowCfg::AdjustWindowOpacity,"Adjust the Guild Wars window opacity (0–255)",
+        py::arg("alpha") );
+    console.def( "hide_window",&WindowCfg::HideWindow, "Hide the Guild Wars window");
+    console.def("show_window",&WindowCfg::ShowWindowAgain,"Show the Guild Wars window if hidden");
+}
 
-    // === Script Control Bindings ===
+void bind_ScriptControl(py::module_& console)
+{
     console.def("load", &Py4GW_LoadScript, "Load a Python script from path", py::arg("path"));
     console.def("run", &Py4GW_RunScript, "Run the currently loaded script");
     console.def("stop", &Py4GW_StopScript, "Stop the currently running script");
     console.def("pause", &Py4GW_PauseScript, "Pause the running script");
     console.def("resume", &Py4GW_ResumeScript, "Resume the paused script");
-    console.def("status", &Py4GW_GetScriptStatus, "Get current script status (Running, Paused, Stopped)");
-    console.def("defer_load_and_run", &Py4GW_DeferLoadAndRun,
-        "Stop current if needed, then load and run new script after delay (ms)",
-        py::arg("path"), py::arg("delay_ms") = 1000);
+    console.def("status", &Py4GW_GetScriptStatus, "Get current script status");
 
-    console.def("defer_stop_load_and_run", &Py4GW_DeferStopLoadAndRun,
-        "Force stop, then load and run new script after delay (ms)",
+    console.def( "defer_load_and_run",&Py4GW_DeferLoadAndRun,"Stop current if needed, then load and run new script after delay (ms)",
         py::arg("path"), py::arg("delay_ms") = 1000);
-
-    console.def("defer_stop_and_run", &Py4GW_DeferStopAndRun,
-        "Stop current script, then rerun it after delay (ms)",
+    console.def("defer_stop_load_and_run",&Py4GW_DeferStopLoadAndRun,"Force stop, then load and run new script after delay (ms)",
+        py::arg("path"), py::arg("delay_ms") = 1000);
+    console.def("defer_stop_and_run",&Py4GW_DeferStopAndRun,"Stop current script, then rerun it after delay (ms)",
         py::arg("delay_ms") = 1000);
+}
 
-
-
-
-    
+void bind_Ping(py::module_& m)
+{
     py::class_<PingTracker>(m, "PingHandler")
-        .def(py::init<>())                         // Constructor
-        .def("Terminate", &PingTracker::Terminate) // Manual cleanup
+        .def(py::init<>())
+        .def("Terminate", &PingTracker::Terminate)
         .def("GetCurrentPing", &PingTracker::GetCurrentPing)
         .def("GetAveragePing", &PingTracker::GetAveragePing)
         .def("GetMinPing", &PingTracker::GetMinPing)
         .def("GetMaxPing", &PingTracker::GetMaxPing);
 }
 
-// pybind11 scanner module binding
-PYBIND11_EMBEDDED_MODULE(PyScanner, m)
+
+PYBIND11_EMBEDDED_MODULE(Py4GW, m)
 {
-    py::class_<PyScanner>(m, "PyScanner")
-        // Init
-        .def_static("Initialize", &PyScanner::Initialize,
-            py::arg("module_name") = "")
+    m.doc() = "Py4GW, Python Enabler Library for GuildWars"; // Optional module docstring
 
-        // Pattern scanning
-        .def_static("Find", &PyScanner::Find)
-        .def_static("FindInRange", &PyScanner::FindInRange)
-
-        // Function resolution
-        .def_static("FunctionFromNearCall", &PyScanner::FunctionFromNearCall)
-        .def_static("ToFunctionStart", &PyScanner::ToFunctionStart)
-
-        // Pointer validation
-        .def_static("IsValidPtr", &PyScanner::IsValidPtr)
-
-        // Address usage scanning
-        .def_static("FindUseOfAddress", &PyScanner::FindUseOfAddress)
-        .def_static("FindNthUseOfAddress", &PyScanner::FindNthUseOfAddress)
-
-        // String usage scanning
-        .def_static("FindUseOfStringA", &PyScanner::FindUseOfStringA)
-        .def_static("FindUseOfStringW", &PyScanner::FindUseOfStringW)
-        .def_static("FindNthUseOfStringA", &PyScanner::FindNthUseOfStringA)
-        .def_static("FindNthUseOfStringW", &PyScanner::FindNthUseOfStringW);
-
+    py::module_ console = m.def_submodule("Console", "Submodule for console logging");
+	py::module_ game = m.def_submodule("Game", "Submodule for game functions");
+    
+    bind_Game(game);
+	bind_Console(console);
+	bind_Environment(console);
+	bind_Window(console);
+	bind_ScriptControl(console);
+	bind_Ping(m);
 }
-
-// pybind11 module binding
-PYBIND11_EMBEDDED_MODULE(PyKeystroke, m)
-{
-    // Binding for the scan code-based key handler
-    py::class_<KeyHandler>(m, "PyScanCodeKeystroke")
-        .def(pybind11::init<>()) // Constructor
-
-        // Single key functions
-        .def("PressKey", &KeyHandler::press_key, "Press a single key using scan code", pybind11::arg("virtualKeyCode"))
-        .def("ReleaseKey", &KeyHandler::release_key, "Release a single key using scan code", pybind11::arg("virtualKeyCode"))
-        .def("PushKey", &KeyHandler::push_key, "Press and release a single key using scan code", pybind11::arg("virtualKeyCode"))
-
-        // Key combination functions
-        .def("PressKeyCombo", &KeyHandler::press_key_combo, "Press a combination of keys using scan codes", pybind11::arg("keys"))
-        .def("ReleaseKeyCombo", &KeyHandler::release_key_combo, "Release a combination of keys using scan codes", pybind11::arg("keys"))
-        .def("PushKeyCombo", &KeyHandler::push_key_combo, "Press and release a combination of keys using scan codes", pybind11::arg("keys"));
-}
-
-// pybind11 mouse module binding
-PYBIND11_EMBEDDED_MODULE(PyMouse, m)
-{
-	// Binding for the mouse handler
-	py::class_<MouseHandler>(m, "PyMouse")
-		.def(pybind11::init<>()) // Constructor
-		// Mouse movement
-		.def("MoveMouse", &MouseHandler::MoveMouse, "Move mouse to (x, y) relative to the client window", pybind11::arg("x"), pybind11::arg("y"))
-		// Mouse click functions
-		.def("Click", &MouseHandler::Click, "Click the mouse button at (x, y)", pybind11::arg("button") = 0, pybind11::arg("x") = 0, pybind11::arg("y") = 0)
-		.def("DoubleClick", &MouseHandler::DoubleClick, "Double click the mouse button at (x, y)", pybind11::arg("button") = 0, pybind11::arg("x") = 0, pybind11::arg("y") = 0)
-		// Mouse scroll
-		.def("Scroll", &MouseHandler::Scroll, "Scroll the mouse wheel", pybind11::arg("delta"), pybind11::arg("x") = 0, pybind11::arg("y") = 0)
-		// Mouse button press/release
-		.def("PressButton", &MouseHandler::PressButton, "Press a mouse button at (x, y)", pybind11::arg("button") = 0, pybind11::arg("x") = 0, pybind11::arg("y") = 0)
-		.def("ReleaseButton", &MouseHandler::ReleaseButton, "Release a mouse button at (x, y)", pybind11::arg("button") = 0, pybind11::arg("x") = 0, pybind11::arg("y") = 0);
-}
-
