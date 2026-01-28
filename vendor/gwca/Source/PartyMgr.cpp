@@ -143,7 +143,8 @@ namespace {
         Logger::AssertAddress("SetReadyStatus_Func", (uintptr_t)SetReadyStatus_Func, "Party Module");
 
         //address = Scanner::Find("\x8d\x45\x10\x50\x56\x6a\x4e\x57", "xxxxxxxx");
-        address = Scanner::Find("\x8d\x45\x10\x50\x56\x6a\x5b\x57", "xxxxxxxx");
+        //address = Scanner::Find("\x8d\x45\x10\x50\x56\x6a\x5b\x57", "xxxxxxxx");
+        address = Scanner::Find("\x8d\x45\x10\x50\x56\x6a\x5c\x57", "xxxxxxxx");
 		Logger::AssertAddress("FlagAgent address", (uintptr_t)address, "Party Module");
         if (Scanner::IsValidPtr(address, ScannerSection::Section_TEXT)) {
             //address = Scanner::FindInRange("\x83\xc4\x04\x50\xe8", "xxxxx", 4, address, address + 0x64);

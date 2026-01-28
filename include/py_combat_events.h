@@ -43,6 +43,8 @@
 
 #include <GWCA/Packets/StoC.h>
 #include <GWCA/Managers/StoCMgr.h>
+#include <GWCA/Managers/MapMgr.h>
+#include <GWCA/Constants/Constants.h>
 #include <GWCA/Utilities/Hook.h>
 
 #include <pybind11/pybind11.h>
@@ -93,57 +95,57 @@ struct RawCombatEvent {
  * Note: The values are NOT arbitrary - they're chosen to avoid conflicts
  * and are grouped by category (skills 1-8, attacks 13-15, damage 30-32, etc.)
  */
-namespace CombatEventTypes {
+enum class CombatEventType : uint32_t {
     // ---- Skill Events (from GenericValue/GenericValueTarget packets) ----
     // These fire when agents use skills (spells, signets, etc.)
 
-    constexpr uint32_t SKILL_ACTIVATED = 1;         // Non-attack skill started casting
-                                                    // agent_id=caster, value=skill_id, target_id=target
+    SKILL_ACTIVATED = 1,          // Non-attack skill started casting
+                                  // agent_id=caster, value=skill_id, target_id=target
 
-    constexpr uint32_t ATTACK_SKILL_ACTIVATED = 2;  // Attack skill started (e.g., Jagged Strike)
-                                                    // agent_id=caster, value=skill_id, target_id=target
+    ATTACK_SKILL_ACTIVATED = 2,   // Attack skill started (e.g., Jagged Strike)
+                                  // agent_id=caster, value=skill_id, target_id=target
 
-    constexpr uint32_t SKILL_STOPPED = 3;           // Skill cast was cancelled (moved, etc.)
-                                                    // agent_id=caster, value=skill_id
+    SKILL_STOPPED = 3,            // Skill cast was cancelled (moved, etc.)
+                                  // agent_id=caster, value=skill_id
 
-    constexpr uint32_t SKILL_FINISHED = 4;          // Skill completed successfully
-                                                    // agent_id=caster, value=skill_id
+    SKILL_FINISHED = 4,           // Skill completed successfully
+                                  // agent_id=caster, value=skill_id
 
-    constexpr uint32_t ATTACK_SKILL_FINISHED = 5;   // Attack skill completed
-                                                    // agent_id=caster, value=skill_id
+    ATTACK_SKILL_FINISHED = 5,    // Attack skill completed
+                                  // agent_id=caster, value=skill_id
 
-    constexpr uint32_t INTERRUPTED = 6;             // Skill was interrupted
-                                                    // agent_id=interrupted agent, value=skill_id
+    INTERRUPTED = 6,              // Skill was interrupted
+                                  // agent_id=interrupted agent, value=skill_id
 
-    constexpr uint32_t INSTANT_SKILL_ACTIVATED = 7; // Instant-cast skill used (no cast time)
-                                                    // agent_id=caster, value=skill_id, target_id=target
+    INSTANT_SKILL_ACTIVATED = 7,  // Instant-cast skill used (no cast time)
+                                  // agent_id=caster, value=skill_id, target_id=target
 
-    constexpr uint32_t ATTACK_SKILL_STOPPED = 8;    // Attack skill was cancelled
-                                                    // agent_id=caster, value=skill_id
+    ATTACK_SKILL_STOPPED = 8,     // Attack skill was cancelled
+                                  // agent_id=caster, value=skill_id
 
     // ---- Attack Events (auto-attacks, from GenericValueTarget) ----
 
-    constexpr uint32_t ATTACK_STARTED = 13;         // Auto-attack started (not a skill)
-                                                    // agent_id=attacker, target_id=target
+    ATTACK_STARTED = 13,          // Auto-attack started (not a skill)
+                                  // agent_id=attacker, target_id=target
 
-    constexpr uint32_t ATTACK_STOPPED = 14;         // Auto-attack stopped/cancelled
-                                                    // agent_id=attacker
+    ATTACK_STOPPED = 14,          // Auto-attack stopped/cancelled
+                                  // agent_id=attacker
 
-    constexpr uint32_t MELEE_ATTACK_FINISHED = 15;  // Melee attack hit completed
-                                                    // agent_id=attacker
+    MELEE_ATTACK_FINISHED = 15,   // Melee attack hit completed
+                                  // agent_id=attacker
 
     // ---- State Events ----
 
-    constexpr uint32_t DISABLED = 16;               // Agent disabled state changed (cast-lock/aftercast)
-                                                    // agent_id=agent, value=1 (disabled) or 0 (can act)
-                                                    // This fires 4 times per skill: cast start, cast end,
-                                                    // aftercast start, aftercast end
+    DISABLED = 16,                // Agent disabled state changed (cast-lock/aftercast)
+                                  // agent_id=agent, value=1 (disabled) or 0 (can act)
+                                  // This fires 4 times per skill: cast start, cast end,
+                                  // aftercast start, aftercast end
 
-    constexpr uint32_t KNOCKED_DOWN = 17;           // Agent was knocked down
-                                                    // agent_id=knocked agent, float_value=duration in seconds
+    KNOCKED_DOWN = 17,            // Agent was knocked down
+                                  // agent_id=knocked agent, float_value=duration in seconds
 
-    constexpr uint32_t CASTTIME = 18;               // Cast time modifier received
-                                                    // agent_id=caster, float_value=cast duration in seconds
+    CASTTIME = 18,                // Cast time modifier received
+                                  // agent_id=caster, float_value=cast duration in seconds
 
     // ---- Damage Events (from GenericModifier packets) ----
     // Note: For damage, the packet naming is counter-intuitive!
@@ -151,57 +153,62 @@ namespace CombatEventTypes {
     // target_id = source (who DEALS damage)
     // float_value = damage as fraction of target's max HP
 
-    constexpr uint32_t DAMAGE = 30;                 // Normal damage dealt
-                                                    // agent_id=target, target_id=source, float_value=damage%
+    DAMAGE = 30,                  // Normal damage dealt
+                                  // agent_id=target, target_id=source, float_value=damage%
 
-    constexpr uint32_t CRITICAL = 31;               // Critical hit damage
-                                                    // agent_id=target, target_id=source, float_value=damage%
+    CRITICAL = 31,                // Critical hit damage
+                                  // agent_id=target, target_id=source, float_value=damage%
 
-    constexpr uint32_t ARMOR_IGNORING = 32;         // Armor-ignoring damage (life steal, etc.)
-                                                    // Can be negative for heals!
-                                                    // agent_id=target, target_id=source, float_value=damage%
+    ARMOR_IGNORING = 32,          // Armor-ignoring damage (life steal, etc.)
+                                  // Can be negative for heals!
+                                  // agent_id=target, target_id=source, float_value=damage%
 
     // ---- Effect Events (from GenericValue/GenericValueTarget) ----
 
-    constexpr uint32_t EFFECT_APPLIED = 40;         // Visual effect applied (internal effect_id, not skill_id!)
-                                                    // agent_id=affected agent, value=effect_id
+    EFFECT_APPLIED = 40,          // Visual effect applied (internal effect_id, not skill_id!)
+                                  // agent_id=affected agent, value=effect_id
 
-    constexpr uint32_t EFFECT_REMOVED = 41;         // Visual effect removed
-                                                    // agent_id=affected agent, value=effect_id
+    EFFECT_REMOVED = 41,          // Visual effect removed
+                                  // agent_id=affected agent, value=effect_id
 
-    constexpr uint32_t EFFECT_ON_TARGET = 42;       // Skill effect hit a target (from effect_on_target packet)
-                                                    // agent_id=caster, value=effect_id, target_id=target
-                                                    // Python correlates this with recent casts to get skill_id
+    EFFECT_ON_TARGET = 42,        // Skill effect hit a target (from effect_on_target packet)
+                                  // agent_id=caster, value=effect_id, target_id=target
+                                  // Python correlates this with recent casts to get skill_id
 
     // ---- Energy Events ----
 
-    constexpr uint32_t ENERGY_GAINED = 50;          // Energy gained (from GenericValue energygain)
-                                                    // agent_id=agent, float_value=energy amount (raw points)
+    ENERGY_GAINED = 50,           // Energy gained (from GenericValue energygain)
+                                  // agent_id=agent, float_value=energy amount (raw points)
 
-    constexpr uint32_t ENERGY_SPENT = 51;           // Energy spent (from GenericFloat energy_spent)
-                                                    // agent_id=agent, float_value=energy as fraction of max
+    ENERGY_SPENT = 51,            // Energy spent (from GenericFloat energy_spent)
+                                  // agent_id=agent, float_value=energy as fraction of max
 
     // ---- Skill-Damage Attribution ----
 
-    constexpr uint32_t SKILL_DAMAGE = 60;           // Pre-notification: this skill will cause damage
-                                                    // agent_id=target, value=skill_id
-                                                    // Sent to TARGET before DAMAGE packet arrives
+    SKILL_DAMAGE = 60,            // Pre-notification: this skill will cause damage
+                                  // agent_id=target, value=skill_id
+                                  // Sent to TARGET before DAMAGE packet arrives
 
     // ---- Pre-Notification ----
 
-    constexpr uint32_t SKILL_ACTIVATE_PACKET = 70;  // Early skill activation notification
-                                                    // agent_id=caster, value=skill_id
-                                                    // From SkillActivate packet (arrives before GenericValue)
+    SKILL_ACTIVATE_PACKET = 70,   // Early skill activation notification
+                                  // agent_id=caster, value=skill_id
+                                  // From SkillActivate packet (arrives before GenericValue)
 
     // ---- Skill Recharge Events (from SkillRecharge/SkillRecharged packets) ----
     // These track when skills go on cooldown and come off cooldown.
     // Works for ANY agent - player, heroes, enemies, NPCs!
 
-    constexpr uint32_t SKILL_RECHARGE = 80;         // Skill went on cooldown
-                                                    // agent_id=agent, value=skill_id, float_value=recharge time in ms
+    SKILL_RECHARGE = 80,          // Skill went on cooldown
+                                  // agent_id=agent, value=skill_id, float_value=recharge time in ms
 
-    constexpr uint32_t SKILL_RECHARGED = 81;        // Skill came off cooldown
-                                                    // agent_id=agent, value=skill_id
+    SKILL_RECHARGED = 81          // Skill came off cooldown
+                                  // agent_id=agent, value=skill_id
+};
+
+// Helper function to convert enum to uint32_t for backwards compatibility
+constexpr uint32_t to_uint(CombatEventType type) {
+    return static_cast<uint32_t>(type);
 }
 
 // ============================================================================
@@ -312,6 +319,15 @@ private:
      * If queue exceeds max_events, oldest events are dropped.
      */
     void PushEvent(const RawCombatEvent& event);
+
+    /**
+     * @brief Check if the map is ready for packet processing.
+     * @return true if map is loaded and not in loading state.
+     *
+     * Prevents crashes during map transitions by skipping packet processing
+     * when game memory may be invalid.
+     */
+    bool IsMapReady() const;
 };
 
 // ============================================================================

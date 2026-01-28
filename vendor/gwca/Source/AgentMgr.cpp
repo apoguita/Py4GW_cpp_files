@@ -185,8 +185,13 @@ namespace {
         int success = HookBase::CreateHook((void**)&DoWorldActon_Func, OnDoWorldActon_Func, (void**)&DoWorldActon_Ret);
         Logger::AssertHook("DoWorldActon_Func", success);
 
-        success = HookBase::CreateHook((void**)&CallTarget_Func, OnCallTarget_Func, (void**)&CallTarget_Ret);
-		Logger::AssertHook("CallTarget_Func", success);
+        // NOTE: CallTarget_Func initialization is currently missing - hook is disabled
+        // The CallTarget functionality still works through UI messages (kSendCallTarget)
+        // TODO: Add Scanner::Find for CallTarget_Func if direct hooking is needed
+        if (CallTarget_Func) {
+            success = HookBase::CreateHook((void**)&CallTarget_Func, OnCallTarget_Func, (void**)&CallTarget_Ret);
+            Logger::AssertHook("CallTarget_Func", success);
+        }
 
         success = HookBase::CreateHook((void**)&SendAgentDialog_Func, OnSendAgentDialog_Func, (void**)&SendAgentDialog_Ret);
 		Logger::AssertHook("SendAgentDialog_Func", success);
@@ -217,7 +222,7 @@ namespace {
     void EnableHooks() {
         //return; // Temporarily disable gamethread hooks to investigate issues
         if (CallTarget_Func)
-            HookBase::EnableHooks(DoWorldActon_Func);
+            HookBase::EnableHooks(CallTarget_Func);
         if (DoWorldActon_Func)
             HookBase::EnableHooks(DoWorldActon_Func);
         if (SendAgentDialog_Func)
@@ -231,7 +236,7 @@ namespace {
     }
     void DisableHooks() {
         if (CallTarget_Func)
-            HookBase::DisableHooks(DoWorldActon_Func);
+            HookBase::DisableHooks(CallTarget_Func);
         if (DoWorldActon_Func)
             HookBase::DisableHooks(DoWorldActon_Func);
         if (SendAgentDialog_Func)
@@ -243,7 +248,7 @@ namespace {
     }
     void Exit() {
         if (CallTarget_Func)
-            HookBase::RemoveHook(DoWorldActon_Func);
+            HookBase::RemoveHook(CallTarget_Func);
         if (DoWorldActon_Func)
             HookBase::RemoveHook(DoWorldActon_Func);
         if (SendAgentDialog_Func)
