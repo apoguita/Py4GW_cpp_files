@@ -1672,11 +1672,6 @@ void Py4GW::Update()
     // Only update logic here (NO ImGui)
     py::gil_scoped_acquire gil;
 
-    // If you still want these phases to be logic-only, keep them here:
-    PyCallback::ExecutePhase(PyCallback::Phase::PreUpdate);
-    PyCallback::ExecutePhase(PyCallback::Phase::Data);
-    PyCallback::ExecutePhase(PyCallback::Phase::Update);
-
     if (script_state == ScriptState::Running && !script_content.empty())
         ExecutePythonScript_Update();
 
@@ -1835,6 +1830,10 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
 
     py::gil_scoped_acquire gil;
 
+    // If you still want these phases to be logic-only, keep them here:
+    PyCallback::ExecutePhase(PyCallback::Phase::PreUpdate);
+    PyCallback::ExecutePhase(PyCallback::Phase::Data);
+    PyCallback::ExecutePhase(PyCallback::Phase::Update);
     // Any ImGui-related callbacks should remain here
     {
         std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
