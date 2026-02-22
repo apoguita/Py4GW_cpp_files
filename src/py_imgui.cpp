@@ -344,6 +344,14 @@ std::array<float, 4> ImGui_ColorEdit4(const std::string& label, const std::array
     return color; // Return the original color if not changed
 }
 
+std::array<float, 4> ImGui_ColorEdit4(const std::string& label, const std::array<float, 4>& color, ImGuiColorEditFlags flags) {
+    std::array<float, 4> temp = color;
+	if (ImGui::ColorEdit4(label.c_str(), temp.data(), flags)) {
+        return temp; // Return the updated color
+    }
+    return color; // Return the original color if not changed
+}
+
 //push_style_color
 void ImGui_PushStyleColor(ImGuiCol idx, const std::array<float, 4>& col) {
     ImGui::PushStyleColor(idx, ImVec4(col[0], col[1], col[2], col[3]));
@@ -1919,6 +1927,37 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
 		return static_cast<ImGuiComboFlags_>(static_cast<int>(a) | static_cast<int>(b));
 			});
 
+	py::enum_<ImGuiColorEditFlags_>(m, "ColorEditFlags")
+		.value("NoFlag", ImGuiColorEditFlags_None)
+		.value("NoAlpha", ImGuiColorEditFlags_NoAlpha)
+		.value("NoPicker", ImGuiColorEditFlags_NoPicker)
+		.value("NoOptions", ImGuiColorEditFlags_NoOptions)
+		.value("NoSmallPreview", ImGuiColorEditFlags_NoSmallPreview)
+		.value("NoInputs", ImGuiColorEditFlags_NoInputs)
+		.value("NoTooltip", ImGuiColorEditFlags_NoTooltip)
+		.value("NoLabel", ImGuiColorEditFlags_NoLabel)
+		.value("NoSidePreview", ImGuiColorEditFlags_NoSidePreview)
+		.value("NoDragDrop", ImGuiColorEditFlags_NoDragDrop)
+		.value("NoBorder", ImGuiColorEditFlags_NoBorder)
+        .value("AlphaBar", ImGuiColorEditFlags_AlphaBar)
+        .value("AlphaPreview", ImGuiColorEditFlags_AlphaPreview)
+        .value("AlphaPreviewHalf", ImGuiColorEditFlags_AlphaPreviewHalf)
+        .value("HDR", ImGuiColorEditFlags_HDR)
+		.value("DisplayRGB", ImGuiColorEditFlags_DisplayRGB)
+		.value("DisplayHSV", ImGuiColorEditFlags_DisplayHSV)
+		.value("DisplayHex", ImGuiColorEditFlags_DisplayHex)
+		.value("Uint8", ImGuiColorEditFlags_Uint8)
+		.value("Float", ImGuiColorEditFlags_Float)
+		.value("PickerHueBar", ImGuiColorEditFlags_PickerHueBar)
+		.value("PickerHueWheel", ImGuiColorEditFlags_PickerHueWheel)
+		.value("InputRGB", ImGuiColorEditFlags_InputRGB)
+		.value("InputHSV", ImGuiColorEditFlags_InputHSV)
+
+		.export_values()
+		.def("__or__", [](ImGuiColorEditFlags_ a, ImGuiColorEditFlags_ b) {
+		return static_cast<ImGuiColorEditFlags_>(static_cast<int>(a) | static_cast<int>(b));
+			});
+
     // Basic Widgets
 	m.def("new_line", &ImGui_NewLine, "Inserts a new line in ImGui");
     m.def("text", &ImGui_Text, "Displays a text in ImGui");
@@ -1973,7 +2012,26 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
 	m.def("end_combo", &ImGui_EndCombo, "Ends a combo box in ImGui");
 	m.def("selectable", &ImGui_Selectable, "Creates a selectable item in ImGui");
     m.def("color_edit3", &ImGui_ColorEdit3, "A function to create a color editor (RGB)");
-    m.def("color_edit4", &ImGui_ColorEdit4, "Creates an RGBA color editor in ImGui");
+
+
+    m.def(
+        "color_edit4",
+        py::overload_cast<
+        const std::string&,
+        const std::array<float, 4>&
+        >(&ImGui_ColorEdit4),
+        "A function to create a color editor (RGBA) without flags"
+    );
+
+    m.def(
+        "color_edit4",
+        py::overload_cast<
+        const std::string&,
+        const std::array<float, 4>&,
+        ImGuiColorEditFlags
+        >(&ImGui_ColorEdit4),
+        "A function to create a color editor (RGBA) with flags"
+    );
 
     m.def("get_scroll_max_x", &ImGui_GetScrollMaxX, "Returns the maximum scroll value in the x-direction");
     m.def("get_scroll_max_y", &ImGui_GetScrollMaxY, "Returns the maximum scroll value in the y-direction");

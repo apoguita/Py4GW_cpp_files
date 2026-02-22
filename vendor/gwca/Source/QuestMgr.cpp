@@ -59,6 +59,7 @@ namespace {
     void Init() {
         //Logger::Instance().LogInfo("############ QuestMgr initialization started ############");
         DWORD address = 0;
+        DWORD request_quest_info_address = 0;
 
         //address = Scanner::Find("\x74\x14\x68\x33\x01\x00\x00", "xxxxxx", 0x19);
         //address = Scanner::Find("\xC7\x45\xF8\x02\x00\x00\x00\x50\xC7", "xxxxxxxxx", -0x45);
@@ -67,6 +68,7 @@ namespace {
 
         //address = Scanner::Find("\x75\x14\x68\x72\x10\x00\x00", "xxxxxxx");
         address = Scanner::Find("\x75\x14\x68\x64\x10\x00\x00", "xxxxxxx");
+		request_quest_info_address = address;
         if (address) {
             address = Scanner::FindInRange("\xe8\x00\x00\x00\x00\x83\xc4\x08", "x????xxx", 0, address, address + 0xff);
             RequestQuestData_Func = (RequestQuestData_pt)Scanner::FunctionFromNearCall(address);
@@ -76,8 +78,8 @@ namespace {
         SetActiveQuest_Func = (DoAction_pt)address;
 
 
-        //address = Scanner::Find("\x75\x14\x68\x60\x10\x00\x00", "xxxxxxx");
-        address = Scanner::Find("\x75\x14\x68\x64\x10\x00\x00", "xxxxxxx");
+        //address = Scanner::Find("\x75\x14\x68\x4b\x10\x00\x00", "xxxxxxx");
+        address = request_quest_info_address; // Scanner::Find("\x75\x14\x68\x64\x10\x00\x00", "xxxxxxx");
         if (address)
             address = Scanner::FindInRange("\x55\x8b\xec", "xxx", 0, address, address - 0xff);
         if (address)

@@ -859,8 +859,8 @@ void PyAgent::GetContext() {
 
 
 std::string PyAgent::GetNameByID(uint32_t agent_id) {
-    return "Feature Disabled";
-	//return _GetNameByID(agent_id);
+    //return "Feature Disabled";
+	return _GetNameByID(agent_id);
 }
 
 void PyAgent::ClearNameCache() {
@@ -871,6 +871,22 @@ void PyAgent::ClearNameCache() {
 std::vector<PyAgent> agent_ids = {};
 std::chrono::steady_clock::time_point last_agent_array_update = std::chrono::steady_clock::now();
 
+static std::vector<uint8_t> GetAgentEncName(uint32_t agent_id)
+{
+    const wchar_t* enc = GW::Agents::GetAgentEncName(agent_id);
+    if (!enc) return {};
+
+    // Find length in wchar_t units (null terminated)
+    size_t n = 0;
+    while (enc[n] != 0) n++;
+
+    // Copy raw bytes INCLUDING terminator
+    const size_t bytes = (n + 1) * sizeof(wchar_t);
+
+    std::vector<uint8_t> out(bytes);
+    std::memcpy(out.data(), enc, bytes);
+    return out;
+}
 
 
 
@@ -1217,8 +1233,10 @@ void bind_PyAgent(py::module_& m) {
 			py::arg("agent_id"),
 			"Get the decoded name of the agent by its ID")
 
-        .def_static("ClearNameCache", &PyAgent::ClearNameCache, "Clear the cached agent names");
-		
+        .def_static("ClearNameCache", &PyAgent::ClearNameCache, "Clear the cached agent names")
+		.def_static("GetAgentEncName", &GetAgentEncName,
+			py::arg("agent_id"),
+			"Get the encoded name of the agent by its ID as a byte array");
 
 }
 

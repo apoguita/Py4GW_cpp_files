@@ -121,6 +121,187 @@ py::object draw_function;
 py::object update_function2;
 py::object draw_function2;
 
+// 1. A dedicated storage for a single Metric's history
+struct MetricData {
+    static const int MAX_SAMPLES = 600;
+    double samples[MAX_SAMPLES] = { 0 };
+    int head = 0;
+    bool full = false;
+
+    // Throttle State
+    uint64_t last_frame_id = 0;
+    double accumulator = 0;
+    int frames_in_window = 0;
+
+    void push_frame_throttled(uint64_t current_frame, double ms) {
+        accumulator += ms;
+        frames_in_window++;
+
+        // Trigger every 6th frame
+        if (frames_in_window >= 6) {
+            double avg_load = accumulator / frames_in_window;
+
+            samples[head] = avg_load;
+            head = (head + 1) % MAX_SAMPLES;
+            if (head == 0) full = true;
+
+            // Reset
+            accumulator = 0;
+            frames_in_window = 0;
+            last_frame_id = current_frame;
+        }
+    }
+
+    // Stats functions (unchanged from previous)
+    size_t count() const { return full ? MAX_SAMPLES : head; }
+};
+
+using MetricTuple = std::tuple<double, double, double, double, double, double>;
+
+class profiler {
+private:
+    struct StartPoint {
+        LARGE_INTEGER start_time;
+    };
+    // Maps Metric Name -> Active Start call
+    inline static std::map<std::string, StartPoint> active_starts;
+
+public:
+    // Maps Metric Name -> The History Buffer
+    inline static std::map<std::string, MetricData> history;
+    inline static LARGE_INTEGER frequency = { 0 };
+    inline static bool freq_init = false;
+
+    static void start(const char* name) {
+        if (!freq_init) {
+            QueryPerformanceFrequency(&frequency);
+            freq_init = true;
+        }
+        LARGE_INTEGER t;
+        QueryPerformanceCounter(&t);
+        active_starts[name] = {  t };
+    }
+
+    static void end(uint64_t frame_id, const char* name) {
+        LARGE_INTEGER t_end;
+        QueryPerformanceCounter(&t_end);
+
+        auto it = active_starts.find(name);
+        if (it != active_starts.end()) {
+            double duration = (double)(t_end.QuadPart - it->second.start_time.QuadPart) * 1000.0 / frequency.QuadPart;
+
+            // Log to the metric's specific 60-second buffer
+            history[name].push_frame_throttled(frame_id, duration);
+
+            active_starts.erase(it);
+        }
+    }
+
+    static MetricTuple CalculateReport(const std::string& metric_name) {
+        auto it = history.find(metric_name);
+        if (it == history.end() || it->second.count() == 0) {
+            return { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+        }
+
+        auto& data = it->second;
+        size_t n = data.count();
+
+        // 1. Calculate Mean (Average) and Min
+        double sum = 0;
+        double min_val = data.samples[0];
+        for (size_t i = 0; i < n; ++i) {
+            sum += data.samples[i];
+            if (data.samples[i] < min_val) min_val = data.samples[i];
+        }
+        double avg = sum / n;
+
+        // 2. Calculate Percentiles (Sort required)
+        std::vector<double> sorted(data.samples, data.samples + n);
+        std::sort(sorted.begin(), sorted.end());
+
+        double p50 = sorted[static_cast<size_t>(n * 0.50)];
+        double p95 = sorted[static_cast<size_t>(n * 0.95)];
+        double p99 = sorted[static_cast<size_t>(n * 0.99)];
+        double max_val = sorted.back();
+
+        return { min_val, avg, p50, p95, p99, max_val };
+    }
+
+    // Returns a vector of tuples containing: { "MetricName", Min, Avg, P50, P95, P99, Max }
+    static std::vector<std::tuple<std::string, double, double, double, double, double, double>> CalculateReportAll() {
+        std::vector<std::tuple<std::string, double, double, double, double, double, double>> reports;
+
+        for (const auto& pair : history) {
+            MetricTuple stats = CalculateReport(pair.first);
+
+            // Unpack and pack with the name for the Python side
+            reports.emplace_back(
+                pair.first,
+                std::get<0>(stats), // Min
+                std::get<1>(stats), // Avg
+                std::get<2>(stats), // P50
+                std::get<3>(stats), // P95
+                std::get<4>(stats), // P99
+                std::get<5>(stats)  // Max
+            );
+        }
+        return reports;
+
+    }
+    static std::vector<std::string> GetMetricNames() {
+        std::vector<std::string> names;
+        for (const auto& pair : history) {
+            names.push_back(pair.first);
+        }
+        return names;
+    }
+
+    static std::vector<double> GetMetricHistory(const std::string& name) {
+        auto it = history.find(name);
+        if (it == history.end()) return {};
+
+        const auto& data = it->second;
+        size_t n = data.count();
+        std::vector<double> out;
+        out.reserve(n);
+
+        if (!data.full) {
+            // Buffer isn't full: samples are just 0 to head-1
+            for (int i = 0; i < data.head; ++i) {
+                out.push_back(data.samples[i]);
+            }
+        }
+        else {
+            // Buffer is revolving: 
+            // Part 1: From head to end (Oldest data)
+            for (int i = data.head; i < data.MAX_SAMPLES; ++i) {
+                out.push_back(data.samples[i]);
+            }
+            // Part 2: From 0 to head-1 (Newer data)
+            for (int i = 0; i < data.head; ++i) {
+                out.push_back(data.samples[i]);
+            }
+        }
+        return out;
+    }
+
+};
+
+static profiler py4gw_profiler;
+static uint64_t frame_id_timestamp;
+
+static std::vector<std::string> GetProfilerMetricNames() {
+	return profiler::GetMetricNames();
+}
+
+static std::vector<std::tuple<std::string, double, double, double, double, double, double>> GetProfilerReport() {
+	return profiler::CalculateReportAll();
+}
+
+static std::vector<double> GetProfilerHistory(const std::string& metric_name) {
+	return profiler::GetMetricHistory(metric_name);
+}
+
 /* ------------------------------------------------------------------*/
 /* ------------------------ CALLBACKS -------------------------------*/
 /* ------------------------------------------------------------------*/
@@ -697,8 +878,10 @@ void ExecutePythonScript_Update()
 {
     // prefer update()
     if (update_function && !update_function.is_none()) {
+		py4gw_profiler.start("Update.Console.Update");
         CallPythonFunctionSafe(update_function, "update()", script_state);
-        return;
+		py4gw_profiler.end(frame_id_timestamp, "Update.Console.Update");
+        //return;
     }
 
     // If no update(), do nothing.
@@ -709,32 +892,42 @@ void ExecutePythonScript_Draw()
 {
     // prefer draw()
     if (draw_function && !draw_function.is_none()) {
+		py4gw_profiler.start("Draw.Console.Draw");
         CallPythonFunctionSafe(draw_function, "draw()", script_state);
-        return;
+		py4gw_profiler.end(frame_id_timestamp, "Draw.Console.Draw");
+        //return;
     }
 
     // fallback to legacy main()
     if (main_function && !main_function.is_none()) {
+		py4gw_profiler.start("Draw.Console.Main");
         CallPythonFunctionSafe(main_function, "main()", script_state);
+		py4gw_profiler.end(frame_id_timestamp, "Draw.Console.Main");
     }
 }
 
 void ExecutePythonScript2_Update()
 {
     if (update_function2 && !update_function2.is_none()) {
+		py4gw_profiler.start("Update.WidgetManager.Update");
         CallPythonFunctionSafe(update_function2, "update2()", script_state2);
+		py4gw_profiler.end(frame_id_timestamp, "Update.WidgetManager.Update");
     }
 }
 
 void ExecutePythonScript2_Draw()
 {
     if (draw_function2 && !draw_function2.is_none()) {
+        py4gw_profiler.start("Draw.WidgetManager.Draw");
         CallPythonFunctionSafe(draw_function2, "draw2()", script_state2);
-        return;
+		py4gw_profiler.end(frame_id_timestamp, "Draw.WidgetManager.Draw");
+        //return;
     }
 
     if (main_function2 && !main_function2.is_none()) {
+        py4gw_profiler.start("Draw.WidgetManager.Main");
         CallPythonFunctionSafe(main_function2, "main2()", script_state2);
+		py4gw_profiler.end(frame_id_timestamp, "Draw.WidgetManager.Main");
     }
 }
 
@@ -916,76 +1109,6 @@ void EnqueuePythonCallback(py::function func) {
 /* ----------------- Python Frame Callbacks -------------------------*/
 /* ------------------------------------------------------------------*/
 
-FrameCallbackId RegisterFrameCallback(const std::string& name, py::function fn)
-{
-    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
-
-    // If callback with same name exists, replace function, keep id
-    for (auto& cb : g_frame_callbacks) {
-        if (cb.name == name) {
-            cb.fn = std::move(fn);
-            return cb.id;
-        }
-    }
-
-    // Otherwise, register new callback
-    FrameCallbackId id = g_next_callback_id++;
-    g_frame_callbacks.push_back({
-        id,
-        name,
-        std::move(fn)
-        });
-
-    return id;
-}
-
-
-bool RemoveFrameCallbackById(FrameCallbackId id)
-{
-    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
-
-    auto it = std::remove_if(
-        g_frame_callbacks.begin(),
-        g_frame_callbacks.end(),
-        [&](const FrameCallback& cb) {
-            return cb.id == id;
-        }
-    );
-
-    if (it == g_frame_callbacks.end())
-        return false;
-
-    g_frame_callbacks.erase(it, g_frame_callbacks.end());
-    return true;
-}
-
-bool RemoveFrameCallbackByName(const std::string& name)
-{
-    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
-
-    auto it = std::remove_if(
-        g_frame_callbacks.begin(),
-        g_frame_callbacks.end(),
-        [&](const FrameCallback& cb) {
-            return cb.name == name;
-        }
-    );
-
-    if (it == g_frame_callbacks.end())
-        return false;
-
-    g_frame_callbacks.erase(it, g_frame_callbacks.end());
-    return true;
-}
-
-void RemoveAllFrameCallbacks()
-{
-    std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
-    g_frame_callbacks.clear();
-}
-
-
-
 using CallbackId = uint64_t;
 
 class PyCallback {
@@ -996,13 +1119,21 @@ public:
         Update = 2
     };
 
+    enum class Context : uint8_t {
+        Update = 0,
+        Draw = 1,
+        Main = 2
+    };
+
     struct Task {
         CallbackId id;
         std::string name;
         Phase phase;
+        Context context;
         int priority;
         uint64_t order;   // registration order
         py::function fn;
+		bool paused = false;
     };
 
 private:
@@ -1019,13 +1150,14 @@ public:
         const std::string& name,
         Phase phase,
         py::function fn,
-        int priority = 99
+        int priority = 99,
+        Context context = Context::Draw
     ) {
         std::lock_guard<std::mutex> lock(_mutex);
 
         // replace by name (keep id + order)
         for (auto& t : _tasks) {
-            if (t.name == name && t.phase == phase) {
+            if (t.name == name && t.phase == phase && t.context == context) {
                 t.fn = std::move(fn);
                 t.priority = priority;
                 return t.id;
@@ -1038,6 +1170,7 @@ public:
             id,
             name,
             phase,
+			context,
             priority,
             _next_order++,
             std::move(fn)
@@ -1086,16 +1219,58 @@ public:
         _tasks.clear();
     }
 
+	static bool PauseById(CallbackId id) {
+		std::lock_guard<std::mutex> lock(_mutex);
+		for (auto& t : _tasks) {
+			if (t.id == id) {
+				t.paused = true;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static bool ResumeById(CallbackId id) {
+		std::lock_guard<std::mutex> lock(_mutex);   
+		for (auto& t : _tasks) {    
+			if (t.id == id) {
+				t.paused = false;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static bool IsPaused(CallbackId id) {
+		std::lock_guard<std::mutex> lock(_mutex);
+		for (const auto& t : _tasks) {
+			if (t.id == id) {
+				return t.paused;
+			}
+		}
+		return false; // or throw an exception if not found
+	}
+
+	static bool IsRegistered(CallbackId id) {
+		std::lock_guard<std::mutex> lock(_mutex);
+		for (const auto& t : _tasks) {
+			if (t.id == id) {
+				return true;
+			}
+		}
+		return false;
+	}
+
     // -------------------------------------------------
     // Execute one phase (barrier enforced externally)
     // -------------------------------------------------
-    static void ExecutePhase(Phase phase) {
+    static void ExecutePhase(Phase phase, Context context) {
         std::vector<Task*> phase_tasks;
 
         {
             std::lock_guard<std::mutex> lock(_mutex);
             for (auto& t : _tasks) {
-                if (t.phase == phase)
+				if (t.phase == phase && t.context == context && !t.paused)
                     phase_tasks.push_back(&t);
             }
         }
@@ -1110,13 +1285,34 @@ public:
             }
         );
 
+        
         for (Task* t : phase_tasks) {
+            // Construct a clean name for the profiler
+            const char* ctx_name = (context == Context::Draw) ? "Draw" : "Update";
+			ctx_name = (context == Context::Main) ? "Main" : ctx_name;
+            const char* phase_suffix;
+            switch (phase) {
+            case Phase::PreUpdate: phase_suffix = "PreUpdate"; break;
+            case Phase::Data:      phase_suffix = "Data";      break;
+            default:               phase_suffix = "Update";    break;
+            }
+
+            std::string full_prof_name = std::string(ctx_name) + ".Callback." + phase_suffix + "." + t->name;
+
+
+            // ---- PROFILING START ----
+            py4gw_profiler.start(full_prof_name.c_str());
+            // ---- PROFILING END ----
+
             try {
                 t->fn();
             }
             catch (const py::error_already_set&) {
                 PyErr_Print();
             }
+
+            // ---- PROFILING STOP ----
+            py4gw_profiler.end(frame_id_timestamp, full_prof_name.c_str());
         }
     }
 
@@ -1125,8 +1321,10 @@ public:
         uint64_t,     // id
         std::string,    // name
         int,            // phase
+		int,            // context
         int,            // priority
-        uint64_t        // order
+        uint64_t,       // order
+		bool			// paused
         >
     > GetCallbackInfo()
     {
@@ -1138,7 +1336,9 @@ public:
             std::string,
             int,
             int,
-            uint64_t
+            int,
+            uint64_t,
+			bool
             >
         > out;
 
@@ -1149,8 +1349,10 @@ public:
                 t.id,
                 t.name,
                 static_cast<int>(t.phase),
+				static_cast<int>(t.context),
                 t.priority,
-                t.order
+                t.order,
+				t.paused
             );
         }
 
@@ -1657,30 +1859,38 @@ void Py4GW::Terminate() {
 
 void Py4GW::Update()
 {
-    if (!enabled_update_to_run){
-		return;
+    if (!enabled_update_to_run) {
+        return;
     }
 
 
 
-    static uint32_t last_py_update = 0;
-    //uint32_t now = GetTickCount();
-    //if (now - last_py_update < 16.66) // 60Hz
-    //    return;
-    //last_py_update = now;
-
-    // Only update logic here (NO ImGui)
     py::gil_scoped_acquire gil;
 
-    if (script_state == ScriptState::Running && !script_content.empty())
-        ExecutePythonScript_Update();
+    //Update
+    // If you still want these phases to be logic-only, keep them here:
+    PyCallback::ExecutePhase(PyCallback::Phase::PreUpdate, PyCallback::Context::Update);
+    PyCallback::ExecutePhase(PyCallback::Phase::Data, PyCallback::Context::Update);
+    PyCallback::ExecutePhase(PyCallback::Phase::Update, PyCallback::Context::Update);
 
-    if (script_state2 == ScriptState::Running && !script_content2.empty())
+    if (script_state == ScriptState::Running && !script_content.empty()) {
+        py4gw_profiler.start("Update.Console");
+        ExecutePythonScript_Update();
+        py4gw_profiler.end(frame_id_timestamp, "Update.Console");
+    }
+
+    if (script_state2 == ScriptState::Running && !script_content2.empty()) {
+        py4gw_profiler.start("Update.WidgetManager");
         ExecutePythonScript2_Update();
+        py4gw_profiler.end(frame_id_timestamp, "Update.WidgetManager");
+    }
+
 }
 
 
+
 void Py4GW::Draw(IDirect3DDevice9* device) {
+	frame_id_timestamp = GetTickCount64();
 
     if (!g_d3d_device)
         g_d3d_device = device;
@@ -1829,34 +2039,47 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
     enabled_update_to_run = true;
 
     py::gil_scoped_acquire gil;
-
+    
+    //Update
     // If you still want these phases to be logic-only, keep them here:
-    PyCallback::ExecutePhase(PyCallback::Phase::PreUpdate);
-    PyCallback::ExecutePhase(PyCallback::Phase::Data);
-    PyCallback::ExecutePhase(PyCallback::Phase::Update);
-    // Any ImGui-related callbacks should remain here
-    {
-        std::lock_guard<std::mutex> lock(g_frame_callbacks_mutex);
-        for (auto& cb : g_frame_callbacks) {
-            try { cb.fn(); }
-            catch (const py::error_already_set&) { continue; }
+    PyCallback::ExecutePhase(PyCallback::Phase::PreUpdate, PyCallback::Context::Draw);
+    PyCallback::ExecutePhase(PyCallback::Phase::Data, PyCallback::Context::Draw);
+    PyCallback::ExecutePhase(PyCallback::Phase::Update, PyCallback::Context::Draw);
+
+	//Main thread callbacks (legacy, not phased)
+    PyCallback::ExecutePhase(PyCallback::Phase::Update, PyCallback::Context::Main);
+
+    // -------------------------------------------------
+    // Script draw execution
+    // -------------------------------------------------
+
+        if (script_state == ScriptState::Running && !script_content.empty()) {
+            ExecutePythonScript_Draw();
         }
-    }
 
-    // Draw phase for scripts
-    if (script_state == ScriptState::Running && !script_content.empty())
-        ExecutePythonScript_Draw();
-
-    if (script_state2 == ScriptState::Running && !script_content2.empty())
-        ExecutePythonScript2_Draw();
-
-
-    if (mixed_deferred.active && mixed_deferred.timer.hasElapsed(mixed_deferred.delay_ms)) {
-        if (mixed_deferred.action) {
-            mixed_deferred.action();
+        if (script_state2 == ScriptState::Running && !script_content2.empty()) {
+            ExecutePythonScript2_Draw();
         }
-        mixed_deferred.active = false;
-    }
+
+
+
+     // -------------------------------------------------
+    // Deferred actions
+    // -------------------------------------------------
+
+        if (mixed_deferred.active &&
+            mixed_deferred.timer.hasElapsed(mixed_deferred.delay_ms))
+        {
+            py4gw_profiler.start("Draw.Deferred.Draw");
+
+            if (mixed_deferred.action) {
+                mixed_deferred.action();
+            }
+
+            py4gw_profiler.end(frame_id_timestamp, "Draw.Deferred.Draw");
+
+            mixed_deferred.active = false;
+        }
 }
 
 
@@ -2001,6 +2224,14 @@ void bind_ScriptControl(py::module_& console)
         py::arg("delay_ms") = 1000);
 }
 
+void bind_Profiler(py::module_& console)
+{
+	console.def("get_profiler_metric_names", &GetProfilerMetricNames, "Get a list of all profiler metric names");
+	console.def("get_profiler_reports", &GetProfilerReport, "Get a list of profiler reports with their metrics and values");
+    console.def("get_profiler_history", GetProfilerHistory, "Get the history of profiler reports for a specific metric");
+}
+
+
 void bind_Ping(py::module_& m)
 {
     py::class_<PingTracker>(m, "PingHandler")
@@ -2025,6 +2256,7 @@ PYBIND11_EMBEDDED_MODULE(Py4GW, m)
 	bind_Environment(console);
 	bind_Window(console);
 	bind_ScriptControl(console);
+	bind_Profiler(console);
 	bind_Ping(m);
 }
 
@@ -2033,6 +2265,19 @@ PYBIND11_EMBEDDED_MODULE(PyCallback, m)
 {
     m.doc() = "Frame callback scheduler with phased execution and priorities";
 
+    // Optional but recommended: expose Phase enum
+    py::enum_<PyCallback::Phase>(m, "Phase")
+        .value("PreUpdate", PyCallback::Phase::PreUpdate)
+        .value("Data", PyCallback::Phase::Data)
+        .value("Update", PyCallback::Phase::Update)
+        .export_values();
+
+    py::enum_<PyCallback::Context>(m, "Context")
+        .value("Update", PyCallback::Context::Update)
+        .value("Draw", PyCallback::Context::Draw)
+        .value("Main", PyCallback::Context::Main)
+        .export_values();
+
     py::class_<PyCallback>(m, "PyCallback")
         .def_static(
             "Register",
@@ -2040,7 +2285,8 @@ PYBIND11_EMBEDDED_MODULE(PyCallback, m)
             py::arg("name"),
             py::arg("fn"),
             py::arg("phase"),
-            py::arg("priority") = 99
+            py::arg("priority") = 99,
+			py::arg("context") = PyCallback::Context::Draw
         )
         .def_static(
             "RemoveById",
@@ -2053,27 +2299,36 @@ PYBIND11_EMBEDDED_MODULE(PyCallback, m)
             py::arg("name")
         )
         .def_static(
+			"PauseById",
+			&PyCallback::PauseById,
+			py::arg("id")
+		)
+        .def_static(
+			"ResumeById",
+			&PyCallback::ResumeById,
+			py::arg("id")
+		)
+
+        .def_static(
+			"IsPaused",
+			&PyCallback::IsPaused,
+			py::arg("id")
+		)
+
+        .def_static(
+			"IsRegistered",
+			&PyCallback::IsRegistered,
+			py::arg("id")
+		)
+
+        .def_static(
             "Clear",
             &PyCallback::Clear
         )
         .def_static(
             "GetCallbackInfo",
             &PyCallback::GetCallbackInfo,
-            R"doc(Returns a list of tuples:
-                (
-                    id: int,
-                    name: str,
-                    phase: int,
-                    priority: int,
-                    order: int
-                )
-                )doc"
+            R"doc(Returns a list of tuples)doc"
                 );
 
-    // Optional but recommended: expose Phase enum
-    py::enum_<PyCallback::Phase>(m, "Phase")
-        .value("PreUpdate", PyCallback::Phase::PreUpdate)
-        .value("Data", PyCallback::Phase::Data)
-        .value("Update", PyCallback::Phase::Update)
-        .export_values();
 }
