@@ -285,6 +285,11 @@ public:
         return out;
     }
 
+    static void Reset() {
+        active_starts.clear();
+        history.clear();
+    }
+
 };
 
 static profiler py4gw_profiler;
@@ -301,6 +306,12 @@ static std::vector<std::tuple<std::string, double, double, double, double, doubl
 static std::vector<double> GetProfilerHistory(const std::string& metric_name) {
 	return profiler::GetMetricHistory(metric_name);
 }
+
+static void ResetProfiler() {
+	profiler::Reset();
+}
+
+
 
 /* ------------------------------------------------------------------*/
 /* ------------------------ CALLBACKS -------------------------------*/
@@ -1857,18 +1868,37 @@ void Py4GW::Terminate() {
     }
 }
 
+// Global/Static sync variables
+static std::mutex g_update_mutex;
+static std::condition_variable g_update_cv;
+static bool g_update_ready = false;
+static uint32_t g_draw_frame_count = 0;
+
 void Py4GW::Update()
 {
     if (!enabled_update_to_run) {
         return;
     }
 
+    
+    // 1. WAIT FOR THE DRAW THREAD (MUST be outside the GIL!)
+    {
+        std::unique_lock<std::mutex> lock(g_update_mutex);
 
+        // The thread goes to sleep here (0% CPU) until Draw wakes it up.
+        // Add a shutdown condition if you have a global "is_running" flag
+        // so it doesn't hang on exit, e.g., `return g_update_ready || !is_running;`
+        g_update_cv.wait(lock, [] { return g_update_ready; });
 
+        // Consume the signal so it waits again next time
+        g_update_ready = false;
+    }
+    
+
+    // 2. NOW GRAB THE GIL AND EXECUTE
     py::gil_scoped_acquire gil;
 
     //Update
-    // If you still want these phases to be logic-only, keep them here:
     PyCallback::ExecutePhase(PyCallback::Phase::PreUpdate, PyCallback::Context::Update);
     PyCallback::ExecutePhase(PyCallback::Phase::Data, PyCallback::Context::Update);
     PyCallback::ExecutePhase(PyCallback::Phase::Update, PyCallback::Context::Update);
@@ -1884,7 +1914,6 @@ void Py4GW::Update()
         ExecutePythonScript2_Update();
         py4gw_profiler.end(frame_id_timestamp, "Update.WidgetManager");
     }
-
 }
 
 
@@ -2038,12 +2067,25 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
 
     enabled_update_to_run = true;
 
+
     py::gil_scoped_acquire gil;
     
     //Update
     // If you still want these phases to be logic-only, keep them here:
     PyCallback::ExecutePhase(PyCallback::Phase::PreUpdate, PyCallback::Context::Draw);
     PyCallback::ExecutePhase(PyCallback::Phase::Data, PyCallback::Context::Draw);
+
+    // --- SYNC START: Signal the Update thread here ---
+    g_draw_frame_count++;
+    if (g_draw_frame_count % 2 == 0) {
+        {
+            std::lock_guard<std::mutex> lock(g_update_mutex);
+            g_update_ready = true;
+        }
+        g_update_cv.notify_one(); // Wake up Py4GW::Update()
+    }
+    // --- SYNC END ---
+
     PyCallback::ExecutePhase(PyCallback::Phase::Update, PyCallback::Context::Draw);
 
 	//Main thread callbacks (legacy, not phased)
@@ -2229,6 +2271,7 @@ void bind_Profiler(py::module_& console)
 	console.def("get_profiler_metric_names", &GetProfilerMetricNames, "Get a list of all profiler metric names");
 	console.def("get_profiler_reports", &GetProfilerReport, "Get a list of profiler reports with their metrics and values");
     console.def("get_profiler_history", GetProfilerHistory, "Get the history of profiler reports for a specific metric");
+	console.def("clear_profiler_history", &ResetProfiler, "Clear the profiler history data");
 }
 
 

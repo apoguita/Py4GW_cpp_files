@@ -859,8 +859,8 @@ void PyAgent::GetContext() {
 
 
 std::string PyAgent::GetNameByID(uint32_t agent_id) {
-    //return "Feature Disabled";
-	return _GetNameByID(agent_id);
+    return "Feature Disabled";
+	//return _GetNameByID(agent_id);
 }
 
 void PyAgent::ClearNameCache() {
