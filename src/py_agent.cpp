@@ -888,6 +888,21 @@ static std::vector<uint8_t> GetAgentEncName(uint32_t agent_id)
     return out;
 }
 
+static py::tuple GetAgentEncCodepoints(uint32_t agent_id) {
+    wchar_t* enc = GW::Agents::GetAgentEncName(agent_id);
+    if (!enc || *enc == 0) return py::tuple();
+
+    int n = 0;
+    while (enc[n] != 0) n++;
+
+    py::tuple result(n);
+    for (int i = 0; i < n; i++) {
+        PyTuple_SET_ITEM(result.ptr(), i,
+            PyLong_FromLong(static_cast<uint16_t>(enc[i])));
+    }
+    return result;
+}
+
 
 
 // Bind the Profession enum
@@ -1236,7 +1251,10 @@ void bind_PyAgent(py::module_& m) {
         .def_static("ClearNameCache", &PyAgent::ClearNameCache, "Clear the cached agent names")
 		.def_static("GetAgentEncName", &GetAgentEncName,
 			py::arg("agent_id"),
-			"Get the encoded name of the agent by its ID as a byte array");
+			"Get the encoded name of the agent by its ID as a byte array")
+		.def_static("GetAgentEncCodepoints", &GetAgentEncCodepoints,
+			py::arg("agent_id"),
+			"Get encoded name as uint16 codepoints (tuple[int, ...])");
 
 }
 
