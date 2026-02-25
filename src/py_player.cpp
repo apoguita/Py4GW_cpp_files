@@ -95,9 +95,6 @@ void PyPlayer::GetContext() {
     if (GW::Map::GetIsMapLoaded()) {
         GW::WorldContext* world_context = GW::GetWorldContext();
         if (world_context) {
-            wchar_t* waccount_name = world_context->accountInfo->account_name;
-            account_name = std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(waccount_name);
-
             const auto char_context = GW::GetCharContext();
             if (char_context) {
                 std::wstring wplayer_email = char_context->player_email;
@@ -107,12 +104,17 @@ void PyPlayer::GetContext() {
 
             }
 
-            wins = world_context->accountInfo->wins;
-            losses = world_context->accountInfo->losses;
-            rating = world_context->accountInfo->rating;
-            qualifier_points = world_context->accountInfo->qualifier_points;
-            rank = world_context->accountInfo->rank;
-            tournament_reward_points = world_context->accountInfo->tournament_reward_points;
+            auto account_info = world_context->accountInfo;
+            if (account_info) {
+                wchar_t* waccount_name = account_info->account_name;
+                account_name = std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(waccount_name);
+                wins = account_info->wins;
+                losses = account_info->losses;
+                rating = account_info->rating;
+                qualifier_points = account_info->qualifier_points;
+                rank = account_info->rank;
+                tournament_reward_points = account_info->tournament_reward_points;
+            }
             morale = PickHighestValid(world_context->morale, world_context->morale_dupe);
 
             std::vector<std::pair<int, int>> party_morale;

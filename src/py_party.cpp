@@ -99,7 +99,15 @@ FlaggingState Hero::GetFlaggingState()
     if (!CaptureMouseClickTypePtr || *CaptureMouseClickTypePtr != CaptureType_FlagHero || !MouseClickCaptureDataPtr || !MouseClickCaptureDataPtr->sub1) {
         return def_readonly;
     }
-    return *MouseClickCaptureDataPtr->sub1->sub2->sub3->sub4->sub5->flagging_hero;
+    auto s2 = MouseClickCaptureDataPtr->sub1->sub2;
+    if (!s2) return def_readonly;
+    auto s3 = s2->sub3;
+    if (!s3) return def_readonly;
+    auto s4 = s3->sub4;
+    if (!s4) return def_readonly;
+    auto s5 = s4->sub5;
+    if (!s5 || !s5->flagging_hero) return def_readonly;
+    return *s5->flagging_hero;
 }
 
 bool Hero::SetFlaggingState(FlaggingState set_state)
@@ -146,14 +154,17 @@ bool Hero::SetFlaggingState(FlaggingState set_state)
 }
 
 bool Hero::IsHeroFlagged(int hero) {
+    auto* ctx = GW::GetGameContext();
+    if (!ctx || !ctx->world) return false;
+
     if (hero == 0) {
-        const GW::Vec3f& allflag = GW::GetGameContext()->world->all_flag;
+        const GW::Vec3f& allflag = ctx->world->all_flag;
         if (allflag.x != 0 && allflag.y != 0 && (!std::isinf(allflag.x) || !std::isinf(allflag.y))) {
             return true;
         }
     }
     else {
-        const GW::HeroFlagArray& flags = GW::GetGameContext()->world->hero_flags;
+        const GW::HeroFlagArray& flags = ctx->world->hero_flags;
         if (!flags.valid() || static_cast<uint32_t>(hero) > flags.size()) {
             return false;
         }
@@ -350,7 +361,9 @@ bool PyParty::IsHeroFlagged(int hero) {
 }
 
 bool PyParty::IsAllFlagged() {
-    const GW::Vec3f& allflag = GW::GetGameContext()->world->all_flag;
+    auto* ctx = GW::GetGameContext();
+    if (!ctx || !ctx->world) return false;
+    const GW::Vec3f& allflag = ctx->world->all_flag;
     if (allflag.x != 0 && allflag.y != 0 && (!std::isinf(allflag.x) || !std::isinf(allflag.y))) {
         return true;
     }
@@ -358,11 +371,15 @@ bool PyParty::IsAllFlagged() {
 }
 
 float PyParty::GetAllFlagX() {
-	return GW::GetGameContext()->world->all_flag.x;
+    auto* ctx = GW::GetGameContext();
+    if (!ctx || !ctx->world) return 0.0f;
+	return ctx->world->all_flag.x;
 }
 
 float PyParty::GetAllFlagY() {
-	return GW::GetGameContext()->world->all_flag.y;
+    auto* ctx = GW::GetGameContext();
+    if (!ctx || !ctx->world) return 0.0f;
+	return ctx->world->all_flag.y;
 }
 
 
@@ -380,6 +397,7 @@ int PyParty::GetAgentIDByLoginNumber(int login_number) {
 
 std::string PyParty::GetPlayerNameByLoginNumber(int login_number) {
     wchar_t* p_name = GW::Agents::GetPlayerNameByLoginNumber(login_number);
+    if (!p_name) return "";
     std::wstring wide_name(p_name);
     auto name = std::string(wide_name.begin(), wide_name.end());
     return name;

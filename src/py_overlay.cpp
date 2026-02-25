@@ -129,7 +129,7 @@ void Overlay::GetScreenToWorld() {
 
 GW::Vec3f GetVec3f(const GW::GamePos& gp) {
     auto map = GW::GetMapContext();
-    if (!map || map->sub1->sub2->pmaps.size() <= gp.zplane) [[unlikely]] {
+    if (!map || !map->sub1 || !map->sub1->sub2 || map->sub1->sub2->pmaps.size() <= gp.zplane) [[unlikely]] {
         auto player = GW::Agents::GetControlledCharacter();
         if (player) return GW::Vec3f(gp.x, gp.y, player->z);
         else return GW::Vec3f(gp.x, gp.y, 0.0f);
@@ -292,11 +292,11 @@ uint32_t Overlay::FindZPlane(float x, float y, uint32_t zplane_hint) {
 Point2D Overlay::WorldToScreen(float x, float y, float z) {
     GW::Vec3f world_position = { x, y, z };
 
-    static auto cam = GW::CameraMgr::GetCamera();
-    float camX = GW::CameraMgr::GetCamera()->position.x;
-    float camY = GW::CameraMgr::GetCamera()->position.y;
-    float camZ = GW::CameraMgr::GetCamera()->position.z;
-
+    auto cam = GW::CameraMgr::GetCamera();
+    if (!cam) return Point2D(0, 0);
+    float camX = cam->position.x;
+    float camY = cam->position.y;
+    float camZ = cam->position.z;
 
     XMFLOAT3 eyePos = { camX, camY, camZ };
     XMFLOAT3 lookAtPos = { cam->look_at_target.x, cam->look_at_target.y, cam->look_at_target.z };
@@ -425,6 +425,7 @@ Point2D Overlay::WorldMapToScreen(float x, float y) {
     const auto mission_map_context = GW::Map::GetMissionMapContext();
     const auto mission_map_frame = mission_map_context ? GW::UI::GetFrameById(mission_map_context->frame_id) : nullptr;
     if (!(mission_map_frame && mission_map_frame->IsVisible())) return Point2D(0, 0);
+    if (!mission_map_context->h003c) return Point2D(0, 0);
 
     const auto root = GW::UI::GetRootFrame();
     auto mission_map_top_left = mission_map_frame->position.GetContentTopLeft(root);
@@ -447,6 +448,7 @@ Point2D Overlay::ScreenToWorldMap(float screen_x, float screen_y) {
     const auto mission_map_ctx = GW::Map::GetMissionMapContext();
     const auto frame = mission_map_ctx ? GW::UI::GetFrameById(mission_map_ctx->frame_id) : nullptr;
     if (!(frame && frame->IsVisible())) return Point2D(0, 0);
+    if (!mission_map_ctx->h003c) return Point2D(0, 0);
 
     const auto root = GW::UI::GetRootFrame();
     auto top_left = frame->position.GetContentTopLeft(root);

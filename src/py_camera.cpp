@@ -64,6 +64,7 @@ void PyCamera::GetContext() {
 	}
 
 	const auto camera = GW::CameraMgr::GetCamera();
+	if (!camera) { ResetContext(); return; }
 	look_at_agent_id = camera->look_at_agent_id;
 	h0004 = camera->h0004;
 	h0008 = camera->h0008;
