@@ -273,9 +273,10 @@ namespace {
         address = Scanner::Find("\x83\xc4\x40\x6a\x00\x6a\x19", "xxxxxxx", -0x4e);
         DropItem_Func = (DropItem_pt)Scanner::FunctionFromNearCall(address);
 
-        //DestroyItem: volatile jne offset (was 0x10, 0x3f). Prepend mov eax,[ebp+0xC] for stable uniqueness.
-        //address = Scanner::Find("\x83\x78\x08\x0b\x75\x3f", "xxxxxx", 0xe);
-        address = Scanner::Find("\x8B\x45\x0C\x83\x78\x08\x0b\x75", "xxxxxxxx", 0x11);
+		//commented address is from exe 28-nov-2025
+        //address = Scanner::Find("\x83\x78\x08\x0a\x75\x10", "xxxxxx", 0xe);
+        //DestroyItem: volatile cmp immediate + jne offset (was 0x0a/0x10, 0x0b/0x3f).
+        address = Scanner::Find("\x83\x78\x08\x0b\x75\x3f", "xxxxxx", 0xe);
         DestroyItem_Func = (DoAction_pt)Scanner::FunctionFromNearCall(address);
 
 
