@@ -131,7 +131,6 @@ namespace {
         //PartyWindowButtonCallback_Func = (PartySearchButtonCallback_pt)Scanner::ToFunctionStart(Scanner::FindAssertion("\\Code\\Gw\\Ui\\Game\\Party\\PtButtons.cpp", "m_selection.agentId",0,0));
         //PartyWindowButtonCallback_Func = (PartySearchButtonCallback_pt)Scanner::ToFunctionStart(Scanner::Find("\x8D\x77\x24\x56", "xxxx"));
         PartyWindowButtonCallback_Func = (PartySearchButtonCallback_pt)Scanner::ToFunctionStart(Scanner::Find("\x8D\x77\x24\x56", "xxxx"));
-        //PartyWindowButtonCallback_Func = (PartySearchButtonCallback_pt)Scanner::ToFunctionStart(Scanner::FindUseOfString("selection.agentId"));
         Logger::AssertAddress("PartyWindowButtonCallback_Func", (uintptr_t)PartyWindowButtonCallback_Func, "Party Module");
 
         PartyPlayerMember_UICallback = (UI::UIInteractionCallback)Scanner::ToFunctionStart(Scanner::FindAssertion("\\Code\\Gw\\Ui\\Game\\Party\\PtPlayer.cpp", "No valid case for switch variable '\"\"'", 0, 0), 0xfff);
@@ -142,8 +141,9 @@ namespace {
         SetReadyStatus_Func = (DoAction_pt)Scanner::FunctionFromNearCall(address);
         Logger::AssertAddress("SetReadyStatus_Func", (uintptr_t)SetReadyStatus_Func, "Party Module");
 
-        //address = Scanner::Find("\x8d\x45\x10\x50\x56\x6a\x5b\x57", "xxxxxxxx");
-        address = Scanner::Find("\x8d\x45\x10\x50\x56\x6a\x5d\x57", "xxxxxxxx");
+        //FlagAgent: volatile push immediate (was 0x5b, 0x5c, 0x5d). Wildcard it.
+        //address = Scanner::Find("\x8d\x45\x10\x50\x56\x6a\x5d\x57", "xxxxxxxx");
+        address = Scanner::Find("\x8d\x45\x10\x50\x56\x6a\x00\x57", "xxxxxx?x");
 
 		Logger::AssertAddress("FlagAgent address", (uintptr_t)address, "Party Module");
         if (Scanner::IsValidPtr(address, ScannerSection::Section_TEXT)) {

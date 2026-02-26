@@ -258,8 +258,14 @@ public:
         );
     }
 
-
-
+    static bool SendFrameUIMessage(uint32_t frame_id, uint32_t message_id,
+                                   uintptr_t wparam, uintptr_t lparam = 0) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame) return false;
+        return GW::UI::SendFrameUIMessage(
+            frame, static_cast<GW::UI::UIMessage>(message_id),
+            reinterpret_cast<void*>(wparam), reinterpret_cast<void*>(lparam));
+    }
 
 
 

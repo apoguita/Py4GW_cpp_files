@@ -103,6 +103,22 @@ public:
         return GW::Scanner::FindNthUseOfString(str.c_str(), nth, offset,
             (GW::ScannerSection)section);
     }
+
+    // --- GetScanStatus ---
+    static py::dict GetScanStatus() {
+        py::dict result;
+        py::dict scans;
+        for (const auto& [name, addr] : Logger::GetScanResults()) {
+            scans[py::cast(name)] = addr;
+        }
+        py::dict hooks;
+        for (const auto& [name, status] : Logger::GetHookResults()) {
+            hooks[py::cast(name)] = status;
+        }
+        result["scans"] = scans;
+        result["hooks"] = hooks;
+        return result;
+    }
 };
 
 
@@ -142,7 +158,9 @@ PYBIND11_EMBEDDED_MODULE(PyScanner, m)
             py::arg("offset") = 0)
 
         .def_static("GetSectionAddressRange", &PyScanner::GetSectionAddressRange,
-            py::arg("section"));
+            py::arg("section"))
+
+        .def_static("GetScanStatus", &PyScanner::GetScanStatus);
 
 }
 

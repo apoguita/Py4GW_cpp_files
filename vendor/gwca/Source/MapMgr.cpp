@@ -174,9 +174,9 @@ namespace {
             map_type_instance_infos_size = (*(uint32_t*)(address + 5)) / sizeof(MapTypeInstanceInfo);
         }
 
-        //commented address is from exe 28-nov-2025
-        //WorldMap_UICallback_Func = (UI::UIInteractionCallback)GW::Scanner::ToFunctionStart(GW::Scanner::Find("\x83\xe8\x04\x83\xf8\x50", "xxxxxx"));
-        WorldMap_UICallback_Func = (UI::UIInteractionCallback)GW::Scanner::ToFunctionStart(GW::Scanner::Find("\x83\xe8\x04\x83\xf8\x52", "xxxxxx"));
+        //WorldMap: volatile switch case count (was 0x50, 0x4d, 0x52). Use function prologue + 0x10000090 constant instead.
+        //WorldMap_UICallback_Func = (UI::UIInteractionCallback)GW::Scanner::ToFunctionStart(GW::Scanner::Find("\x83\xe8\x04\x83\xf8\x52", "xxxxxx"));
+        WorldMap_UICallback_Func = (UI::UIInteractionCallback)GW::Scanner::ToFunctionStart(GW::Scanner::Find("\x83\xEC\x54\x8B\x45\x08\x56\x8B\x48\x08\x8B\x40\x04\x89\x4D\xFC\x3D\x90\x00\x00\x10", "xxxxxxxxxxxxxxxxxxxxx"));
 
 
         //MissionMap_UICallback_Func = (UI::UIInteractionCallback)GW::Scanner::ToFunctionStart(GW::Scanner::Find("\x81\xfb\x67\x01\x00\x10", "xxxxxx"));
