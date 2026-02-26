@@ -2,6 +2,7 @@
 #include <string>
 #include <fstream>
 #include <mutex>
+#include <unordered_map>
 
 class Logger {
 public:
@@ -21,6 +22,10 @@ public:
 	static bool AssertAddress(const std::string& name, uintptr_t address, const std::string& module_name);
     static bool AssertHook(const std::string& name, int status);
     static bool AssertHook(const std::string& name, int status, const std::string& module_name);
+
+    // Hook health: resolved scan addresses and hook statuses
+    static const std::unordered_map<std::string, uintptr_t>& GetScanResults();
+    static const std::unordered_map<std::string, int>& GetHookResults();
 
     // Initialize and terminate logging
     void SetLogFile(const std::string& file_path);

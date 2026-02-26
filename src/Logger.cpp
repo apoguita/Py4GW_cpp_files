@@ -4,9 +4,20 @@
 #include <sstream>
 #include <fstream>
 
+static std::unordered_map<std::string, uintptr_t> s_scan_results;
+static std::unordered_map<std::string, int> s_hook_results;
+
 Logger& Logger::Instance() {
     static Logger instance;
     return instance;
+}
+
+const std::unordered_map<std::string, uintptr_t>& Logger::GetScanResults() {
+    return s_scan_results;
+}
+
+const std::unordered_map<std::string, int>& Logger::GetHookResults() {
+    return s_hook_results;
 }
 
 void Logger::SetLogFile(const std::string& file_path) {
@@ -41,54 +52,46 @@ bool Logger::LogError(const std::string& message, const std::string& module_name
 }
 
 bool Logger::AssertAddress(const std::string& name, uintptr_t address) {
+    s_scan_results[name] = address;
     if (!address) {
         std::ostringstream oss;
         oss << name << " is null.";
         Logger::Instance().LogError(oss.str());
         return false;
     }
-    std::ostringstream oss;
-	oss << name << ": " << (void*)address;
-	//Logger::Instance().LogOk(oss.str());
     return true;
 }
 
 bool Logger::AssertAddress(const std::string& name, uintptr_t address, const std::string& module_name) {
+	s_scan_results[module_name + "::" + name] = address;
 	if (!address) {
 		std::ostringstream oss;
 		oss << "[" << module_name << "] " << name << " is null.";
 		Logger::Instance().LogError(oss.str());
 		return false;
 	}
-	std::ostringstream oss;
-	oss << "[" << module_name << "] " << name << ": " << (void*)address;
-	//Logger::Instance().LogOk(oss.str());
 	return true;
 }
 
 bool Logger::AssertHook(const std::string& name, int status) {
-    if (status != 0) { // MH_OK is 0, any other value means failure
+    s_hook_results[name] = status;
+    if (status != 0) {
         std::ostringstream oss;
         oss << "Failed to hook " << name << ". MH_STATUS = " << status;
         Logger::Instance().LogError(oss.str());
         return false;
     }
-    std::ostringstream oss;
-	oss << name << " hooked.";
-	//Logger::Instance().LogHook(oss.str());
     return true;
 }
 
 bool Logger::AssertHook(const std::string& name, int status, const std::string& module_name) {
-	if (status != 0) { // MH_OK is 0, any other value means failure
+	s_hook_results[module_name + "::" + name] = status;
+	if (status != 0) {
 		std::ostringstream oss;
 		oss << "[" << module_name << "] Failed to hook " << name << ". MH_STATUS = " << status;
 		Logger::Instance().LogError(oss.str());
 		return false;
 	}
-	std::ostringstream oss;
-	oss << "[" << module_name << "] " << name << " hooked.";
-	//Logger::Instance().LogHook(oss.str());
 	return true;
 }
 

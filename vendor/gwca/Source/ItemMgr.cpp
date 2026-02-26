@@ -275,6 +275,7 @@ namespace {
 
 		//commented address is from exe 28-nov-2025
         //address = Scanner::Find("\x83\x78\x08\x0a\x75\x10", "xxxxxx", 0xe);
+        //DestroyItem: volatile cmp immediate + jne offset (was 0x0a/0x10, 0x0b/0x3f).
         address = Scanner::Find("\x83\x78\x08\x0b\x75\x3f", "xxxxxx", 0xe);
         DestroyItem_Func = (DoAction_pt)Scanner::FunctionFromNearCall(address);
 

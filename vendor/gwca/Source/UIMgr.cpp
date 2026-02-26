@@ -449,6 +449,7 @@ namespace {
             WorldMapState_Addr = *(uintptr_t*)address;
 
 
+        //SendFrameUIMessageById: volatile switch case count (was 0x47, 0x55, 0x56).
         //address = Scanner::Find("\x83\xfb\x47\x73\x14", "xxxxx", -0x34); //commented address on exe 28-nov-2025
         address = Scanner::Find("\x83\xfb\x56\x73\x14", "xxxxx", -0x34);
         if (address) {
@@ -458,6 +459,7 @@ namespace {
 
 
         // @TODO: Grab the seeding context from memory, write this ourselves!
+        //CreateHashFromWchar: volatile jz offset (was 0x0d, 0x10).
         //address = Scanner::Find("\x85\xc0\x74\x0d\x6a\xff\x50", "xxxxxxx", 0x7);
         address = Scanner::Find("\x85\xc0\x74\x10\x6a\xff\x50", "xxxxxxx", 0x7);
         CreateHashFromWchar_Func = (CreateHashFromWchar_pt)GW::Scanner::FunctionFromNearCall(address);
@@ -575,7 +577,9 @@ namespace {
         // NB: 0x66 is the size of the window info array
 		// /commented address on exe 28-nov-2025
         //SetWindowVisible_Func = (SetWindowVisible_pt)Scanner::ToFunctionStart(Scanner::Find("\x8B\x75\x08\x83\xFE\x66\x7C\x19\x68", "xxxxxxxxx"));
-        SetWindowVisible_Func = (SetWindowVisible_pt)Scanner::ToFunctionStart(Scanner::Find("\x8B\x75\x08\x83\xFE\x6A\x7C\x19\x68", "xxxxxxxxx"));
+        //SetWindowVisible: volatile array size byte (was 0x66, 0x69, 0x6A). Wildcard it.
+        //SetWindowVisible_Func = (SetWindowVisible_pt)Scanner::ToFunctionStart(Scanner::Find("\x8B\x75\x08\x83\xFE\x6A\x7C\x19\x68", "xxxxxxxxx"));
+        SetWindowVisible_Func = (SetWindowVisible_pt)Scanner::ToFunctionStart(Scanner::Find("\x8B\x75\x08\x83\xFE\x00\x7C\x19\x68", "xxxxx?xxx"));
         if (SetWindowVisible_Func) {
             SetWindowPosition_Func = reinterpret_cast<SetWindowPosition_pt>((uintptr_t)SetWindowVisible_Func - 0xE0);
             address = (uintptr_t)SetWindowVisible_Func + 0x49;
@@ -995,7 +999,7 @@ namespace GW {
             }
 
             GW::UI::UIPacket::kMouseAction action{};
-            
+
             action.child_offset_id = action.frame_id = btn_frame->child_offset_id;
             struct button_param {
                 uint32_t unk;

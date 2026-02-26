@@ -385,6 +385,14 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("skip_hooks") = false
 		)
 
+		.def_static("SendFrameUIMessage",
+			&UIManager::SendFrameUIMessage,
+			py::arg("frame_id"),
+			py::arg("message_id"),
+			py::arg("wparam"),
+			py::arg("lparam") = 0
+		)
+
 		.def_static("button_click", &UIManager::ButtonClick, py::arg("frame_id"), "Simulates a button click on a frame.")
 		.def_static("test_mouse_action", &UIManager::TestMouseAction, py::arg("frame_id"), py::arg("current_state"), py::arg("wparam_value") = 0, py::arg("lparam") = 0, "Simulates a mouse action on a frame.")
 		.def_static("test_mouse_click_action", &UIManager::TestMouseClickAction, py::arg("frame_id"), py::arg("current_state"), py::arg("wparam_value") = 0, py::arg("lparam") = 0, "Simulates a mouse action on a frame.")

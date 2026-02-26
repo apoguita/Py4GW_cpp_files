@@ -176,6 +176,7 @@ namespace {
 
         //commented address is from exe 28-nov-2025
         //WorldMap_UICallback_Func = (UI::UIInteractionCallback)GW::Scanner::ToFunctionStart(GW::Scanner::Find("\x83\xe8\x04\x83\xf8\x50", "xxxxxx"));
+        //WorldMap: volatile switch case count (was 0x50, 0x4d, 0x52).
         WorldMap_UICallback_Func = (UI::UIInteractionCallback)GW::Scanner::ToFunctionStart(GW::Scanner::Find("\x83\xe8\x04\x83\xf8\x52", "xxxxxx"));
 
 

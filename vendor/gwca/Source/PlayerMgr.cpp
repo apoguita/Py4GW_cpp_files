@@ -52,7 +52,8 @@ namespace {
         address = Scanner::Find("\x68\x88\x13\x00\x00\xff\x76\x0c\x6a\x00", "xxxxxxxxxx", 0xa); // UI::UIInteractionCallback for entering player name for faction donation
         DepositFaction_Func = (DepositFaction_pt)Scanner::FunctionFromNearCall(address);
 
-        address = Scanner::FindAssertion("\\Code\\Gw\\Const\\ConstTitle.cpp", "index < arrsize(s_titleClientData)", 0, 0x12);
+        //address = Scanner::FindAssertion("\\Code\\Gw\\Const\\ConstTitle.cpp", "index < arrsize(s_titleClientData)", 0, 0x12);
+        address = Scanner::FindAssertion("\\Code\\Gw\\Const\\ConstTitle.cpp", "index < arrsize(s_titleClientData)", 0, 0x15);
         if (address && Scanner::IsValidPtr(*(uintptr_t*)address, ScannerSection::Section_RDATA))
             title_data = *(TitleClientData**)address;
 
