@@ -449,8 +449,8 @@ namespace {
             WorldMapState_Addr = *(uintptr_t*)address;
 
 
-        //address = Scanner::Find("\x83\xfb\x54\x73\x14", "xxxxx", -0x34);
-        address = Scanner::Find("\x83\xfb\x55\x73\x14", "xxxxx", -0x34);
+        //address = Scanner::Find("\x83\xfb\x47\x73\x14", "xxxxx", -0x34); //commented address on exe 28-nov-2025
+        address = Scanner::Find("\x83\xfb\x56\x73\x14", "xxxxx", -0x34);
         if (address) {
             SendFrameUIMessageById_Func = (SendFrameUIMessageById_pt)address;
             SendFrameUIMessage_Func = (SendFrameUIMessage_pt)Scanner::FunctionFromNearCall(address + 0x67);
@@ -573,8 +573,9 @@ namespace {
 
 
         // NB: 0x66 is the size of the window info array
+		// /commented address on exe 28-nov-2025
         //SetWindowVisible_Func = (SetWindowVisible_pt)Scanner::ToFunctionStart(Scanner::Find("\x8B\x75\x08\x83\xFE\x66\x7C\x19\x68", "xxxxxxxxx"));
-        SetWindowVisible_Func = (SetWindowVisible_pt)Scanner::ToFunctionStart(Scanner::Find("\x8B\x75\x08\x83\xFE\x69\x7C\x19\x68", "xxxxxxxxx"));
+        SetWindowVisible_Func = (SetWindowVisible_pt)Scanner::ToFunctionStart(Scanner::Find("\x8B\x75\x08\x83\xFE\x6A\x7C\x19\x68", "xxxxxxxxx"));
         if (SetWindowVisible_Func) {
             SetWindowPosition_Func = reinterpret_cast<SetWindowPosition_pt>((uintptr_t)SetWindowVisible_Func - 0xE0);
             address = (uintptr_t)SetWindowVisible_Func + 0x49;

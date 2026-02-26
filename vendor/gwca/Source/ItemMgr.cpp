@@ -273,8 +273,9 @@ namespace {
         address = Scanner::Find("\x83\xc4\x40\x6a\x00\x6a\x19", "xxxxxxx", -0x4e);
         DropItem_Func = (DropItem_pt)Scanner::FunctionFromNearCall(address);
 
+		//commented address is from exe 28-nov-2025
         //address = Scanner::Find("\x83\x78\x08\x0a\x75\x10", "xxxxxx", 0xe);
-        address = Scanner::Find("\x83\x78\x08\x0b\x75\x10", "xxxxxx", 0xe);
+        address = Scanner::Find("\x83\x78\x08\x0b\x75\x3f", "xxxxxx", 0xe);
         DestroyItem_Func = (DoAction_pt)Scanner::FunctionFromNearCall(address);
 
 

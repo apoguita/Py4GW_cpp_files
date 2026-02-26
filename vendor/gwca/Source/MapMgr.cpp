@@ -158,9 +158,14 @@ namespace {
             bypass_tolerance_patch.SetPatch(address, "\xeb", 1);
         }
 
-        address = Scanner::Find("\xa9\x00\x00\x10\x00\x74\x3a", "xxxxxxx");
-        CancelEnterChallengeMission_Func = (Void_pt)Scanner::FunctionFromNearCall(address + 0x19);
-        EnterChallengeMission_Func = (DoAction_pt)Scanner::FunctionFromNearCall(address + 0x51);
+        //address = Scanner::Find("\xa9\x00\x00\x10\x00\x74\x3a", "xxxxxxx");
+        //CancelEnterChallengeMission_Func = (Void_pt)Scanner::FunctionFromNearCall(address + 0x19);
+        //EnterChallengeMission_Func = (DoAction_pt)Scanner::FunctionFromNearCall(address + 0x51);
+
+        
+        address = Scanner::Find("\xa9\x00\x00\x10\x00\x74\x24", "xxxxxxx");
+        CancelEnterChallengeMission_Func = (Void_pt)Scanner::FunctionFromNearCall(address + 0x1B);
+        EnterChallengeMission_Func = (DoAction_pt)Scanner::FunctionFromNearCall(address + 0x43);
 
 
         address = Scanner::Find("\x83\xc0\x0c\x41\x3d\x68\x01\x00\x00", "xxxxxxxxx");
@@ -169,8 +174,9 @@ namespace {
             map_type_instance_infos_size = (*(uint32_t*)(address + 5)) / sizeof(MapTypeInstanceInfo);
         }
 
+        //commented address is from exe 28-nov-2025
         //WorldMap_UICallback_Func = (UI::UIInteractionCallback)GW::Scanner::ToFunctionStart(GW::Scanner::Find("\x83\xe8\x04\x83\xf8\x50", "xxxxxx"));
-        WorldMap_UICallback_Func = (UI::UIInteractionCallback)GW::Scanner::ToFunctionStart(GW::Scanner::Find("\x83\xe8\x04\x83\xf8\x4d", "xxxxxx"));
+        WorldMap_UICallback_Func = (UI::UIInteractionCallback)GW::Scanner::ToFunctionStart(GW::Scanner::Find("\x83\xe8\x04\x83\xf8\x52", "xxxxxx"));
 
 
         //MissionMap_UICallback_Func = (UI::UIInteractionCallback)GW::Scanner::ToFunctionStart(GW::Scanner::Find("\x81\xfb\x67\x01\x00\x10", "xxxxxx"));
