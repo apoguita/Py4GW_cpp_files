@@ -267,6 +267,111 @@ public:
             reinterpret_cast<void*>(wparam), reinterpret_cast<void*>(lparam));
     }
 
+    static uint32_t CreateUIComponentByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags,
+        uint32_t child_index,
+        uintptr_t event_callback,
+        const std::wstring& name_enc = L"",
+        const std::wstring& component_label = L"")
+    {
+        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
+        if (!(parent && parent->IsCreated()))
+            return 0;
+        wchar_t* name_ptr = name_enc.empty() ? nullptr : const_cast<wchar_t*>(name_enc.c_str());
+        wchar_t* label_ptr = component_label.empty() ? nullptr : const_cast<wchar_t*>(component_label.c_str());
+        return GW::UI::CreateUIComponent(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            reinterpret_cast<GW::UI::UIInteractionCallback>(event_callback),
+            name_ptr,
+            label_ptr);
+    }
+
+    static bool DestroyUIComponentByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame)
+            return false;
+        return GW::UI::DestroyUIComponent(frame);
+    }
+
+    static uint32_t CreateButtonFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags,
+        uint32_t child_index = 0,
+        const std::wstring& name_enc = L"",
+        const std::wstring& component_label = L"")
+    {
+        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
+        if (!(parent && parent->IsCreated()))
+            return 0;
+        auto* frame = GW::UI::CreateButtonFrame(
+            parent,
+            component_flags,
+            child_index,
+            name_enc.empty() ? nullptr : const_cast<wchar_t*>(name_enc.c_str()),
+            component_label.empty() ? nullptr : const_cast<wchar_t*>(component_label.c_str()));
+        return frame ? frame->frame_id : 0;
+    }
+
+    static uint32_t CreateCheckboxFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags,
+        uint32_t child_index = 0,
+        const std::wstring& name_enc = L"",
+        const std::wstring& component_label = L"")
+    {
+        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
+        if (!(parent && parent->IsCreated()))
+            return 0;
+        auto* frame = GW::UI::CreateCheckboxFrame(
+            parent,
+            component_flags,
+            child_index,
+            name_enc.empty() ? nullptr : const_cast<wchar_t*>(name_enc.c_str()),
+            component_label.empty() ? nullptr : const_cast<wchar_t*>(component_label.c_str()));
+        return frame ? frame->frame_id : 0;
+    }
+
+    static uint32_t CreateScrollableFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags,
+        uint32_t child_index = 0,
+        uintptr_t page_context = 0,
+        const std::wstring& component_label = L"")
+    {
+        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
+        if (!(parent && parent->IsCreated()))
+            return 0;
+        auto* frame = GW::UI::CreateScrollableFrame(
+            parent,
+            component_flags,
+            child_index,
+            reinterpret_cast<void*>(page_context),
+            component_label.empty() ? nullptr : const_cast<wchar_t*>(component_label.c_str()));
+        return frame ? frame->frame_id : 0;
+    }
+
+    static uint32_t CreateTextLabelFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags,
+        uint32_t child_index = 0,
+        const std::wstring& name_enc = L"",
+        const std::wstring& component_label = L"")
+    {
+        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
+        if (!(parent && parent->IsCreated()))
+            return 0;
+        auto* frame = GW::UI::CreateTextLabelFrame(
+            parent,
+            component_flags,
+            child_index,
+            name_enc.empty() ? nullptr : const_cast<wchar_t*>(name_enc.c_str()),
+            component_label.empty() ? nullptr : const_cast<wchar_t*>(component_label.c_str()));
+        return frame ? frame->frame_id : 0;
+    }
+
 
 
 

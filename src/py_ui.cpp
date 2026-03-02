@@ -392,6 +392,51 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("wparam"),
 			py::arg("lparam") = 0
 		)
+		.def_static("create_ui_component_by_frame_id",
+			&UIManager::CreateUIComponentByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags"),
+			py::arg("child_index"),
+			py::arg("event_callback"),
+			py::arg("name_enc") = std::wstring(),
+			py::arg("component_label") = std::wstring()
+		)
+		.def_static("destroy_ui_component_by_frame_id",
+			&UIManager::DestroyUIComponentByFrameId,
+			py::arg("frame_id")
+		)
+		.def_static("create_button_frame_by_frame_id",
+			&UIManager::CreateButtonFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags"),
+			py::arg("child_index") = 0,
+			py::arg("name_enc") = std::wstring(),
+			py::arg("component_label") = std::wstring()
+		)
+		.def_static("create_checkbox_frame_by_frame_id",
+			&UIManager::CreateCheckboxFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags"),
+			py::arg("child_index") = 0,
+			py::arg("name_enc") = std::wstring(),
+			py::arg("component_label") = std::wstring()
+		)
+		.def_static("create_scrollable_frame_by_frame_id",
+			&UIManager::CreateScrollableFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags"),
+			py::arg("child_index") = 0,
+			py::arg("page_context") = 0,
+			py::arg("component_label") = std::wstring()
+		)
+		.def_static("create_text_label_frame_by_frame_id",
+			&UIManager::CreateTextLabelFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags"),
+			py::arg("child_index") = 0,
+			py::arg("name_enc") = std::wstring(),
+			py::arg("component_label") = std::wstring()
+		)
 
 		.def_static("button_click", &UIManager::ButtonClick, py::arg("frame_id"), "Simulates a button click on a frame.")
 		.def_static("test_mouse_action", &UIManager::TestMouseAction, py::arg("frame_id"), py::arg("current_state"), py::arg("wparam_value") = 0, py::arg("lparam") = 0, "Simulates a mouse action on a frame.")

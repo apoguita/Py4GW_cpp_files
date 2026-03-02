@@ -56,6 +56,8 @@ namespace {
     typedef uint32_t(__cdecl* CreateUIComponent_pt)(uint32_t frame_id, uint32_t component_flags, uint32_t tab_index, void* event_callback, wchar_t* name_enc, wchar_t* component_label);
     CreateUIComponent_pt CreateUIComponent_Func = 0;
     CreateUIComponent_pt CreateUIComponent_Ret = 0;
+    typedef bool(__cdecl* DestroyUIComponent_pt)(uint32_t frame_id);
+    DestroyUIComponent_pt DestroyUIComponent_Func = 0;
 
     struct CreateUIComponentCallbackEntry {
         int altitude;
@@ -602,6 +604,8 @@ namespace {
 
         //CreateUIComponent_Func = (CreateUIComponent_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x33\xd2\x89\x45\x08\xb9\xac\x01\x00\x00", "xxxxxxxxxx"));
         CreateUIComponent_Func = (CreateUIComponent_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x33\xd2\x89\x45\x08\xb9\xc8\x01\x00\x00", "xxxxxxxxxx"));
+        DestroyUIComponent_Func = (DestroyUIComponent_pt)Scanner::ToFunctionStart(
+            Scanner::FindAssertion("\\Code\\Gw\\Ui\\Frame\\FrApi.cpp", "frame->state.Test(FRAME_STATE_CREATED)", 0, 0));
 
 
         // Graphics renderer related
@@ -1216,6 +1220,47 @@ namespace GW {
 
 		}
 
+        namespace {
+            UIInteractionCallback ButtonFrame_Callback = nullptr;
+            UIInteractionCallback ScrollableFrame_Callback = nullptr;
+            UIInteractionCallback TextLabelFrame_Callback = nullptr;
+            bool TypedComponentCallbacks_Initialized = false;
+
+            void InitializeTypedComponentCallbacks() {
+                if (TypedComponentCallbacks_Initialized)
+                    return;
+                TypedComponentCallbacks_Initialized = true;
+
+                uintptr_t addr = 0;
+
+                addr = Scanner::FindAssertion(
+                    "\\Code\\Engine\\Controls\\CtlText.cpp",
+                    "FrameTestStyles(hdr.frameId, CTLTEXT_STYLE_MODEL)",
+                    0, 0);
+                if (addr)
+                    TextLabelFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+
+                addr = Scanner::FindAssertion(
+                    "\\Code\\Engine\\Controls\\CtlView.cpp",
+                    "pageId",
+                    0, 0);
+                if (addr)
+                    ScrollableFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+            }
+
+            uint32_t FindAvailableChildIndex(Frame* parent, uint32_t child_index) {
+                if (!parent)
+                    return 0;
+                if (child_index)
+                    return child_index;
+                for (uint32_t i = 1; i != 0; ++i) {
+                    if (!GetChildFrame(parent, i))
+                        return i;
+                }
+                return 0;
+            }
+        }
+
         Frame* GetParentFrame(Frame* frame) {
             return frame ? frame->relation.GetParent() : nullptr;
         }
@@ -1225,6 +1270,56 @@ namespace GW {
                 return nullptr;
             auto frame = (*s_FrameArray)[frame_id];
             return IsFrameValid(frame) ? frame : nullptr;
+        }
+        uint32_t CreateUIComponent(uint32_t frame_id, uint32_t component_flags, uint32_t tab_index, UIInteractionCallback event_callback, wchar_t* name_enc, wchar_t* component_label) {
+            if (!CreateUIComponent_Func)
+                return 0;
+            return CreateUIComponent_Func(frame_id, component_flags, tab_index, reinterpret_cast<void*>(event_callback), name_enc, component_label);
+        }
+        bool DestroyUIComponent(Frame* frame) {
+            if (!(frame && frame->IsCreated() && DestroyUIComponent_Func))
+                return false;
+            return DestroyUIComponent_Func(frame->frame_id);
+        }
+        Frame* CreateButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
+            InitializeTypedComponentCallbacks();
+            if (!(parent && parent->IsCreated() && ButtonFrame_Callback))
+                return nullptr;
+            child_index = FindAvailableChildIndex(parent, child_index);
+            if (!child_index)
+                return nullptr;
+            const auto frame_id = CreateUIComponent(parent->frame_id, component_flags, child_index, ButtonFrame_Callback, name_enc, component_label);
+            return frame_id ? GetFrameById(frame_id) : nullptr;
+        }
+        Frame* CreateCheckboxFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
+            InitializeTypedComponentCallbacks();
+            if (!(parent && parent->IsCreated() && ButtonFrame_Callback))
+                return nullptr;
+            child_index = FindAvailableChildIndex(parent, child_index);
+            if (!child_index)
+                return nullptr;
+            const auto frame_id = CreateUIComponent(parent->frame_id, component_flags | 0x8000, child_index, ButtonFrame_Callback, name_enc, component_label);
+            return frame_id ? GetFrameById(frame_id) : nullptr;
+        }
+        Frame* CreateScrollableFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, void* page_context, wchar_t* component_label) {
+            InitializeTypedComponentCallbacks();
+            if (!(parent && parent->IsCreated() && ScrollableFrame_Callback))
+                return nullptr;
+            child_index = FindAvailableChildIndex(parent, child_index);
+            if (!child_index)
+                return nullptr;
+            const auto frame_id = CreateUIComponent(parent->frame_id, component_flags | 0x20000, child_index, ScrollableFrame_Callback, reinterpret_cast<wchar_t*>(page_context), component_label);
+            return frame_id ? GetFrameById(frame_id) : nullptr;
+        }
+        Frame* CreateTextLabelFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
+            InitializeTypedComponentCallbacks();
+            if (!(parent && parent->IsCreated() && TextLabelFrame_Callback))
+                return nullptr;
+            child_index = FindAvailableChildIndex(parent, child_index);
+            if (!child_index)
+                return nullptr;
+            const auto frame_id = CreateUIComponent(parent->frame_id, component_flags, child_index, TextLabelFrame_Callback, name_enc, component_label);
+            return frame_id ? GetFrameById(frame_id) : nullptr;
         }
         Frame* GetFrameByLabel(const wchar_t* frame_label) {
             if (!(CreateHashFromWchar_Func && s_FrameArray))

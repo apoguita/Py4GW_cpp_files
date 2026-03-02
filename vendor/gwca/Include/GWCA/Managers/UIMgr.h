@@ -1257,6 +1257,13 @@ namespace GW {
         GWCA_API Frame* GetFrameByLabel(const wchar_t* frame_label);
         GWCA_API uint32_t GetFrameIDByLabel(const wchar_t* frame_label);
         GWCA_API uint32_t GetFrameIDByHash(uint32_t hash);
+        GWCA_API uint32_t CreateUIComponent(uint32_t frame_id, uint32_t component_flags, uint32_t tab_index, UIInteractionCallback event_callback, wchar_t* name_enc, wchar_t* component_label);
+        GWCA_API uint32_t CreateLabeledFrame(uint32_t parent_frame_id, uint32_t frame_flags, uint32_t child_index, void* frame_callback, void* create_param, wchar_t* frame_label);
+        GWCA_API bool DestroyUIComponent(Frame* frame);
+        GWCA_API Frame* CreateButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
+        GWCA_API Frame* CreateCheckboxFrame(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
+        GWCA_API Frame* CreateScrollableFrame(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, void* page_context = nullptr, wchar_t* component_label = nullptr);
+        GWCA_API Frame* CreateTextLabelFrame(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
         GWCA_API uint32_t GetHashByLabel(const std::string& label);
         GWCA_API std::vector<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>> GetFrameHierarchy();
         GWCA_API std::vector<std::pair<uint32_t, uint32_t>> GetFrameCoordsByHash(uint32_t frame_hash);
