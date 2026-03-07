@@ -324,6 +324,390 @@ public:
             label_ptr);
     }
 
+    static uint32_t CreateLabeledFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t frame_flags,
+        uint32_t child_index,
+        uintptr_t frame_callback,
+        uintptr_t create_param,
+        const std::wstring& frame_label = L"")
+    {
+        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
+        if (!(parent && parent->IsCreated()))
+            return 0;
+        wchar_t* create_param_ptr = reinterpret_cast<wchar_t*>(create_param);
+        wchar_t* label_ptr = frame_label.empty() ? nullptr : const_cast<wchar_t*>(frame_label.c_str());
+        return GW::UI::CreateUIComponent(
+            parent_frame_id,
+            frame_flags,
+            child_index,
+            reinterpret_cast<GW::UI::UIInteractionCallback>(frame_callback),
+            create_param_ptr,
+            label_ptr);
+    }
+
+    static uint32_t CreateWindowByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t child_index,
+        uintptr_t frame_callback,
+        float x,
+        float y,
+        float width,
+        float height,
+        uint32_t frame_flags = 0,
+        uintptr_t create_param = 0,
+        const std::wstring& frame_label = L"",
+        uint32_t anchor_flags = 0x6)
+    {
+        const uint32_t frame_id = CreateLabeledFrameByFrameId(
+            parent_frame_id,
+            frame_flags,
+            child_index,
+            frame_callback,
+            create_param,
+            frame_label);
+        if (!frame_id)
+            return 0;
+
+        SetFrameControllerAnchorMarginsByFrameIdEx(
+            frame_id,
+            x,
+            y,
+            width,
+            height,
+            anchor_flags);
+        TriggerFrameRedrawByFrameId(frame_id);
+        return frame_id;
+    }
+
+    static uint32_t FindAvailableChildSlot(
+        uint32_t parent_frame_id,
+        uint32_t start_index = 0x20,
+        uint32_t end_index = 0xFE)
+    {
+        if (!parent_frame_id || start_index > end_index)
+            return 0;
+
+        std::unordered_set<uint32_t> used;
+        for (const auto frame_id : GW::UI::GetFrameArray()) {
+            if (GetParentFrameID(frame_id) != parent_frame_id)
+                continue;
+            auto* frame = GW::UI::GetFrameById(frame_id);
+            if (!frame)
+                continue;
+            used.insert(frame->child_offset_id);
+        }
+
+        for (uint32_t child_index = start_index; child_index <= end_index; ++child_index) {
+            if (used.find(child_index) == used.end())
+                return child_index;
+        }
+        return 0;
+    }
+
+    static uint32_t ResolveDevTextDialogProc()
+    {
+        static uint32_t cached_proc = 0;
+        if (cached_proc)
+            return cached_proc;
+
+        for (uint32_t xref_index = 0; xref_index < 8; ++xref_index) {
+            uintptr_t use_addr = 0;
+            try {
+                use_addr = GW::Scanner::FindNthUseOfString(L"DlgDevText", xref_index, 0, GW::ScannerSection::Section_TEXT);
+            }
+            catch (...) {
+                use_addr = 0;
+            }
+            if (!use_addr)
+                continue;
+
+            const uintptr_t proc_addr = GW::Scanner::ToFunctionStart(use_addr, 0x1200);
+            if (!proc_addr)
+                continue;
+
+            cached_proc = static_cast<uint32_t>(proc_addr);
+            return cached_proc;
+        }
+
+        return 0;
+    }
+
+    static std::pair<uint32_t, bool> EnsureDevTextSource()
+    {
+        uint32_t frame_id = GetFrameIDByLabel("DevText");
+        auto* frame = frame_id ? GW::UI::GetFrameById(frame_id) : nullptr;
+        if (frame && frame->IsCreated())
+            return { frame_id, false };
+
+        KeyPress(0x25, 0);
+        frame_id = GetFrameIDByLabel("DevText");
+        frame = frame_id ? GW::UI::GetFrameById(frame_id) : nullptr;
+        return { frame_id, frame && frame->IsCreated() };
+    }
+
+    static void RestoreDevTextSource(bool opened_temporarily)
+    {
+        if (!opened_temporarily)
+            return;
+
+        const uint32_t frame_id = GetFrameIDByLabel("DevText");
+        auto* frame = frame_id ? GW::UI::GetFrameById(frame_id) : nullptr;
+        if (frame && frame->IsCreated())
+            KeyPress(0x25, 0);
+    }
+
+    static uint32_t ResolveObservedContentHostByFrameId(uint32_t root_frame_id)
+    {
+        if (!root_frame_id)
+            return 0;
+        return GetChildFramePathByFrameId(root_frame_id, { 0, 0, 0 });
+    }
+
+    static bool ClearFrameChildrenRecursiveByFrameId(uint32_t frame_id)
+    {
+        using ClearFrameChildrenRecursive_pt = void(__cdecl*)(uint32_t);
+
+        static ClearFrameChildrenRecursive_pt fn = nullptr;
+        if (!fn) {
+            const auto func_addr = GW::Scanner::Find(
+                "\x55\x8B\xEC\x83\xEC\x08\x56\x8B\x75\x08\x85\xF6\x75\x19",
+                "xxxxxxxxxxxxxx");
+            if (!func_addr)
+                return false;
+            fn = reinterpret_cast<ClearFrameChildrenRecursive_pt>(func_addr);
+        }
+
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+
+        const auto clear_fn = fn;
+        GW::GameThread::Enqueue([frame_id, clear_fn]() {
+            if (clear_fn)
+                clear_fn(frame_id);
+        });
+        return true;
+    }
+
+    static bool ClearWindowContentsByFrameId(uint32_t root_frame_id)
+    {
+        const uint32_t host_frame_id = ResolveObservedContentHostByFrameId(root_frame_id);
+        if (!host_frame_id)
+            return false;
+        if (!ClearFrameChildrenRecursiveByFrameId(host_frame_id))
+            return false;
+        TriggerFrameRedrawByFrameId(root_frame_id);
+        return true;
+    }
+
+    static uint32_t CreateWindowClone(
+        float x,
+        float y,
+        float width,
+        float height,
+        const std::wstring& frame_label = L"",
+        uint32_t parent_frame_id = 9,
+        uint32_t child_index = 0,
+        uint32_t frame_flags = 0,
+        uintptr_t create_param = 0,
+        uintptr_t frame_callback = 0,
+        uint32_t anchor_flags = 0x6,
+        bool ensure_devtext_source = true)
+    {
+        bool opened_temporarily = false;
+        if (!frame_callback) {
+            if (ensure_devtext_source) {
+                const auto ensure_result = EnsureDevTextSource();
+                opened_temporarily = ensure_result.second;
+            }
+            frame_callback = ResolveDevTextDialogProc();
+            if (!frame_callback) {
+                RestoreDevTextSource(opened_temporarily);
+                return 0;
+            }
+        }
+
+        const uint32_t resolved_child_index = child_index > 0
+            ? child_index
+            : FindAvailableChildSlot(parent_frame_id);
+        if (!resolved_child_index) {
+            RestoreDevTextSource(opened_temporarily);
+            return 0;
+        }
+
+        const uint32_t frame_id = CreateWindowByFrameId(
+            parent_frame_id,
+            resolved_child_index,
+            frame_callback,
+            x,
+            y,
+            width,
+            height,
+            frame_flags,
+            create_param,
+            frame_label,
+            anchor_flags);
+        RestoreDevTextSource(opened_temporarily);
+        return frame_id;
+    }
+
+    static uint32_t CreateEmptyWindowClone(
+        float x,
+        float y,
+        float width,
+        float height,
+        const std::wstring& frame_label = L"",
+        uint32_t parent_frame_id = 9,
+        uint32_t child_index = 0,
+        uint32_t frame_flags = 0,
+        uintptr_t create_param = 0,
+        uintptr_t frame_callback = 0,
+        uint32_t anchor_flags = 0x6,
+        bool ensure_devtext_source = true)
+    {
+        const uint32_t frame_id = CreateWindowClone(
+            x,
+            y,
+            width,
+            height,
+            frame_label,
+            parent_frame_id,
+            child_index,
+            frame_flags,
+            create_param,
+            frame_callback,
+            anchor_flags,
+            ensure_devtext_source);
+        if (!frame_id)
+            return 0;
+
+        ClearWindowContentsByFrameId(frame_id);
+        TriggerFrameRedrawByFrameId(frame_id);
+        return frame_id;
+    }
+
+    static bool SetFrameControllerAnchorMarginsByFrameIdEx(
+        uint32_t frame_id,
+        float x,
+        float y,
+        float width,
+        float height,
+        uint32_t flags = 0x6)
+    {
+        using SetFrameControllerAnchorMarginsByIdEx_pt =
+            void(__cdecl*)(uint32_t, const float*, const float*, uint32_t);
+
+        static SetFrameControllerAnchorMarginsByIdEx_pt fn = nullptr;
+        if (!fn) {
+            auto use_addr = GW::Scanner::Find(
+                "\x50\xe8\x00\x00\x00\x00\x83\xc4\x04\x8d\x88\xd0\x00\x00\x00\xff\x75\x14\xff\x75\x10\xff\x75\x0c\xe8\x00\x00\x00\x00\x5d\xc3",
+                "xx????xxxxxxxxxxxxxxxxxxx????xx"
+            );
+            if (!use_addr)
+                return false;
+            const auto func_addr = GW::Scanner::ToFunctionStart(use_addr, 0x80);
+            if (!func_addr)
+                return false;
+            fn = reinterpret_cast<SetFrameControllerAnchorMarginsByIdEx_pt>(func_addr);
+        }
+
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+
+        const float pos[2] = { x, y };
+        const float size[2] = { width, height };
+        fn(frame_id, pos, size, flags);
+        return true;
+    }
+
+    static uint32_t ChooseAnchorFlagsForDesiredRect(
+        float x,
+        float y,
+        float width,
+        float height,
+        float parent_width,
+        float parent_height,
+        bool disable_center = false)
+    {
+        using ChooseAnchorFlagsForDesiredRect_pt =
+            uint32_t(__cdecl*)(const float*, const float*, const float*, uint32_t);
+
+        static ChooseAnchorFlagsForDesiredRect_pt fn = nullptr;
+        if (!fn) {
+            auto use_addr = GW::Scanner::Find(
+                "\x55\x8b\xec\x8b\x45\x10\xba\x02\x00\x00\x00\x53\x8b\x5d\x0c\x57\x8b\x7d\x08\xd9\x07\xd9\x5d\x08",
+                "xxxxxxxxxxxxxxxxxxxxxxxx"
+            );
+            if (!use_addr)
+                return 0;
+            fn = reinterpret_cast<ChooseAnchorFlagsForDesiredRect_pt>(use_addr);
+        }
+
+        const float pos[2] = { x, y };
+        const float size[2] = { width, height };
+        const float parent_size[2] = { parent_width, parent_height };
+        return fn(pos, size, parent_size, disable_center ? 1u : 0u);
+    }
+
+    static bool CollapseWindowByFrameId(uint32_t frame_id)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+        const uint32_t parent_frame_id = GetParentFrameID(frame_id);
+        const auto parent_frame = parent_frame_id ? GW::UI::GetFrameById(parent_frame_id) : nullptr;
+        const float parent_width = parent_frame
+            ? static_cast<float>(abs(static_cast<int>(parent_frame->position.right) - static_cast<int>(parent_frame->position.left)))
+            : 0.0f;
+        const float parent_height = parent_frame
+            ? static_cast<float>(abs(static_cast<int>(parent_frame->position.bottom) - static_cast<int>(parent_frame->position.top)))
+            : 0.0f;
+        uint32_t flags = 0x6;
+        if (parent_frame) {
+            const uint32_t chosen_flags = ChooseAnchorFlagsForDesiredRect(
+                0.0f, 0.0f, 1.0f, 1.0f, parent_width, parent_height, true);
+            if (chosen_flags)
+                flags = chosen_flags;
+        }
+        return SetFrameControllerAnchorMarginsByFrameIdEx(frame_id, 0.0f, 0.0f, 1.0f, 1.0f, flags);
+    }
+
+    static bool RestoreWindowRectByFrameId(
+        uint32_t frame_id,
+        float x,
+        float y,
+        float width,
+        float height,
+        uint32_t flags = 0,
+        bool use_auto_flags = true,
+        bool disable_center = true)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+
+        uint32_t resolved_flags = flags;
+        if (use_auto_flags) {
+            const uint32_t parent_frame_id = GetParentFrameID(frame_id);
+            const auto parent_frame = parent_frame_id ? GW::UI::GetFrameById(parent_frame_id) : nullptr;
+            if (parent_frame) {
+                const float parent_width = static_cast<float>(
+                    abs(static_cast<int>(parent_frame->position.right) - static_cast<int>(parent_frame->position.left)));
+                const float parent_height = static_cast<float>(
+                    abs(static_cast<int>(parent_frame->position.bottom) - static_cast<int>(parent_frame->position.top)));
+                const uint32_t chosen_flags = ChooseAnchorFlagsForDesiredRect(
+                    x, y, width, height, parent_width, parent_height, disable_center);
+                if (chosen_flags)
+                    resolved_flags = chosen_flags;
+            }
+            if (!resolved_flags)
+                resolved_flags = 0x6;
+        }
+        return SetFrameControllerAnchorMarginsByFrameIdEx(frame_id, x, y, width, height, resolved_flags);
+    }
+
 
     static bool DestroyUIComponentByFrameId(uint32_t frame_id) {
         GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);

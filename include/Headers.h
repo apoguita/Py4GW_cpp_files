@@ -309,6 +309,7 @@ extern Timer salvage_timer;
 #include "WindowCfg.h"
 #include "PyScanner.h"
 #include "PyPointers.h"
+#include "Py4GW_UI.h"
 
 
 #endif // PCH_H

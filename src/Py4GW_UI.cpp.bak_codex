@@ -1,0 +1,268 @@
+﻿#include "Py4GW_UI.h"
+
+namespace py = pybind11;
+
+class Py4GW_UI {
+private:
+    std::vector<Command> commands_;
+    std::unordered_map<std::string, py::object> vars_;
+
+public:
+    Py4GW_UI() = default;
+
+    void clear_ui() { commands_.clear(); }
+    void clear_vars() { vars_.clear(); }
+
+    void set_var(const std::string& name, const py::object& value) {
+        vars_[name] = value;
+    }
+
+    py::object vars(const std::string& name) const {
+        const auto it = vars_.find(name);
+        if (it == vars_.end()) {
+            return py::none();
+        }
+        return it->second;
+    }
+
+    py::dict all_vars() const {
+        py::dict out;
+        for (const auto& [key, value] : vars_) {
+            out[py::str(key)] = value;
+        }
+        return out;
+    }
+
+    py::dict build_vars_dict() const {
+        py::dict d;
+        for (const auto& [k, v] : vars_) d[py::str(k)] = v;
+        return d;
+    }
+
+    void apply_vars_dict(const py::dict& d) {
+        for (auto item : d) {
+            vars_[py::cast<std::string>(item.first)] = py::reinterpret_borrow<py::object>(item.second);
+        }
+    }
+
+    // Real ImGui signature shape: bool Begin(const char* name, bool* p_open, ImGuiWindowFlags flags)
+    Py4GW_UI& begin(const std::string& name, const std::string& p_open_var, int flags = 0, const std::string& return_var = "") {
+        Command cmd;
+        cmd.type = OpType::Begin;
+        cmd.payload = SigStrVarInt{ name, p_open_var, flags, false, return_var };
+        commands_.push_back(std::move(cmd));
+        return *this;
+    }
+
+    Py4GW_UI& end() {
+        Command cmd;
+        cmd.type = OpType::End;
+        cmd.payload = std::monostate{};
+        commands_.push_back(std::move(cmd));
+        return *this;
+    }
+
+    Py4GW_UI& text(const std::string& value) {
+        Command cmd;
+        cmd.type = OpType::Text;
+        cmd.payload = SigStr{ value };
+        commands_.push_back(std::move(cmd));
+        return *this;
+    }
+
+    // Real ImGui signature shape: bool Checkbox(const char* label, bool* v)
+    Py4GW_UI& checkbox(const std::string& label, const std::string& var_name, const std::string& return_var = "") {
+        Command cmd;
+        cmd.type = OpType::Checkbox;
+        cmd.payload = SigStrVarInt{ label, var_name, 0, false, return_var };
+        commands_.push_back(std::move(cmd));
+        return *this;
+    }
+
+    // Real ImGui signature shape: bool InputText(const char* label, char* buf, size_t buf_size, ImGuiInputTextFlags flags)
+    Py4GW_UI& input_text(const std::string& label, const std::string& var_name, int flags = 0, const std::string& return_var = "") {
+        Command cmd;
+        cmd.type = OpType::InputText;
+        cmd.payload = SigStrVarInt{ label, var_name, flags, false, return_var };
+        commands_.push_back(std::move(cmd));
+        return *this;
+    }
+
+    Py4GW_UI& python_callable(const py::object& fn) {
+        if (!PyCallable_Check(fn.ptr())) {
+            throw std::runtime_error("python_callable expects a callable");
+        }
+        Command cmd;
+        cmd.type = OpType::PythonCallable;
+        cmd.payload = SigCallable{ fn };
+        commands_.push_back(std::move(cmd));
+        return *this;
+    }
+
+    void render() {
+        bool in_window = false;
+        bool window_visible = true;
+
+        for (auto& cmd : commands_) {
+            switch (cmd.type) {
+            case OpType::Begin: {
+                if (auto* p = std::get_if<SigStrVarInt>(&cmd.payload)) {
+                    if (p->str_var.empty()) {
+                        p->return_value = ImGui::Begin(
+                            p->text.c_str(),
+                            nullptr,
+                            static_cast<ImGuiWindowFlags>(p->value)
+                        );
+                    }
+                    else {
+                        bool open_value = true;
+                        const auto it = vars_.find(p->str_var);
+                        if (it != vars_.end() && !it->second.is_none()) {
+                            open_value = py::cast<bool>(it->second);
+                        }
+
+                        p->return_value = ImGui::Begin(
+                            p->text.c_str(),
+                            &open_value,
+                            static_cast<ImGuiWindowFlags>(p->value)
+                        );
+                        vars_[p->str_var] = py::bool_(open_value);
+                    }
+
+                    if (!p->str_return_var.empty()) {
+                        vars_[p->str_return_var] = py::bool_(p->return_value);
+                    }
+
+                    window_visible = p->return_value;
+                    in_window = true;
+                }
+                break;
+            }
+
+            case OpType::End: {
+                if (in_window) {
+                    ImGui::End();
+                }
+                in_window = false;
+                window_visible = true;
+                break;
+            }
+
+            case OpType::Text: {
+                if (!(in_window && window_visible)) break;
+                if (auto* p = std::get_if<SigStr>(&cmd.payload)) {
+                    ImGui::TextUnformatted(p->text.c_str());
+                }
+                break;
+            }
+
+            case OpType::Checkbox: {
+                if (!(in_window && window_visible)) break;
+                if (auto* p = std::get_if<SigStrVarInt>(&cmd.payload)) {
+                    bool value = false;
+                    const auto it = vars_.find(p->str_var);
+                    if (it != vars_.end() && !it->second.is_none()) {
+                        value = py::cast<bool>(it->second);
+                    }
+
+                    p->return_value = ImGui::Checkbox(p->text.c_str(), &value);
+                    vars_[p->str_var] = py::bool_(value);
+                    if (!p->str_return_var.empty()) {
+                        vars_[p->str_return_var] = py::bool_(p->return_value);
+                    }
+                }
+                break;
+            }
+
+            case OpType::InputText: {
+                if (!(in_window && window_visible)) break;
+                if (auto* p = std::get_if<SigStrVarInt>(&cmd.payload)) {
+                    std::string current;
+                    const auto it = vars_.find(p->str_var);
+                    if (it != vars_.end() && !it->second.is_none()) {
+                        current = py::cast<std::string>(it->second);
+                    }
+
+                    const size_t capacity = std::max<size_t>(256, current.size() + 1);
+                    std::vector<char> buffer(capacity, '\0');
+                    if (!current.empty()) {
+                        std::memcpy(buffer.data(), current.c_str(), current.size());
+                    }
+
+                    p->return_value = ImGui::InputText(
+                        p->text.c_str(),
+                        buffer.data(),
+                        buffer.size(),
+                        static_cast<ImGuiInputTextFlags>(p->value)
+                    );
+
+                    if (p->return_value || it == vars_.end()) {
+                        vars_[p->str_var] = py::str(buffer.data());
+                    }
+                    if (!p->str_return_var.empty()) {
+                        vars_[p->str_return_var] = py::bool_(p->return_value);
+                    }
+                }
+                break;
+            }
+
+            case OpType::PythonCallable: {
+                if (!(in_window && window_visible)) break;
+                if (auto* p = std::get_if<SigCallable>(&cmd.payload)) {
+                    try {
+                        py::dict vars_dict = build_vars_dict();
+                        py::object result = p->callable(vars_dict);
+
+                        apply_vars_dict(vars_dict);
+
+                        if (!result.is_none() && py::isinstance<py::dict>(result)) {
+                            apply_vars_dict(py::cast<py::dict>(result));
+                        }
+                    }
+                    catch (const py::error_already_set& e) {
+                        ImGui::TextColored(ImVec4(1.f, 0.3f, 0.3f, 1.f), "python_callable error");
+                        ImGui::TextWrapped("%s", e.what());
+                    }
+                }
+                break;
+            }
+
+            default:
+                break;
+            }
+        }
+
+        if (in_window) {
+            ImGui::End();
+        }
+    }
+};
+
+void bind_UI(py::module_& ui) {
+    ui.doc() = "Cached UI schema module (prototype)";
+
+    py::class_<Py4GW_UI>(ui, "UI")
+        .def(py::init<>())
+        .def("clear_ui", &Py4GW_UI::clear_ui)
+        .def("clear_vars", &Py4GW_UI::clear_vars)
+        .def("set_var", &Py4GW_UI::set_var, py::arg("name"), py::arg("value"))
+        .def("vars", &Py4GW_UI::vars, py::arg("name"))
+        .def("all_vars", &Py4GW_UI::all_vars)
+
+        .def("begin", &Py4GW_UI::begin,
+            py::arg("name"), py::arg("p_open_var"), py::arg("flags") = 0, py::arg("return_var") = "",
+            py::return_value_policy::reference_internal)
+
+        .def("end", &Py4GW_UI::end, py::return_value_policy::reference_internal)
+        .def("text", &Py4GW_UI::text, py::arg("value"),
+            py::return_value_policy::reference_internal)
+        .def("checkbox", &Py4GW_UI::checkbox,
+            py::arg("label"), py::arg("var_name"), py::arg("return_var") = "",
+            py::return_value_policy::reference_internal)
+        .def("input_text", &Py4GW_UI::input_text,
+            py::arg("label"), py::arg("var_name"), py::arg("flags") = 0, py::arg("return_var") = "",
+            py::return_value_policy::reference_internal)
+        .def("python_callable", &Py4GW_UI::python_callable, py::arg("fn"),
+            py::return_value_policy::reference_internal)
+        .def("render", &Py4GW_UI::render);
+}

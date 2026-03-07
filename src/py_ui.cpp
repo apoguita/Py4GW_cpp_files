@@ -405,6 +405,121 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("name_enc") = std::wstring(),
 			py::arg("component_label") = std::wstring()
 		)
+		.def_static("create_labeled_frame_by_frame_id",
+			&UIManager::CreateLabeledFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("frame_flags"),
+			py::arg("child_index"),
+			py::arg("frame_callback"),
+			py::arg("create_param"),
+			py::arg("frame_label") = std::wstring()
+		)
+		.def_static("create_window_by_frame_id",
+			&UIManager::CreateWindowByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("child_index"),
+			py::arg("frame_callback"),
+			py::arg("x"),
+			py::arg("y"),
+			py::arg("width"),
+			py::arg("height"),
+			py::arg("frame_flags") = 0,
+			py::arg("create_param") = 0,
+			py::arg("frame_label") = std::wstring(),
+			py::arg("anchor_flags") = 0x6
+		)
+		.def_static("find_available_child_slot",
+			&UIManager::FindAvailableChildSlot,
+			py::arg("parent_frame_id"),
+			py::arg("start_index") = 0x20,
+			py::arg("end_index") = 0xFE
+		)
+		.def_static("resolve_devtext_dialog_proc",
+			&UIManager::ResolveDevTextDialogProc
+		)
+		.def_static("ensure_devtext_source",
+			&UIManager::EnsureDevTextSource
+		)
+		.def_static("restore_devtext_source",
+			&UIManager::RestoreDevTextSource,
+			py::arg("opened_temporarily")
+		)
+		.def_static("resolve_observed_content_host_by_frame_id",
+			&UIManager::ResolveObservedContentHostByFrameId,
+			py::arg("root_frame_id")
+		)
+		.def_static("clear_frame_children_recursive_by_frame_id",
+			&UIManager::ClearFrameChildrenRecursiveByFrameId,
+			py::arg("frame_id")
+		)
+		.def_static("clear_window_contents_by_frame_id",
+			&UIManager::ClearWindowContentsByFrameId,
+			py::arg("root_frame_id")
+		)
+		.def_static("create_window",
+			&UIManager::CreateWindowClone,
+			py::arg("x"),
+			py::arg("y"),
+			py::arg("width"),
+			py::arg("height"),
+			py::arg("frame_label") = std::wstring(),
+			py::arg("parent_frame_id") = 9,
+			py::arg("child_index") = 0,
+			py::arg("frame_flags") = 0,
+			py::arg("create_param") = 0,
+			py::arg("frame_callback") = 0,
+			py::arg("anchor_flags") = 0x6,
+			py::arg("ensure_devtext_source") = true
+		)
+		.def_static("create_empty_window",
+			&UIManager::CreateEmptyWindowClone,
+			py::arg("x"),
+			py::arg("y"),
+			py::arg("width"),
+			py::arg("height"),
+			py::arg("frame_label") = std::wstring(),
+			py::arg("parent_frame_id") = 9,
+			py::arg("child_index") = 0,
+			py::arg("frame_flags") = 0,
+			py::arg("create_param") = 0,
+			py::arg("frame_callback") = 0,
+			py::arg("anchor_flags") = 0x6,
+			py::arg("ensure_devtext_source") = true
+		)
+		.def_static("set_frame_controller_anchor_margins_by_frame_id_ex",
+			&UIManager::SetFrameControllerAnchorMarginsByFrameIdEx,
+			py::arg("frame_id"),
+			py::arg("x"),
+			py::arg("y"),
+			py::arg("width"),
+			py::arg("height"),
+			py::arg("flags") = 0x6
+		)
+		.def_static("choose_anchor_flags_for_desired_rect",
+			&UIManager::ChooseAnchorFlagsForDesiredRect,
+			py::arg("x"),
+			py::arg("y"),
+			py::arg("width"),
+			py::arg("height"),
+			py::arg("parent_width"),
+			py::arg("parent_height"),
+			py::arg("disable_center") = false
+		)
+		.def_static("collapse_window_by_frame_id",
+			&UIManager::CollapseWindowByFrameId,
+			py::arg("frame_id")
+		)
+		.def_static("restore_window_rect_by_frame_id",
+			&UIManager::RestoreWindowRectByFrameId,
+			py::arg("frame_id"),
+			py::arg("x"),
+			py::arg("y"),
+			py::arg("width"),
+			py::arg("height"),
+			py::arg("flags") = 0,
+			py::arg("use_auto_flags") = true,
+			py::arg("disable_center") = true
+		)
 		.def_static("destroy_ui_component_by_frame_id",
 			&UIManager::DestroyUIComponentByFrameId,
 			py::arg("frame_id")

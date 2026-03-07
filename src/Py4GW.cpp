@@ -2188,6 +2188,7 @@ bool InCharacterSelectScreen()
 /* ------------------------------------------------------------------*/
 /* --------------------- Python Bindings ----------------------------*/
 /* ------------------------------------------------------------------*/
+void bind_UI(py::module_& ui);
 
 void bind_Game(py::module_& game)
 {
@@ -2340,9 +2341,11 @@ PYBIND11_EMBEDDED_MODULE(Py4GW, m)
 
     py::module_ console = m.def_submodule("Console", "Submodule for console logging");
 	py::module_ game = m.def_submodule("Game", "Submodule for game functions");
+    py::module_ ui = m.def_submodule("UI", "Submodule for schema-driven UI");
     
     bind_Game(game);
 	bind_Console(console);
+    bind_UI(ui);
 	bind_Environment(console);
 	bind_Window(console);
 	bind_ScriptControl(console);

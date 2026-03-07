@@ -214,6 +214,8 @@ bool SharedMemoryManager::UpdateAgentArrayRegion() {
                 continue;
             }
 
+			push_ref(payload->ItemArray, id, slot);
+
             if (item->owner != 0) {
                 push_ref(payload->OwnedItemArray, id, slot);
             }
@@ -275,13 +277,12 @@ bool SharedMemoryManager::UpdatePointersRegion() {
 		return false;
 	}
 
-    //auto instance_type = GW::Map::GetInstanceType();
-    //bool is_map_ready = (GW::Map::GetIsMapLoaded()) && (!GW::Map::GetIsObserving()) && (instance_type != GW::Constants::InstanceType::Loading);
+    auto instance_type = GW::Map::GetInstanceType();
+    bool is_map_ready = (GW::Map::GetIsMapLoaded()) && (!GW::Map::GetIsObserving()) && (instance_type != GW::Constants::InstanceType::Loading);
 
 	ZeroMemory(payload, sizeof(*payload));
 
-	//if (!is_map_ready) {
-	//	return false;
+	
 	
     payload->MapContext = reinterpret_cast<uintptr_t>(GW::GetMapContext());
     payload->PreGameContext = reinterpret_cast<uintptr_t>(GW::GetPreGameContext());
@@ -291,8 +292,6 @@ bool SharedMemoryManager::UpdatePointersRegion() {
     payload->InstanceInfo = GW::Map::GetInstanceInfoPtr();
 	
 	payload->GameContext = reinterpret_cast<uintptr_t>(GW::GetGameContext());
-	
-	payload->WorldContext = reinterpret_cast<uintptr_t>(GW::GetWorldContext());
 	payload->CharContext = reinterpret_cast<uintptr_t>(GW::GetCharContext());
 	payload->AgentContext = reinterpret_cast<uintptr_t>(GW::GetAgentContext());
 	payload->CinematicContext = reinterpret_cast<uintptr_t>(GW::GetGameContext()->cinematic);
@@ -300,6 +299,14 @@ bool SharedMemoryManager::UpdatePointersRegion() {
 	payload->AvailableCharacters = PyPlayer::GetAvailableCharactersPtr();
 	payload->PartyContext = reinterpret_cast<uintptr_t>(GW::GetPartyContext());
 	payload->ServerRegionContext = GW::Map::GetServerRegionPtr();
+    /*
+    if (is_map_ready) {
+        payload->WorldContext = reinterpret_cast<uintptr_t>(GW::GetWorldContext());
+    	return true;
+	}
+    */
+    payload->WorldContext = reinterpret_cast<uintptr_t>(GW::GetWorldContext());
+
 	return true;
 }
 

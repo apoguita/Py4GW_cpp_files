@@ -129,7 +129,7 @@ namespace {
         MapDimensions* terrain_info2;
     } *InstanceInfoPtr = 0;
 
-	uintptr_t instance_info_ptr = 0;
+	static uintptr_t instance_info_ptr = 0;
 
     void Init() {
 
@@ -147,7 +147,7 @@ namespace {
         if (address && Scanner::IsValidPtr(*(uintptr_t*)address, ScannerSection::Section_RDATA))
             area_info_addr = *(AreaInfo**)(address);
 
-        address = Scanner::Find("\x6A\x2C\x50\xE8\x00\x00\x00\x00\x83\xC4\x08\xC7", "xxxx????xxxx", +0xd);
+        address = Scanner::Find("\x6A\x2C\x50\xE8\x00\x00\x00\x00\x83\xC4\x08\xC7", "xxxx????xxxx", +0x0D);
         if (address && Scanner::IsValidPtr(*(uintptr_t*)(address))) {
             InstanceInfoPtr = *(InstanceInfo**)(address);
 			instance_info_ptr = address;
