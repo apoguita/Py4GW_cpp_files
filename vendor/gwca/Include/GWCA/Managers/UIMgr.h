@@ -5,7 +5,6 @@
 #include <GWCA/GameContainers/List.h>
 #include <GWCA/GameContainers/GamePos.h>
 #include <GWCA/Managers/MerchantMgr.h>
-
 #include "RenderMgr.h"
 namespace GW {
 
@@ -70,6 +69,7 @@ namespace GW {
         };
 
         typedef void(__cdecl* UIInteractionCallback)(InteractionMessage* message, void* wParam, void* lParam);
+        typedef void(__fastcall* UICtlCallback)(void* frame_context, void* wParam, void* lParam);
 
 
         struct Frame;
@@ -1219,8 +1219,11 @@ namespace GW {
             uint32_t frame_id;
             uint32_t component_flags;
             uint32_t tab_index;
-            void* event_callback;
-            wchar_t* name_enc;
+            UI::UIInteractionCallback event_callback;
+            union {
+                void* wparam;
+                wchar_t* name_enc;
+            };
             wchar_t* component_label;
         };
 
@@ -1251,19 +1254,38 @@ namespace GW {
 
         GWCA_API Frame* GetChildFrame(Frame* parent, uint32_t child_offset);
         GWCA_API Frame* GetChildFrame(Frame* parent, std::initializer_list<uint32_t> child_offsets);
+        template<typename First, typename... Rest>
+        Frame* GetChildFrame(Frame* parent, First first, Rest... rest) {
+            Frame* intermediate = GetChildFrame(parent, static_cast<uint32_t>(first));
+            if constexpr (sizeof...(rest) > 0) {
+                return GetChildFrame(intermediate, rest...);
+            }
+            else {
+                return intermediate;
+            }
+        }
 		GWCA_API uint32_t GetChildFrameID(uint32_t parent_hash, std::vector<uint32_t> child_offsets);
         GWCA_API Frame* GetParentFrame(Frame* frame);
         GWCA_API Frame* GetFrameById(uint32_t frame_id); 
         GWCA_API Frame* GetFrameByLabel(const wchar_t* frame_label);
+        GWCA_API void* GetFrameContext(Frame* frame);
         GWCA_API uint32_t GetFrameIDByLabel(const wchar_t* frame_label);
         GWCA_API uint32_t GetFrameIDByHash(uint32_t hash);
+        GWCA_API bool Default_UICallback(InteractionMessage* interaction, void* wparam, void* lparam);
+        GWCA_API uint32_t CreateUIComponent(uint32_t parent_frame_id, uint32_t component_flags, uint32_t tab_index, UIInteractionCallback event_callback, void* wparam, const wchar_t* component_label);
         GWCA_API uint32_t CreateUIComponent(uint32_t frame_id, uint32_t component_flags, uint32_t tab_index, UIInteractionCallback event_callback, wchar_t* name_enc, wchar_t* component_label);
         GWCA_API bool DestroyUIComponent(Frame* frame);
+        GWCA_API bool SelectDropdownOption(Frame* frame, uint32_t value);
         GWCA_API bool AddFrameUIInteractionCallback(Frame* frame, UIInteractionCallback callback, void* wparam);
         GWCA_API bool TriggerFrameRedraw(Frame* frame);
+        GWCA_API bool SetFrameMargins(Frame* frame, uint32_t flags, float size[4], float input_mask[4], uint32_t type);
+        GWCA_API Frame* CreateButtonFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
         GWCA_API Frame* CreateButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
+        GWCA_API Frame* CreateCheckboxFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
         GWCA_API Frame* CreateCheckboxFrame(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
+        GWCA_API Frame* CreateScrollableFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index = 0, void* page_context = nullptr, wchar_t* component_label = nullptr);
         GWCA_API Frame* CreateScrollableFrame(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, void* page_context = nullptr, wchar_t* component_label = nullptr);
+        GWCA_API Frame* CreateTextLabelFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
         GWCA_API Frame* CreateTextLabelFrame(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
         GWCA_API uint32_t GetHashByLabel(const std::string& label);
         GWCA_API std::vector<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>> GetFrameHierarchy();
@@ -1314,6 +1336,14 @@ namespace GW {
         GWCA_API bool SetPreference(NumberPreference pref, uint32_t value);
         GWCA_API bool SetPreference(FlagPreference pref, bool value);
         GWCA_API bool SetPreference(StringPreference pref, wchar_t* value);
+        GWCA_API bool GetCommandLinePref(const wchar_t* label, wchar_t** out);
+        GWCA_API bool GetCommandLinePref(const wchar_t* label, uint32_t* out);
+        GWCA_API bool SetCommandLinePref(const wchar_t* label, wchar_t* value);
+        GWCA_API bool SetCommandLinePref(const wchar_t* label, uint32_t value);
+        GWCA_API bool SetFrameVisible(UI::Frame* frame, bool flag);
+        GWCA_API bool SetFrameDisabled(UI::Frame* frame, bool flag);
+        GWCA_API bool IsInControllerMode();
+        GWCA_API bool IsInControllerCursorMode();
 
         // Returns actual hard frame limit, factoring in vsync, monitor refresh rate and in-game preferences
         GWCA_API uint32_t GetFrameLimit();
@@ -1375,4 +1405,82 @@ namespace GW {
             HookEntry *entry);
 
     }
+
+    struct ButtonFrame : UI::Frame {
+        GWCA_API static ButtonFrame* Create(uint32_t parent_frame_id, uint32_t flags = 0x300, uint32_t child_offset_id = 0xff, const wchar_t* button_label = nullptr, const wchar_t* frame_label = nullptr);
+        GWCA_API bool GetLabel(const wchar_t** enc_string);
+        GWCA_API bool SetLabel(const wchar_t* enc_string);
+        GWCA_API bool Click();
+        GWCA_API bool MouseAction(UI::UIPacket::ActionState action);
+        GWCA_API bool DoubleClick();
+    };
+
+    struct ScrollableFrame : UI::Frame {
+        typedef int(__cdecl* SortHandler_pt)(uint32_t frame_id_1, uint32_t frame_id_2);
+
+        struct ScrollablePageContext {
+            uint32_t flags;
+            GW::UI::UIInteractionCallback page_callback;
+            uint32_t wparam;
+        };
+
+        GWCA_API static ScrollableFrame* Create(uint32_t parent_frame_id, uint32_t flags = 0x20000, uint32_t child_offset_id = 0xff, ScrollablePageContext* context = nullptr, const wchar_t* frame_label = nullptr);
+    };
+
+    struct TextLabelFrame : UI::Frame {
+        GWCA_API static TextLabelFrame* Create(uint32_t parent_frame_id, uint32_t flags = 0x300, uint32_t child_offset_id = 0xff, const wchar_t* text_label_enc_string = nullptr, const wchar_t* frame_label = nullptr);
+        GWCA_API const wchar_t* GetEncodedLabel();
+        GWCA_API const wchar_t* GetDecodedLabel();
+        GWCA_API bool SetLabel(const wchar_t* enc_string);
+        GWCA_API bool SetFont(uint32_t font_id);
+    };
+
+    struct MultiLineTextLabelFrame final : TextLabelFrame {
+        GWCA_API const wchar_t* GetEncodedLabel();
+        GWCA_API const wchar_t* GetDecodedLabel();
+        GWCA_API bool SetLabel(const wchar_t* enc_string);
+    };
+
+    struct CheckboxFrame final : ButtonFrame {
+        GWCA_API static CheckboxFrame* Create(uint32_t parent_frame_id, uint32_t flags = 0x8000, uint32_t child_offset_id = 0xff, const wchar_t* text_label_enc_string = nullptr, const wchar_t* frame_label = nullptr);
+    };
+}
+
+extern "C" {
+    GWCA_API uint32_t GetTextLanguage(void);
+    GWCA_API bool ButtonClick(void* btn_frame);
+    GWCA_API bool SelectDropdownOption(void* frame, uint32_t value);
+    GWCA_API void* GetFrameContext(void* frame);
+    GWCA_API void* GetRootFrame(void);
+    GWCA_API void* GetChildFrame(void* parent, uint32_t child_offset);
+    GWCA_API bool SetFrameTitle(void* frame, const wchar_t* title);
+    GWCA_API void* GetParentFrame(void* frame);
+    GWCA_API void* GetFrameById(uint32_t frame_id);
+    GWCA_API void* GetFrameByLabel(const wchar_t* frame_label);
+    GWCA_API bool SendUIMessage(uint32_t msgid, void* wParam, void* lParam);
+    GWCA_API void* GetWindowPosition(uint32_t window_id);
+    GWCA_API bool SetWindowVisible(uint32_t window_id, bool is_visible);
+    GWCA_API bool SetWindowPosition(uint32_t window_id, void* info);
+    GWCA_API bool GetIsUIDrawn();
+    GWCA_API bool GetIsShiftScreenShot();
+    GWCA_API bool GetIsWorldMapShowing();
+    GWCA_API bool IsValidEncStr(const wchar_t* enc_str);
+    GWCA_API bool UInt32ToEncStr(uint32_t value, wchar_t* buffer, size_t count);
+    GWCA_API uint32_t EncStrToUInt32(const wchar_t* enc_str);
+    GWCA_API uint32_t GetPreference_Enum(uint32_t pref);
+    GWCA_API uint32_t GetPreference_Number(uint32_t pref);
+    GWCA_API bool GetPreference_Flag(uint32_t pref);
+    GWCA_API wchar_t* GetPreference_String(uint32_t pref);
+    GWCA_API bool SetPreference_Enum(uint32_t pref, uint32_t value);
+    GWCA_API bool SetPreference_Number(uint32_t pref, uint32_t value);
+    GWCA_API bool SetPreference_Flag(uint32_t pref, bool value);
+    GWCA_API bool SetPreference_String(uint32_t pref, wchar_t* value);
+    GWCA_API bool GetCommandLinePref_String(const wchar_t* label, wchar_t** out);
+    GWCA_API bool GetCommandLinePref_UInt(const wchar_t* label, uint32_t* out);
+    GWCA_API bool SetCommandLinePref_String(const wchar_t* label, wchar_t* value);
+    GWCA_API bool SetCommandLinePref_UInt(const wchar_t* label, uint32_t value);
+    GWCA_API bool SetFrameVisible(void* frame, bool flag);
+    GWCA_API bool SetFrameDisabled(void* frame, bool flag);
+    GWCA_API bool IsInControllerMode();
+    GWCA_API bool IsInControllerCursorMode();
 }

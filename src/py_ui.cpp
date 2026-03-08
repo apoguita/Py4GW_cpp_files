@@ -12,6 +12,18 @@ std::vector<UIInteractionCallbackWrapper> ConvertUIInteractionCallbacks(const GW
 	return result;
 }
 
+std::vector<UIInteractionCallbackWrapper> ConvertFrameInteractionCallbacks(const GW::Array<GW::UI::UIInteractionCallback>& arr) {
+    std::vector<UIInteractionCallbackWrapper> result;
+    auto* callbacks = reinterpret_cast<const GW::Array<GW::UI::FrameInteractionCallback>*>(&arr);
+    if (!(callbacks && callbacks->valid()))
+        return result;
+    result.reserve(callbacks->size());
+    for (const auto& callback : *callbacks) {
+        result.emplace_back(callback);
+    }
+    return result;
+}
+
 std::vector<uintptr_t> FillVectorFromPointerArray(const GW::Array<void*>& arr) {
 	std::vector<uintptr_t> vec;
 	vec.reserve(arr.size());  // Optimize memory allocation
@@ -70,7 +82,7 @@ void UIFrame::GetContext() {
 	visibility_flags = frame->visibility_flags;
 	type = frame->type;
 	template_type = frame->template_type;
-	frame_callbacks = ConvertUIInteractionCallbacks(frame->frame_callbacks);
+	frame_callbacks = ConvertFrameInteractionCallbacks(frame->frame_callbacks);
 	child_offset_id = frame->child_offset_id;
 
 	field1_0x0 = frame->field1_0x0;
@@ -208,6 +220,9 @@ void UIFrame::GetContext() {
 PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 	py::class_<UIInteractionCallbackWrapper>(m, "UIInteractionCallback")
 		.def(py::init<GW::UI::UIInteractionCallback>())
+		.def_readwrite("callback_address", &UIInteractionCallbackWrapper::callback_address)
+		.def_readwrite("uictl_context", &UIInteractionCallbackWrapper::uictl_context)
+		.def_readwrite("h0008", &UIInteractionCallbackWrapper::h0008)
 		.def("get_address", &UIInteractionCallbackWrapper::get_address);
 
 	py::class_<FramePositionWrapper>(m, "FramePosition")
@@ -356,6 +371,13 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		.def_static("get_child_frame_by_frame_id", &UIManager::GetChildFrameByFrameId, py::arg("parent_frame_id"), py::arg("child_offset"), "Gets a direct child frame ID from a parent frame ID and child offset.")
 		.def_static("get_child_frame_path_by_frame_id", &UIManager::GetChildFramePathByFrameId, py::arg("parent_frame_id"), py::arg("child_offsets"), "Gets a descendant frame ID by walking child offsets from a parent frame ID.")
 		.def_static("get_parent_frame_id", &UIManager::GetParentFrameID, py::arg("frame_id"), "Gets the parent frame ID for a frame.")
+		.def_static("get_frame_context", &UIManager::GetFrameContext, py::arg("frame_id"), "Gets the last non-null UI control context pointer for a frame.")
+		.def_static("get_first_child_frame_id", &UIManager::GetFirstChildFrameID, py::arg("parent_frame_id"), "Gets the first child frame ID for a parent frame.")
+		.def_static("get_last_child_frame_id", &UIManager::GetLastChildFrameID, py::arg("parent_frame_id"), "Gets the last child frame ID for a parent frame.")
+		.def_static("get_next_child_frame_id", &UIManager::GetNextChildFrameID, py::arg("frame_id"), "Gets the next sibling child frame ID for a frame.")
+		.def_static("get_prev_child_frame_id", &UIManager::GetPrevChildFrameID, py::arg("frame_id"), "Gets the previous sibling child frame ID for a frame.")
+		.def_static("get_item_frame_id", &UIManager::GetItemFrameID, py::arg("parent_frame_id"), py::arg("index"), "Gets the child frame ID at an ordered index under a parent frame.")
+		.def_static("get_tab_frame_id", &UIManager::GetTabFrameID, py::arg("parent_frame_id"), py::arg("index"), "Gets the tab child frame ID at an ordered index under a parent frame.")
 		.def_static("get_hash_by_label", &UIManager::GetHashByLabel, py::arg("label"), "Gets the hash of a frame label.")
 		.def_static("get_frame_hierarchy", &UIManager::GetFrameHierarchy, "Retrieves the hierarchy of frames as a list of tuples (parent, child, etc.).")
 		.def_static("get_frame_coords_by_hash", &UIManager::GetFrameCoordsByHash, py::arg("frame_hash"), "Gets the coordinates of a frame using its hash.")
@@ -395,6 +417,11 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("message_id"),
 			py::arg("wparam"),
 			py::arg("lparam") = 0
+		)		.def_static("SendFrameUIMessageWString",
+			&UIManager::SendFrameUIMessageWString,
+			py::arg("frame_id"),
+			py::arg("message_id"),
+			py::arg("text")
 		)
 		.def_static("create_ui_component_by_frame_id",
 			&UIManager::CreateUIComponentByFrameId,
@@ -403,6 +430,15 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("child_index"),
 			py::arg("event_callback"),
 			py::arg("name_enc") = std::wstring(),
+			py::arg("component_label") = std::wstring()
+		)
+		.def_static("create_ui_component_raw_by_frame_id",
+			&UIManager::CreateUIComponentRawByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags"),
+			py::arg("child_index"),
+			py::arg("event_callback"),
+			py::arg("wparam") = static_cast<uintptr_t>(0),
 			py::arg("component_label") = std::wstring()
 		)
 		.def_static("create_labeled_frame_by_frame_id",
@@ -439,6 +475,12 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		)
 		.def_static("ensure_devtext_source",
 			&UIManager::EnsureDevTextSource
+		)
+		.def_static("open_devtext_window",
+			&UIManager::OpenDevTextWindow
+		)
+		.def_static("get_devtext_frame_id",
+			&UIManager::GetDevTextFrameID
 		)
 		.def_static("restore_devtext_source",
 			&UIManager::RestoreDevTextSource,
@@ -509,6 +551,81 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			&UIManager::CollapseWindowByFrameId,
 			py::arg("frame_id")
 		)
+		.def_static("set_frame_visible_by_frame_id",
+			&UIManager::SetFrameVisibleByFrameId,
+			py::arg("frame_id"),
+			py::arg("is_visible")
+		)
+		.def_static("set_frame_disabled_by_frame_id",
+			&UIManager::SetFrameDisabledByFrameId,
+			py::arg("frame_id"),
+			py::arg("is_disabled")
+		)
+		.def_static("set_frame_title_by_frame_id",
+			&UIManager::SetFrameTitleByFrameId,
+			py::arg("frame_id"),
+			py::arg("title")
+		)
+		.def_static("get_frame_label_by_frame_id",
+			&UIManager::GetFrameLabelByFrameId,
+			py::arg("frame_id")
+		)
+		.def_static("get_text_label_encoded_by_frame_id",
+			&UIManager::GetTextLabelEncodedByFrameId,
+			py::arg("frame_id")
+		)
+		.def_static("get_text_label_encoded_bytes_by_frame_id",
+			&UIManager::GetTextLabelEncodedBytesByFrameId,
+			py::arg("frame_id")
+		)
+		.def_static("get_text_label_decoded_by_frame_id",
+			&UIManager::GetTextLabelDecodedByFrameId,
+			py::arg("frame_id")
+		)
+		.def_static("set_label_by_frame_id",
+			&UIManager::SetLabelByFrameId,
+			py::arg("frame_id"),
+			py::arg("label")
+		)
+		.def_static("set_text_label_by_frame_id",
+			&UIManager::SetTextLabelByFrameId,
+			py::arg("frame_id"),
+			py::arg("label")
+		)
+		.def_static("set_text_label_bytes_by_frame_id",
+			&UIManager::SetTextLabelBytesByFrameId,
+			py::arg("frame_id"),
+			py::arg("label_bytes")
+		)
+		.def_static("append_text_label_encoded_suffix_by_frame_id",
+			&UIManager::AppendTextLabelEncodedSuffixByFrameId,
+			py::arg("frame_id"),
+			py::arg("encoded_suffix")
+		)
+		.def_static("append_text_label_plain_suffix_by_frame_id",
+			&UIManager::AppendTextLabelPlainSuffixByFrameId,
+			py::arg("frame_id"),
+			py::arg("plain_text")
+		)
+		.def_static("set_multiline_label_by_frame_id",
+			&UIManager::SetMultilineLabelByFrameId,
+			py::arg("frame_id"),
+			py::arg("label")
+		)
+		.def_static("set_text_label_font_by_frame_id",
+			&UIManager::SetTextLabelFontByFrameId,
+			py::arg("frame_id"),
+			py::arg("font_id")
+		)
+		.def_static("set_read_only_by_frame_id",
+			&UIManager::SetReadOnlyByFrameId,
+			py::arg("frame_id"),
+			py::arg("is_read_only")
+		)
+		.def_static("is_read_only_by_frame_id",
+			&UIManager::IsReadOnlyByFrameId,
+			py::arg("frame_id")
+		)
 		.def_static("restore_window_rect_by_frame_id",
 			&UIManager::RestoreWindowRectByFrameId,
 			py::arg("frame_id"),
@@ -519,6 +636,34 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("flags") = 0,
 			py::arg("use_auto_flags") = true,
 			py::arg("disable_center") = true
+		)
+		.def_static("set_frame_margins_by_frame_id",
+			&UIManager::SetFrameMarginsByFrameId,
+			py::arg("frame_id"),
+			py::arg("flags"),
+			py::arg("x"),
+			py::arg("y"),
+			py::arg("width"),
+			py::arg("height")
+		)
+		.def_static("set_next_created_window_title",
+			&UIManager::SetNextCreatedWindowTitle,
+			py::arg("title")
+		)
+		.def_static("clear_next_created_window_title",
+			&UIManager::ClearNextCreatedWindowTitle
+		)
+		.def_static("has_next_created_window_title",
+			&UIManager::HasNextCreatedWindowTitle
+		)
+		.def_static("is_window_title_hook_installed",
+			&UIManager::IsWindowTitleHookInstalled
+		)
+		.def_static("get_last_applied_window_title_frame_id",
+			&UIManager::GetLastAppliedWindowTitleFrameId
+		)
+		.def_static("get_last_applied_window_title",
+			&UIManager::GetLastAppliedWindowTitle
 		)
 		.def_static("destroy_ui_component_by_frame_id",
 			&UIManager::DestroyUIComponentByFrameId,
@@ -566,8 +711,46 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("name_enc") = std::wstring(),
 			py::arg("component_label") = std::wstring()
 		)
+		.def_static("create_text_label_frame_with_plain_text_by_frame_id",
+			&UIManager::CreateTextLabelFrameWithPlainTextByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags"),
+			py::arg("child_index") = 0,
+			py::arg("plain_text") = std::wstring(),
+			py::arg("component_label") = std::wstring()
+		)
+		.def_static("create_text_label_frame_from_template_by_frame_id",
+			&UIManager::CreateTextLabelFrameFromTemplateByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags"),
+			py::arg("child_index"),
+			py::arg("template_frame_id"),
+			py::arg("plain_text") = std::wstring(),
+			py::arg("component_label") = std::wstring()
+		)
+		.def_static("get_text_label_create_payload_diagnostics_by_template_frame_id",
+			&UIManager::GetTextLabelCreatePayloadDiagnosticsByTemplateFrameId,
+			py::arg("template_frame_id"),
+			py::arg("plain_text") = std::wstring()
+		)
+		.def_static("get_text_label_literal_create_payload_diagnostics",
+			&UIManager::GetTextLabelLiteralCreatePayloadDiagnostics,
+			py::arg("plain_text") = std::wstring()
+		)
+		/*
+		.def_static("register_create_ui_component_callback",
+			&UIManager::RegisterCreateUIComponentCallback,
+			py::arg("callback"),
+			py::arg("altitude") = -0x8000
+		)
+		.def_static("remove_create_ui_component_callback",
+			&UIManager::RemoveCreateUIComponentCallback,
+			py::arg("handle")
+		)
+		*/
 
 		.def_static("button_click", &UIManager::ButtonClick, py::arg("frame_id"), "Simulates a button click on a frame.")
+		.def_static("button_double_click", &UIManager::ButtonDoubleClick, py::arg("frame_id"), "Simulates a button double click on a frame.")
 		.def_static("test_mouse_action", &UIManager::TestMouseAction, py::arg("frame_id"), py::arg("current_state"), py::arg("wparam_value") = 0, py::arg("lparam") = 0, "Simulates a mouse action on a frame.")
 		.def_static("test_mouse_click_action", &UIManager::TestMouseClickAction, py::arg("frame_id"), py::arg("current_state"), py::arg("wparam_value") = 0, py::arg("lparam") = 0, "Simulates a mouse action on a frame.")
 		.def_static("get_root_frame_id", &UIManager::GetRootFrameID, "Gets the ID of the root frame.")
@@ -575,6 +758,7 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		.def_static("is_ui_drawn", &UIManager::IsUIDrawn, "Checks if the UI is currently drawn.")
 		.def_static("async_decode_str", &UIManager::AsyncDecodeStr, py::arg("enc_str"), "Decodes an encoded GW string.")
 		.def_static("is_valid_enc_str", &UIManager::IsValidEncStr, py::arg("enc_str"), "Checks if an encoded string is valid.")
+		.def_static("is_valid_enc_bytes", &UIManager::IsValidEncBytes, py::arg("enc_bytes"), "Checks if encoded bytes are valid.")
 		.def_static("uint32_to_enc_str", &UIManager::UInt32ToEncStr, py::arg("value"), "Encodes a uint32 into a GW encoded string.")
 		.def_static("enc_str_to_uint32", &UIManager::EncStrToUInt32, py::arg("enc_str"), "Decodes a GW encoded string into a uint32.")
 		.def_static("set_open_links", &UIManager::SetOpenLinks, py::arg("toggle"), "Enables or disables GW open-links behavior.")
@@ -593,3 +777,6 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		.def_static("is_shift_screenshot", &UIManager::IsShiftScreenShot, "Checks if the Shift key is used for screenshots.");
 
 }
+
+
+

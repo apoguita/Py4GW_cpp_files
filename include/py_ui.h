@@ -1,7 +1,26 @@
 #pragma once
 #include "Headers.h"
+#include "window_title_hook.h"
 
 namespace py = pybind11;
+
+// CreateUIComponent callback binding is intentionally disabled for now.
+// It is crash-prone during interactive validation and should only be
+// restored when callback-specific work is resumed.
+#if 0
+struct CreateUIComponentCallbackState {
+    uint64_t handle = 0;
+    GW::HookEntry entry;
+    py::function callback;
+};
+
+inline std::mutex g_create_ui_component_callback_mutex;
+inline uint64_t g_next_create_ui_component_callback_handle = 1;
+inline std::unordered_map<uint64_t, std::shared_ptr<CreateUIComponentCallbackState>> g_create_ui_component_callbacks;
+#endif
+
+inline std::mutex g_created_text_label_payloads_mutex;
+inline std::unordered_map<uint32_t, std::wstring> g_created_text_label_payloads;
 
 template <typename T>
 std::vector<T> ConvertArrayToVector(const GW::Array<T>& arr) {
@@ -12,9 +31,19 @@ std::vector<T> ConvertArrayToVector(const GW::Array<T>& arr) {
 // Wrapper for function pointers
 struct UIInteractionCallbackWrapper {
     uintptr_t callback_address;  // Store function pointer as an integer
+    uintptr_t uictl_context;
+    uint32_t h0008;
 
     UIInteractionCallbackWrapper(GW::UI::UIInteractionCallback callback)
-        : callback_address(reinterpret_cast<uintptr_t>(callback)) {
+        : callback_address(reinterpret_cast<uintptr_t>(callback)),
+          uictl_context(0),
+          h0008(0) {
+    }
+
+    UIInteractionCallbackWrapper(const GW::UI::FrameInteractionCallback& callback)
+        : callback_address(reinterpret_cast<uintptr_t>(callback.callback)),
+          uictl_context(reinterpret_cast<uintptr_t>(callback.uictl_context)),
+          h0008(callback.h0008) {
     }
 
     uintptr_t get_address() const { return callback_address; }
@@ -233,6 +262,80 @@ public:
         return parent ? parent->frame_id : 0;
     }
 
+    static uintptr_t GetFrameContext(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame)
+            return 0;
+        return reinterpret_cast<uintptr_t>(GW::UI::GetFrameContext(frame));
+    }
+
+    static std::vector<uint32_t> GetChildFrameIDs(uint32_t parent_frame_id) {
+        std::vector<std::pair<uint32_t, uint32_t>> ordered;
+        for (const auto frame_id : GW::UI::GetFrameArray()) {
+            GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+            if (!frame)
+                continue;
+            GW::UI::Frame* parent = GW::UI::GetParentFrame(frame);
+            if (!(parent && parent->frame_id == parent_frame_id))
+                continue;
+            ordered.emplace_back(frame->child_offset_id, frame->frame_id);
+        }
+        std::sort(ordered.begin(), ordered.end(),
+            [](const auto& lhs, const auto& rhs) {
+                if (lhs.first != rhs.first)
+                    return lhs.first < rhs.first;
+                return lhs.second < rhs.second;
+            });
+        std::vector<uint32_t> result;
+        result.reserve(ordered.size());
+        for (const auto& entry : ordered)
+            result.push_back(entry.second);
+        return result;
+    }
+
+    static uint32_t GetFirstChildFrameID(uint32_t parent_frame_id) {
+        const auto children = GetChildFrameIDs(parent_frame_id);
+        return children.empty() ? 0 : children.front();
+    }
+
+    static uint32_t GetLastChildFrameID(uint32_t parent_frame_id) {
+        const auto children = GetChildFrameIDs(parent_frame_id);
+        return children.empty() ? 0 : children.back();
+    }
+
+    static uint32_t GetNextChildFrameID(uint32_t frame_id) {
+        const uint32_t parent_frame_id = GetParentFrameID(frame_id);
+        if (!parent_frame_id)
+            return 0;
+        const auto children = GetChildFrameIDs(parent_frame_id);
+        for (size_t i = 0; i < children.size(); ++i) {
+            if (children[i] == frame_id)
+                return i + 1 < children.size() ? children[i + 1] : 0;
+        }
+        return 0;
+    }
+
+    static uint32_t GetPrevChildFrameID(uint32_t frame_id) {
+        const uint32_t parent_frame_id = GetParentFrameID(frame_id);
+        if (!parent_frame_id)
+            return 0;
+        const auto children = GetChildFrameIDs(parent_frame_id);
+        for (size_t i = 0; i < children.size(); ++i) {
+            if (children[i] == frame_id)
+                return i > 0 ? children[i - 1] : 0;
+        }
+        return 0;
+    }
+
+    static uint32_t GetItemFrameID(uint32_t parent_frame_id, uint32_t index) {
+        const auto children = GetChildFrameIDs(parent_frame_id);
+        return index < children.size() ? children[index] : 0;
+    }
+
+    static uint32_t GetTabFrameID(uint32_t parent_frame_id, uint32_t index) {
+        return GetItemFrameID(parent_frame_id, index);
+    }
+
     static uint32_t GetHashByLabel(const std::string& label) {
         return GW::UI::GetHashByLabel(label);
     }
@@ -301,6 +404,23 @@ public:
             frame, static_cast<GW::UI::UIMessage>(message_id),
             reinterpret_cast<void*>(wparam), reinterpret_cast<void*>(lparam));
     }
+    static bool SendFrameUIMessageWString(uint32_t frame_id, uint32_t message_id, const std::wstring& text) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame) return false;
+        static std::mutex g_frame_message_text_mutex;
+        static std::unordered_map<uint32_t, std::wstring> g_frame_message_text_payloads;
+        wchar_t* payload = nullptr;
+        if (!text.empty()) {
+            std::lock_guard<std::mutex> lock(g_frame_message_text_mutex);
+            g_frame_message_text_payloads[frame_id] = text;
+            payload = const_cast<wchar_t*>(g_frame_message_text_payloads[frame_id].c_str());
+        }
+        return GW::UI::SendFrameUIMessage(
+            frame,
+            static_cast<GW::UI::UIMessage>(message_id),
+            payload,
+            nullptr);
+    }
 
     static uint32_t CreateUIComponentByFrameId(
         uint32_t parent_frame_id,
@@ -321,6 +441,27 @@ public:
             child_index,
             reinterpret_cast<GW::UI::UIInteractionCallback>(event_callback),
             name_ptr,
+            label_ptr);
+    }
+
+    static uint32_t CreateUIComponentRawByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags,
+        uint32_t child_index,
+        uintptr_t event_callback,
+        uintptr_t wparam = 0,
+        const std::wstring& component_label = L"")
+    {
+        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
+        if (!(parent && parent->IsCreated()))
+            return 0;
+        wchar_t* label_ptr = component_label.empty() ? nullptr : const_cast<wchar_t*>(component_label.c_str());
+        return GW::UI::CreateUIComponent(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            reinterpret_cast<GW::UI::UIInteractionCallback>(event_callback),
+            reinterpret_cast<wchar_t*>(wparam),
             label_ptr);
     }
 
@@ -446,6 +587,21 @@ public:
         return { frame_id, frame && frame->IsCreated() };
     }
 
+    static uint32_t OpenDevTextWindow()
+    {
+        KeyPress(0x25, 0);
+        const uint32_t frame_id = GetFrameIDByLabel("DevText");
+        auto* frame = frame_id ? GW::UI::GetFrameById(frame_id) : nullptr;
+        return (frame && frame->IsCreated()) ? frame_id : 0;
+    }
+
+    static uint32_t GetDevTextFrameID()
+    {
+        const uint32_t frame_id = GetFrameIDByLabel("DevText");
+        auto* frame = frame_id ? GW::UI::GetFrameById(frame_id) : nullptr;
+        return (frame && frame->IsCreated()) ? frame_id : 0;
+    }
+
     static void RestoreDevTextSource(bool opened_temporarily)
     {
         if (!opened_temporarily)
@@ -536,6 +692,10 @@ public:
             return 0;
         }
 
+        const bool arm_title_override = WindowTitleHook::HasNextCreatedWindowTitle();
+        if (arm_title_override)
+            WindowTitleHook::ArmNextCreatedWindowTitle(parent_frame_id, resolved_child_index);
+
         const uint32_t frame_id = CreateWindowByFrameId(
             parent_frame_id,
             resolved_child_index,
@@ -548,6 +708,8 @@ public:
             create_param,
             frame_label,
             anchor_flags);
+        if (!frame_id && arm_title_override)
+            WindowTitleHook::CancelArmedWindowTitle(parent_frame_id, resolved_child_index);
         RestoreDevTextSource(opened_temporarily);
         return frame_id;
     }
@@ -708,6 +870,283 @@ public:
         return SetFrameControllerAnchorMarginsByFrameIdEx(frame_id, x, y, width, height, resolved_flags);
     }
 
+    static bool SetFrameMarginsByFrameId(
+        uint32_t frame_id,
+        uint32_t flags,
+        float x,
+        float y,
+        float width,
+        float height)
+    {
+        return SetFrameControllerAnchorMarginsByFrameIdEx(frame_id, x, y, width, height, flags);
+    }
+
+    static bool SetFrameVisibleByFrameId(uint32_t frame_id, bool is_visible)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+        if (is_visible)
+            frame->frame_state &= ~0x200u;
+        else
+            frame->frame_state |= 0x200u;
+        TriggerFrameRedrawByFrameId(frame_id);
+        return true;
+    }
+
+    static bool SetFrameDisabledByFrameId(uint32_t frame_id, bool is_disabled)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+        if (is_disabled)
+            frame->frame_state |= 0x10u;
+        else
+            frame->frame_state &= ~0x10u;
+        TriggerFrameRedrawByFrameId(frame_id);
+        return true;
+    }
+
+    static bool SetFrameTitleByFrameId(uint32_t frame_id, const std::wstring& title)
+    {
+        using CreateEncodedText_pt = uintptr_t(__cdecl*)(uint32_t, uint32_t, const wchar_t*, uint32_t);
+        using SetFrameText_pt = void(__cdecl*)(uint32_t, uintptr_t);
+
+        static CreateEncodedText_pt create_text_fn = nullptr;
+        static SetFrameText_pt set_frame_text_fn = nullptr;
+        if (!create_text_fn) {
+            const auto addr = GW::Scanner::Find(
+                "\x55\x8B\xEC\x8B\x45\x10\x53\x56\x57\x8B\x7D\x0C\x85\xFF\x74\x00",
+                "xxxxxxxxxxxxxxx?");
+            if (!addr)
+                return false;
+            create_text_fn = reinterpret_cast<CreateEncodedText_pt>(addr);
+        }
+        if (!set_frame_text_fn) {
+            const auto addr = GW::Scanner::Find(
+                "\x55\x8B\xEC\x56\x8B\x75\x08\x85\xF6\x74\x00\xFF\x76\x24",
+                "xxxxxxxxxx?xxx");
+            if (!addr)
+                return false;
+            set_frame_text_fn = reinterpret_cast<SetFrameText_pt>(addr);
+        }
+
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()) || title.empty())
+            return false;
+
+        const uint32_t target_frame_id = frame_id;
+        const std::wstring requested_title = title;
+        const auto create_fn = create_text_fn;
+        const auto set_fn = set_frame_text_fn;
+        GW::GameThread::Enqueue([target_frame_id, requested_title, create_fn, set_fn]() {
+            if (!(create_fn && set_fn))
+                return;
+            const uintptr_t payload = create_fn(8, 7, requested_title.c_str(), 0);
+            if (!payload)
+                return;
+            set_fn(target_frame_id, payload);
+        });
+        return true;
+    }
+
+    static std::wstring GetFrameLabelByFrameId(uint32_t frame_id)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame)
+            return std::wstring();
+        void* context = reinterpret_cast<void*>(GetFrameContext(frame_id));
+        if (!context)
+            return std::wstring();
+        const uint32_t length = *reinterpret_cast<const uint32_t*>(reinterpret_cast<uintptr_t>(context) + 0x0c);
+        const wchar_t* text = *reinterpret_cast<wchar_t* const*>(reinterpret_cast<uintptr_t>(context) + 0x04);
+        if (!(text && length))
+            return std::wstring();
+        return std::wstring(text, text + length);
+    }
+
+    static std::wstring GetTextLabelEncodedByFrameId(uint32_t frame_id)
+    {
+        auto* frame = reinterpret_cast<GW::TextLabelFrame*>(GW::UI::GetFrameById(frame_id));
+        if (!frame)
+            return std::wstring();
+        const wchar_t* text = frame->GetEncodedLabel();
+        return text ? std::wstring(text) : std::wstring();
+    }
+
+    static py::bytes GetTextLabelEncodedBytesByFrameId(uint32_t frame_id)
+    {
+        auto* frame = reinterpret_cast<GW::TextLabelFrame*>(GW::UI::GetFrameById(frame_id));
+        if (!frame)
+            return py::bytes();
+        const wchar_t* text = frame->GetEncodedLabel();
+        if (!text)
+            return py::bytes();
+        size_t len = 0;
+        while (text[len] != 0x0000) {
+            ++len;
+        }
+        ++len;
+        return py::bytes(reinterpret_cast<const char*>(text), len * sizeof(wchar_t));
+    }
+
+    static std::wstring GetTextLabelDecodedByFrameId(uint32_t frame_id)
+    {
+        auto* frame = reinterpret_cast<GW::TextLabelFrame*>(GW::UI::GetFrameById(frame_id));
+        if (!frame)
+            return std::wstring();
+        const wchar_t* text = frame->GetDecodedLabel();
+        return text ? std::wstring(text) : std::wstring();
+    }
+
+    static bool SetLabelByFrameId(uint32_t frame_id, const std::wstring& label)
+    {
+        auto* frame = reinterpret_cast<GW::ButtonFrame*>(GW::UI::GetFrameById(frame_id));
+        if (!(frame && frame->IsCreated()) || label.empty())
+            return false;
+        return frame->SetLabel(label.c_str());
+    }
+
+    static bool SetTextLabelByFrameId(uint32_t frame_id, const std::wstring& label)
+    {
+        auto* frame = reinterpret_cast<GW::TextLabelFrame*>(GW::UI::GetFrameById(frame_id));
+        if (!(frame && frame->IsCreated()) || label.empty())
+            return false;
+        return frame->SetLabel(label.c_str());
+    }
+
+    static bool SetTextLabelBytesByFrameId(uint32_t frame_id, const py::bytes& label_bytes)
+    {
+        auto* frame = reinterpret_cast<GW::TextLabelFrame*>(GW::UI::GetFrameById(frame_id));
+        if (!(frame && frame->IsCreated()))
+            return false;
+        const std::string raw = label_bytes;
+        if (raw.empty() || (raw.size() % sizeof(wchar_t)) != 0)
+            return false;
+        const auto* wide = reinterpret_cast<const wchar_t*>(raw.data());
+        const size_t wide_len = raw.size() / sizeof(wchar_t);
+        if (wide[wide_len - 1] != 0x0000)
+            return false;
+        return frame->SetLabel(wide);
+    }
+
+    static bool AppendTextLabelEncodedSuffixByFrameId(uint32_t frame_id, const std::wstring& encoded_suffix)
+    {
+        auto* frame = reinterpret_cast<GW::TextLabelFrame*>(GW::UI::GetFrameById(frame_id));
+        if (!(frame && frame->IsCreated()) || encoded_suffix.empty())
+            return false;
+        const wchar_t* current_text = frame->GetEncodedLabel();
+        if (!current_text || !current_text[0])
+            return false;
+        std::wstring new_text(current_text);
+        new_text += encoded_suffix;
+        return frame->SetLabel(new_text.c_str());
+    }
+
+    static bool AppendTextLabelPlainSuffixByFrameId(uint32_t frame_id, const std::wstring& plain_text)
+    {
+        auto* frame = reinterpret_cast<GW::TextLabelFrame*>(GW::UI::GetFrameById(frame_id));
+        if (!(frame && frame->IsCreated()) || plain_text.empty())
+            return false;
+        const wchar_t* current_text = frame->GetEncodedLabel();
+        if (!current_text || !current_text[0])
+            return false;
+        std::wstring new_text(current_text);
+        new_text.push_back(static_cast<wchar_t>(0x0002));
+        new_text.push_back(static_cast<wchar_t>(0x0108));
+        new_text.push_back(static_cast<wchar_t>(0x0107));
+        for (const wchar_t ch : plain_text) {
+            if (ch == L'[' || ch == L']' || ch == L'\\') {
+                new_text.push_back(L'\\');
+            }
+            new_text.push_back(ch);
+        }
+        new_text.push_back(static_cast<wchar_t>(0x0001));
+        return frame->SetLabel(new_text.c_str());
+    }
+
+    static std::wstring BuildStandaloneLiteralEncodedTextPayload(const std::wstring& plain_text)
+    {
+        std::wstring encoded_name_enc;
+        if (plain_text.empty())
+            return encoded_name_enc;
+        encoded_name_enc.push_back(static_cast<wchar_t>(0x0108));
+        encoded_name_enc.push_back(static_cast<wchar_t>(0x0107));
+        for (const wchar_t ch : plain_text) {
+            if (ch == L'[' || ch == L']' || ch == L'\\') {
+                encoded_name_enc.push_back(L'\\');
+            }
+            encoded_name_enc.push_back(ch);
+        }
+        encoded_name_enc.push_back(static_cast<wchar_t>(0x0001));
+        return encoded_name_enc;
+    }
+
+    static bool SetMultilineLabelByFrameId(uint32_t frame_id, const std::wstring& label)
+    {
+        auto* frame = reinterpret_cast<GW::MultiLineTextLabelFrame*>(GW::UI::GetFrameById(frame_id));
+        if (!(frame && frame->IsCreated()) || label.empty())
+            return false;
+        return frame->SetLabel(label.c_str());
+    }
+
+    static bool SetTextLabelFontByFrameId(uint32_t frame_id, uint32_t font_id)
+    {
+        auto* frame = reinterpret_cast<GW::TextLabelFrame*>(GW::UI::GetFrameById(frame_id));
+        if (!(frame && frame->IsCreated()))
+            return false;
+        return frame->SetFont(font_id);
+    }
+
+    static bool SetReadOnlyByFrameId(uint32_t frame_id, bool is_read_only)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+        return GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x5b), reinterpret_cast<void*>(static_cast<uintptr_t>(is_read_only ? 1u : 0u)), nullptr);
+    }
+
+    static bool IsReadOnlyByFrameId(uint32_t frame_id)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+        uint32_t scratch = frame_id & 0x00ffffffu;
+        auto* result_ptr = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(&scratch) + 3);
+        GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x56), result_ptr, nullptr);
+        return ((scratch >> 24) & 0xffu) != 0;
+    }
+
+    static bool SetNextCreatedWindowTitle(const std::wstring& title)
+    {
+        return WindowTitleHook::SetNextCreatedWindowTitle(title);
+    }
+
+    static void ClearNextCreatedWindowTitle()
+    {
+        WindowTitleHook::ClearNextCreatedWindowTitle();
+    }
+
+    static bool HasNextCreatedWindowTitle()
+    {
+        return WindowTitleHook::HasNextCreatedWindowTitle();
+    }
+
+    static bool IsWindowTitleHookInstalled()
+    {
+        return WindowTitleHook::IsInstalled();
+    }
+
+    static uint32_t GetLastAppliedWindowTitleFrameId()
+    {
+        return WindowTitleHook::GetLastAppliedFrameId();
+    }
+
+    static std::wstring GetLastAppliedWindowTitle()
+    {
+        return WindowTitleHook::GetLastAppliedTitle();
+    }
+
 
     static bool DestroyUIComponentByFrameId(uint32_t frame_id) {
         GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
@@ -744,11 +1183,8 @@ public:
         const std::wstring& name_enc = L"",
         const std::wstring& component_label = L"")
     {
-        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
-        if (!(parent && parent->IsCreated()))
-            return 0;
         auto* frame = GW::UI::CreateButtonFrame(
-            parent,
+            parent_frame_id,
             component_flags,
             child_index,
             name_enc.empty() ? nullptr : const_cast<wchar_t*>(name_enc.c_str()),
@@ -763,11 +1199,8 @@ public:
         const std::wstring& name_enc = L"",
         const std::wstring& component_label = L"")
     {
-        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
-        if (!(parent && parent->IsCreated()))
-            return 0;
         auto* frame = GW::UI::CreateCheckboxFrame(
-            parent,
+            parent_frame_id,
             component_flags,
             child_index,
             name_enc.empty() ? nullptr : const_cast<wchar_t*>(name_enc.c_str()),
@@ -782,11 +1215,8 @@ public:
         uintptr_t page_context = 0,
         const std::wstring& component_label = L"")
     {
-        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
-        if (!(parent && parent->IsCreated()))
-            return 0;
         auto* frame = GW::UI::CreateScrollableFrame(
-            parent,
+            parent_frame_id,
             component_flags,
             child_index,
             reinterpret_cast<void*>(page_context),
@@ -801,28 +1231,196 @@ public:
         const std::wstring& name_enc = L"",
         const std::wstring& component_label = L"")
     {
-        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
-        if (!(parent && parent->IsCreated()))
-            return 0;
+        std::wstring owned_name_enc = name_enc;
         auto* frame = GW::UI::CreateTextLabelFrame(
-            parent,
+            parent_frame_id,
             component_flags,
             child_index,
-            name_enc.empty() ? nullptr : const_cast<wchar_t*>(name_enc.c_str()),
+            owned_name_enc.empty() ? nullptr : const_cast<wchar_t*>(owned_name_enc.c_str()),
             component_label.empty() ? nullptr : const_cast<wchar_t*>(component_label.c_str()));
-        return frame ? frame->frame_id : 0;
+        if (!frame)
+            return 0;
+        if (!owned_name_enc.empty()) {
+            std::lock_guard<std::mutex> lock(g_created_text_label_payloads_mutex);
+            g_created_text_label_payloads[frame->frame_id] = std::move(owned_name_enc);
+        }
+        return frame->frame_id;
     }
+
+    static uint32_t CreateTextLabelFrameWithPlainTextByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags,
+        uint32_t child_index = 0,
+        const std::wstring& plain_text = L"",
+        const std::wstring& component_label = L"")
+    {
+        std::wstring encoded_name_enc = BuildStandaloneLiteralEncodedTextPayload(plain_text);
+        return CreateTextLabelFrameByFrameId(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            encoded_name_enc,
+            component_label);
+    }
+    static uint32_t CreateTextLabelFrameFromTemplateByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags,
+        uint32_t child_index,
+        uint32_t template_frame_id,
+        const std::wstring& plain_text = L"",
+        const std::wstring& component_label = L"")
+    {
+        auto* template_frame = reinterpret_cast<GW::TextLabelFrame*>(GW::UI::GetFrameById(template_frame_id));
+        if (!(template_frame && template_frame->IsCreated()))
+            return 0;
+        const wchar_t* current_text = template_frame->GetEncodedLabel();
+        if (!current_text || !current_text[0])
+            return 0;
+        std::wstring encoded_name_enc(current_text);
+        if (!plain_text.empty()) {
+            encoded_name_enc.push_back(static_cast<wchar_t>(0x0002));
+            encoded_name_enc.push_back(static_cast<wchar_t>(0x0108));
+            encoded_name_enc.push_back(static_cast<wchar_t>(0x0107));
+            encoded_name_enc += plain_text;
+            encoded_name_enc.push_back(static_cast<wchar_t>(0x0001));
+        }
+        return CreateTextLabelFrameByFrameId(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            encoded_name_enc,
+            component_label);
+    }
+    static py::dict GetTextLabelCreatePayloadDiagnosticsByTemplateFrameId(
+        uint32_t template_frame_id,
+        const std::wstring& plain_text = L"")
+    {
+        py::dict result;
+        result["template_frame_id"] = template_frame_id;
+        result["plain_text"] = plain_text;
+        auto* template_frame = reinterpret_cast<GW::TextLabelFrame*>(GW::UI::GetFrameById(template_frame_id));
+        const bool template_exists = template_frame != nullptr;
+        const bool template_created = template_exists && template_frame->IsCreated();
+        result["template_exists"] = template_exists;
+        result["template_created"] = template_created;
+        if (!(template_exists && template_created)) {
+            result["template_encoded"] = std::wstring();
+            result["template_valid"] = false;
+            result["constructed_encoded"] = std::wstring();
+            result["constructed_valid"] = false;
+            result["constructed_decoded"] = std::wstring();
+            return result;
+        }
+        const wchar_t* current_text = template_frame->GetEncodedLabel();
+        const bool template_has_text = current_text && current_text[0];
+        result["template_has_text"] = template_has_text;
+        std::wstring template_encoded = template_has_text ? std::wstring(current_text) : std::wstring();
+        result["template_encoded"] = template_encoded;
+        const bool template_valid = template_has_text && GW::UI::IsValidEncStr(current_text);
+        result["template_valid"] = template_valid;
+        std::wstring constructed_encoded = template_encoded;
+        if (!plain_text.empty()) {
+            constructed_encoded.push_back(static_cast<wchar_t>(0x0002));
+            constructed_encoded.push_back(static_cast<wchar_t>(0x0108));
+            constructed_encoded.push_back(static_cast<wchar_t>(0x0107));
+            constructed_encoded += plain_text;
+            constructed_encoded.push_back(static_cast<wchar_t>(0x0001));
+        }
+        result["constructed_encoded"] = constructed_encoded;
+        const bool constructed_valid = !constructed_encoded.empty() && GW::UI::IsValidEncStr(constructed_encoded.c_str());
+        result["constructed_valid"] = constructed_valid;
+        std::wstring constructed_decoded;
+        if (constructed_valid) {
+            GW::UI::AsyncDecodeStr(constructed_encoded.c_str(), &constructed_decoded);
+        }
+        result["constructed_decoded"] = constructed_decoded;
+        return result;
+    }
+
+    static py::dict GetTextLabelLiteralCreatePayloadDiagnostics(const std::wstring& plain_text = L"")
+    {
+        py::dict result;
+        result["plain_text"] = plain_text;
+        std::wstring constructed_encoded = BuildStandaloneLiteralEncodedTextPayload(plain_text);
+        result["constructed_encoded"] = constructed_encoded;
+        const bool constructed_valid = !constructed_encoded.empty() && GW::UI::IsValidEncStr(constructed_encoded.c_str());
+        result["constructed_valid"] = constructed_valid;
+        std::wstring constructed_decoded;
+        if (constructed_valid) {
+            GW::UI::AsyncDecodeStr(constructed_encoded.c_str(), &constructed_decoded);
+        }
+        result["constructed_decoded"] = constructed_decoded;
+        return result;
+    }
+
+    /*
+    static uint64_t RegisterCreateUIComponentCallback(const py::function& callback, int altitude = -0x8000)
+    {
+        if (callback.is_none())
+            return 0;
+        auto state = std::make_shared<CreateUIComponentCallbackState>();
+        {
+            std::lock_guard<std::mutex> lock(g_create_ui_component_callback_mutex);
+            state->handle = g_next_create_ui_component_callback_handle++;
+            state->callback = callback;
+            g_create_ui_component_callbacks[state->handle] = state;
+        }
+        GW::UI::RegisterCreateUIComponentCallback(
+            &state->entry,
+            [state](GW::UI::CreateUIComponentPacket* packet) {
+                if (!(state && packet))
+                    return;
+                py::gil_scoped_acquire gil;
+                try {
+                    state->callback(
+                        packet->frame_id,
+                        packet->component_flags,
+                        packet->tab_index,
+                        reinterpret_cast<uintptr_t>(packet->event_callback),
+                        packet->name_enc ? std::wstring(packet->name_enc) : std::wstring(),
+                        packet->component_label ? std::wstring(packet->component_label) : std::wstring());
+                } catch (const py::error_already_set&) {
+                }
+            },
+            altitude);
+        return state->handle;
+    }
+
+    static bool RemoveCreateUIComponentCallback(uint64_t handle)
+    {
+        std::shared_ptr<CreateUIComponentCallbackState> state;
+        {
+            std::lock_guard<std::mutex> lock(g_create_ui_component_callback_mutex);
+            const auto it = g_create_ui_component_callbacks.find(handle);
+            if (it == g_create_ui_component_callbacks.end())
+                return false;
+            state = it->second;
+            g_create_ui_component_callbacks.erase(it);
+        }
+        GW::UI::RemoveCreateUIComponentCallback(&state->entry);
+        return true;
+    }
+    */
 
 
 
 
 	static void ButtonClick(uint32_t frame_id) {
         GW::GameThread::Enqueue([frame_id]() {
-            GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
-            GW::UI::ButtonClick(frame);
+            auto* frame = reinterpret_cast<GW::ButtonFrame*>(GW::UI::GetFrameById(frame_id));
+            if (frame)
+                frame->Click();
             });
         
 	}
+
+    static void ButtonDoubleClick(uint32_t frame_id) {
+        GW::GameThread::Enqueue([frame_id]() {
+            auto* frame = reinterpret_cast<GW::ButtonFrame*>(GW::UI::GetFrameById(frame_id));
+            if (frame)
+                frame->DoubleClick();
+            });
+    }
 
     static void TestMouseAction(uint32_t frame_id, uint32_t current_state, uint32_t wparam_value = 0, uint32_t lparam=0) {
         GW::GameThread::Enqueue([frame_id, current_state, wparam_value, lparam]() {
@@ -864,6 +1462,17 @@ public:
     static bool IsValidEncStr(const std::string& enc_str) {
         std::wstring winput(enc_str.begin(), enc_str.end());
         return GW::UI::IsValidEncStr(winput.c_str());
+    }
+
+    static bool IsValidEncBytes(const py::bytes& enc_bytes) {
+        const std::string raw = enc_bytes;
+        if (raw.empty() || (raw.size() % sizeof(wchar_t)) != 0)
+            return false;
+        const auto* wide = reinterpret_cast<const wchar_t*>(raw.data());
+        const size_t wide_len = raw.size() / sizeof(wchar_t);
+        if (wide[wide_len - 1] != 0x0000)
+            return false;
+        return GW::UI::IsValidEncStr(wide);
     }
 
     static std::string UInt32ToEncStr(uint32_t value) {
@@ -1122,4 +1731,8 @@ public:
 	}
 
 };
+
+
+
+
 

@@ -43,12 +43,22 @@ namespace {
     typedef uint32_t(__cdecl* GetChildFrameId_pt)(uint32_t, uint32_t);
     GetChildFrameId_pt GetChildFrameId_Func = 0;
 
+    typedef void(__cdecl* TypedComponentPassthroughHook_pt)(void*, void*, void*, void*, void*);
+    TypedComponentPassthroughHook_pt TypedComponentPassthroughHook_Func = 0;
+    TypedComponentPassthroughHook_pt TypedComponentPassthroughHook_Ret = 0;
+
     // Create a uint hash from a wide char array; used for hashing frame ids
     uint32_t __cdecl OnCreateHashFromWchar(wchar_t* wcs, int seed) {
         GW::Hook::EnterHook();
         uint32_t out = CreateHashFromWchar_Ret(wcs, seed);
         GW::Hook::LeaveHook();
         return out;
+    }
+
+    void __cdecl OnTypedComponentPassthroughHook(void* param_1, void* param_2, void* param_3, void* param_4, void* param_5) {
+        GW::Hook::EnterHook();
+        TypedComponentPassthroughHook_Ret(param_1, param_2, param_3, param_4, param_5);
+        GW::Hook::LeaveHook();
     }
 
     uintptr_t* UiFrames_Addr = nullptr;
@@ -92,7 +102,14 @@ namespace {
 
     uint32_t __cdecl OnCreateUIComponent(uint32_t frame_id, uint32_t component_flags, uint32_t tab_index, void* event_callback, wchar_t* name_enc, wchar_t* component_label) {
         GW::Hook::EnterHook();
-        UI::CreateUIComponentPacket packet = {frame_id,component_flags, tab_index, event_callback, name_enc, component_label};
+        UI::CreateUIComponentPacket packet = {
+            frame_id,
+            component_flags,
+            tab_index,
+            reinterpret_cast<UI::UIInteractionCallback>(event_callback),
+            name_enc,
+            component_label
+        };
         
         HookStatus status;
         size_t i = 0;
@@ -1224,7 +1241,14 @@ namespace GW {
             UIInteractionCallback ButtonFrame_Callback = nullptr;
             UIInteractionCallback ScrollableFrame_Callback = nullptr;
             UIInteractionCallback TextLabelFrame_Callback = nullptr;
+            UIInteractionCallback FrameList_Callback = nullptr;
             bool TypedComponentCallbacks_Initialized = false;
+
+            struct TypedScrollablePageContext {
+                void* field_0;
+                void* field_4;
+                uint32_t field_8;
+            };
 
             void InitializeTypedComponentCallbacks() {
                 if (TypedComponentCallbacks_Initialized)
@@ -1232,32 +1256,62 @@ namespace GW {
                 TypedComponentCallbacks_Initialized = true;
 
                 uintptr_t addr = 0;
+                uintptr_t* ptr = nullptr;
 
                 addr = Scanner::FindAssertion(
-                    "\\Code\\Engine\\Controls\\CtlText.cpp",
+                    "UiCtlBtn.cpp",
+                    "!s_btnCheckImageList",
+                    0, 0);
+                if (addr)
+                    ButtonFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFF));
+
+                addr = Scanner::FindAssertion(
+                    "CtlText.cpp",
                     "FrameTestStyles(hdr.frameId, CTLTEXT_STYLE_MODEL)",
                     0, 0);
                 if (addr)
                     TextLabelFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
 
+                addr = Scanner::Find("\x81\xE1\x00\x00\xF8\xFF", "xxxxxx", -4, static_cast<ScannerSection>(0));
+                if (addr) {
+                    ptr = reinterpret_cast<uintptr_t*>(addr);
+                    ScrollableFrame_Callback = reinterpret_cast<UIInteractionCallback>(*ptr);
+                }
+
                 addr = Scanner::FindAssertion(
-                    "\\Code\\Engine\\Controls\\CtlView.cpp",
-                    "pageId",
+                    "CtlFrameList.cpp",
+                    "No valid case for switch variable 'msg.relation'",
                     0, 0);
                 if (addr)
-                    ScrollableFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+                    FrameList_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+
+                addr = Scanner::FindAssertion(
+                    "FrApi.cpp",
+                    "params->inputMask < FrameMarginsParams::INPUT_ILLEGAL_BIT_FIRST",
+                    0, 0);
+                if (addr) {
+                    TypedComponentPassthroughHook_Func = reinterpret_cast<TypedComponentPassthroughHook_pt>(
+                        Scanner::ToFunctionStart(addr, 0xFFF));
+                    if (TypedComponentPassthroughHook_Func) {
+                        HookBase::CreateHook(
+                            reinterpret_cast<void**>(&TypedComponentPassthroughHook_Func),
+                            reinterpret_cast<void*>(OnTypedComponentPassthroughHook),
+                            reinterpret_cast<void**>(&TypedComponentPassthroughHook_Ret));
+                        HookBase::EnableHooks(reinterpret_cast<void*>(TypedComponentPassthroughHook_Func));
+                    }
+                }
             }
 
             uint32_t FindAvailableChildIndex(Frame* parent, uint32_t child_index) {
                 if (!parent)
                     return 0;
-                if (child_index)
-                    return child_index;
-                for (uint32_t i = 1; i != 0; ++i) {
-                    if (!GetChildFrame(parent, i))
-                        return i;
+                uint32_t resolved_index = child_index;
+                while (GetChildFrame(parent, resolved_index)) {
+                    resolved_index += 1;
+                    if (!resolved_index)
+                        return 0;
                 }
-                return 0;
+                return resolved_index;
             }
         }
 
@@ -1298,45 +1352,97 @@ namespace GW {
                 return false;
             return SendFrameUIMessage(frame, UIMessage::kRefreshContent, nullptr, nullptr);
         }
-        Frame* CreateButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
+        Frame* CreateButtonFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
             InitializeTypedComponentCallbacks();
-            if (!(parent && parent->IsCreated() && ButtonFrame_Callback))
+            if (!ButtonFrame_Callback)
                 return nullptr;
-            child_index = FindAvailableChildIndex(parent, child_index);
-            if (!child_index)
+            auto* parent = GetFrameById(parent_frame_id);
+            if (!parent)
                 return nullptr;
-            const auto frame_id = CreateUIComponent(parent->frame_id, component_flags, child_index, ButtonFrame_Callback, name_enc, component_label);
+            auto existing = GetChildFrame(parent, child_index);
+            while (existing) {
+                child_index += 1;
+                existing = GetChildFrame(parent, child_index);
+            }
+            const auto frame_id = CreateUIComponent(parent_frame_id, component_flags, child_index, ButtonFrame_Callback, name_enc, component_label);
             return frame_id ? GetFrameById(frame_id) : nullptr;
         }
+        Frame* CreateButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
+            return parent ? CreateButtonFrame(parent->frame_id, component_flags, child_index, name_enc, component_label) : nullptr;
+        }
+        Frame* CreateCheckboxFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
+            auto* button = CreateButtonFrame(parent_frame_id, component_flags | 0x8000, child_index, name_enc, component_label);
+            return button ? reinterpret_cast<Frame*>(reinterpret_cast<uintptr_t>(button) - 4) : nullptr;
+        }
         Frame* CreateCheckboxFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
+            return parent ? CreateCheckboxFrame(parent->frame_id, component_flags, child_index, name_enc, component_label) : nullptr;
+        }
+        Frame* CreateScrollableFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, void* page_context, wchar_t* component_label) {
+            TypedScrollablePageContext default_page_context = {};
             InitializeTypedComponentCallbacks();
-            if (!(parent && parent->IsCreated() && ButtonFrame_Callback))
+            if (!ScrollableFrame_Callback)
                 return nullptr;
-            child_index = FindAvailableChildIndex(parent, child_index);
-            if (!child_index)
+            default_page_context.field_4 = reinterpret_cast<void*>(FrameList_Callback);
+            auto* resolved_page_context = page_context ? reinterpret_cast<TypedScrollablePageContext*>(page_context) : &default_page_context;
+            if (!resolved_page_context->field_4)
                 return nullptr;
-            const auto frame_id = CreateUIComponent(parent->frame_id, component_flags | 0x8000, child_index, ButtonFrame_Callback, name_enc, component_label);
+            auto* parent = GetFrameById(parent_frame_id);
+            if (!parent)
+                return nullptr;
+            auto existing = GetChildFrame(parent, child_index);
+            while (existing) {
+                child_index += 1;
+                existing = GetChildFrame(parent, child_index);
+            }
+            const auto frame_id = CreateUIComponent(
+                parent_frame_id,
+                component_flags | 0x20000,
+                child_index,
+                ScrollableFrame_Callback,
+                reinterpret_cast<wchar_t*>(resolved_page_context),
+                component_label);
             return frame_id ? GetFrameById(frame_id) : nullptr;
         }
         Frame* CreateScrollableFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, void* page_context, wchar_t* component_label) {
+            return parent ? CreateScrollableFrame(parent->frame_id, component_flags, child_index, page_context, component_label) : nullptr;
+        }
+        Frame* CreateTextLabelFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
             InitializeTypedComponentCallbacks();
-            if (!(parent && parent->IsCreated() && ScrollableFrame_Callback))
+            if (!TextLabelFrame_Callback)
                 return nullptr;
-            child_index = FindAvailableChildIndex(parent, child_index);
-            if (!child_index)
+            auto* parent = GetFrameById(parent_frame_id);
+            if (!parent)
                 return nullptr;
-            const auto frame_id = CreateUIComponent(parent->frame_id, component_flags | 0x20000, child_index, ScrollableFrame_Callback, reinterpret_cast<wchar_t*>(page_context), component_label);
+            auto existing = GetChildFrame(parent, child_index);
+            while (existing) {
+                child_index += 1;
+                existing = GetChildFrame(parent, child_index);
+            }
+            const auto frame_id = CreateUIComponent(parent_frame_id, component_flags, child_index, TextLabelFrame_Callback, name_enc, component_label);
             return frame_id ? GetFrameById(frame_id) : nullptr;
         }
         Frame* CreateTextLabelFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
-            InitializeTypedComponentCallbacks();
-            if (!(parent && parent->IsCreated() && TextLabelFrame_Callback))
+            return parent ? CreateTextLabelFrame(parent->frame_id, component_flags, child_index, name_enc, component_label) : nullptr;
+        }
+        void* GetFrameContext(Frame* frame) {
+            auto* callbacks = reinterpret_cast<Array<FrameInteractionCallback>*>(&frame->frame_callbacks);
+            if (!(frame && callbacks->size())) {
                 return nullptr;
-            child_index = FindAvailableChildIndex(parent, child_index);
-            if (!child_index)
-                return nullptr;
-            const auto frame_id = CreateUIComponent(parent->frame_id, component_flags, child_index, TextLabelFrame_Callback, name_enc, component_label);
-            return frame_id ? GetFrameById(frame_id) : nullptr;
+            }
+            for (size_t i = callbacks->size(); i > 0; --i) {
+                auto& callback = callbacks->at(i - 1);
+                if (callback.uictl_context) {
+                    return callback.uictl_context;
+                }
+            }
+            return nullptr;
+        }
+        bool SetFrameMargins(Frame* frame, uint32_t flags, float size[4], float input_mask[4], uint32_t type) {
+            if (!(frame && TypedComponentPassthroughHook_Func)) {
+                return false;
+            }
+            TypedComponentPassthroughHook_Func(reinterpret_cast<void*>(frame->frame_id), reinterpret_cast<void*>(flags), size, input_mask, reinterpret_cast<void*>(type));
+            return true;
         }
         Frame* GetFrameByLabel(const wchar_t* frame_label) {
             if (!(CreateHashFromWchar_Func && s_FrameArray))
@@ -2172,6 +2278,151 @@ namespace GW {
                 }  
             }
         }
+    }
+
+    ButtonFrame* ButtonFrame::Create(uint32_t parent_frame_id, uint32_t flags, uint32_t child_offset_id, const wchar_t* button_label, const wchar_t* frame_label) {
+        return reinterpret_cast<ButtonFrame*>(UI::CreateButtonFrame(parent_frame_id, flags, child_offset_id, const_cast<wchar_t*>(button_label), const_cast<wchar_t*>(frame_label)));
+    }
+
+    bool ButtonFrame::GetLabel(const wchar_t** enc_string) {
+        auto* context = UI::GetFrameContext(this);
+        if (context && *reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(context) + 0xc)) {
+            *enc_string = *reinterpret_cast<const wchar_t**>(reinterpret_cast<uintptr_t>(context) + 4);
+            return true;
+        }
+        return false;
+    }
+
+    bool ButtonFrame::SetLabel(const wchar_t* enc_string) {
+        if (enc_string != nullptr) {
+            const auto ok = UI::SendFrameUIMessage(this, UI::UIMessage(static_cast<uint32_t>(0x5c)), const_cast<wchar_t*>(enc_string), nullptr);
+            if (ok) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool ButtonFrame::Click() {
+        if (MouseAction(UI::UIPacket::ActionState::MouseDown)) {
+            if (MouseAction(UI::UIPacket::ActionState::MouseUp)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool ButtonFrame::MouseAction(UI::UIPacket::ActionState action) {
+        if ((frame_state & 0x214) == 4) {
+            auto* parent = UI::GetParentFrame(this);
+            if (parent && ((parent->frame_state >> 2) & 1) != 0) {
+                struct MouseActionPacket {
+                    uint32_t frame_id;
+                    uint32_t child_offset_id;
+                    UI::UIPacket::ActionState current_state;
+                    uint32_t* wparam;
+                    uint32_t field_10;
+                    uint32_t field_14;
+                    uint32_t field_18;
+                } packet = {};
+                packet.frame_id = frame_id;
+                packet.child_offset_id = child_offset_id;
+                packet.current_state = action;
+                packet.wparam = &packet.field_14;
+                packet.field_10 = 0;
+                packet.field_14 = 0;
+                packet.field_18 = 0;
+                return UI::SendFrameUIMessage(parent, UI::UIMessage(static_cast<uint32_t>(0x31)), &packet, nullptr);
+            }
+        }
+        return false;
+    }
+
+    bool ButtonFrame::DoubleClick() {
+        return MouseAction(UI::UIPacket::ActionState::MouseDoubleClick);
+    }
+
+    ScrollableFrame* ScrollableFrame::Create(uint32_t parent_frame_id, uint32_t flags, uint32_t child_offset_id, ScrollablePageContext* context, const wchar_t* frame_label) {
+        return reinterpret_cast<ScrollableFrame*>(UI::CreateScrollableFrame(parent_frame_id, flags, child_offset_id, context, const_cast<wchar_t*>(frame_label)));
+    }
+
+    TextLabelFrame* TextLabelFrame::Create(uint32_t parent_frame_id, uint32_t flags, uint32_t child_offset_id, const wchar_t* text_label_enc_string, const wchar_t* frame_label) {
+        return reinterpret_cast<TextLabelFrame*>(UI::CreateTextLabelFrame(parent_frame_id, flags, child_offset_id, const_cast<wchar_t*>(text_label_enc_string), const_cast<wchar_t*>(frame_label)));
+    }
+
+    const wchar_t* TextLabelFrame::GetEncodedLabel() {
+        auto* context = UI::GetFrameContext(this);
+        if (context && *reinterpret_cast<int*>(reinterpret_cast<uintptr_t>(context) + 0xc) != 0) {
+            return *reinterpret_cast<const wchar_t**>(reinterpret_cast<uintptr_t>(context) + 4);
+        }
+        return nullptr;
+    }
+
+    const wchar_t* TextLabelFrame::GetDecodedLabel() {
+        auto* context = UI::GetFrameContext(this);
+        if (context && *reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(context) + 0xc) != 0) {
+            const auto* enc = *reinterpret_cast<const wchar_t**>(reinterpret_cast<uintptr_t>(context) + 4);
+            const auto len = wcslen(enc) + 1;
+            if (len < *reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(context) + 0xc)) {
+                return enc + len;
+            }
+        }
+        return nullptr;
+    }
+
+    bool TextLabelFrame::SetLabel(const wchar_t* enc_string) {
+        if (enc_string != nullptr) {
+            const auto ok = UI::SendFrameUIMessage(this, UI::UIMessage(static_cast<uint32_t>(0x5c)), const_cast<wchar_t*>(enc_string), nullptr);
+            if (ok) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool TextLabelFrame::SetFont(uint32_t font_id) {
+        if (field93_0x194 == font_id) {
+            return true;
+        }
+        if (font_id > 0xe) {
+            return false;
+        }
+        field93_0x194 = font_id;
+        return UI::SendFrameUIMessage(this, UI::UIMessage(static_cast<uint32_t>(0x39)), nullptr, nullptr);
+    }
+
+    const wchar_t* MultiLineTextLabelFrame::GetEncodedLabel() {
+        auto* context = reinterpret_cast<uint32_t*>(UI::GetFrameContext(this));
+        if (context && context[2] != 0) {
+            return reinterpret_cast<const wchar_t*>(context[0]);
+        }
+        return nullptr;
+    }
+
+    const wchar_t* MultiLineTextLabelFrame::GetDecodedLabel() {
+        auto* context = reinterpret_cast<uint32_t*>(UI::GetFrameContext(this));
+        if (context && context[2] != 0) {
+            const auto* enc = reinterpret_cast<const wchar_t*>(context[0]);
+            const auto len = wcslen(enc) + 1;
+            if (len < context[2]) {
+                return enc + len;
+            }
+        }
+        return nullptr;
+    }
+
+    bool MultiLineTextLabelFrame::SetLabel(const wchar_t* enc_string) {
+        if (enc_string != nullptr) {
+            const auto ok = UI::SendFrameUIMessage(this, UI::UIMessage(static_cast<uint32_t>(0x62)), const_cast<wchar_t*>(enc_string), nullptr);
+            if (ok) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    CheckboxFrame* CheckboxFrame::Create(uint32_t parent_frame_id, uint32_t flags, uint32_t child_offset_id, const wchar_t* text_label_enc_string, const wchar_t* frame_label) {
+        return reinterpret_cast<CheckboxFrame*>(UI::CreateCheckboxFrame(parent_frame_id, flags, child_offset_id, const_cast<wchar_t*>(text_label_enc_string), const_cast<wchar_t*>(frame_label)));
     }
 
 } // namespace GW

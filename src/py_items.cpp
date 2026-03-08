@@ -501,6 +501,80 @@ std::string SafeItem::GetName() {
     return item_name_map[item_id].item_name;
 }
 
+static std::vector<uint8_t> GetInfoString(uint32_t item_id)
+{
+    GW::Item* item = GW::Items::GetItemById(item_id);
+    wchar_t* enc_str = item->info_string;
+
+
+    // Find length in wchar_t units (null terminated)
+    size_t n = 0;
+    while (enc_str[n] != 0) n++;
+
+    // Copy raw bytes INCLUDING terminator
+    const size_t bytes = (n + 1) * sizeof(wchar_t);
+
+    std::vector<uint8_t> out(bytes);
+    std::memcpy(out.data(), enc_str, bytes);
+    return out;
+}
+
+static std::vector<uint8_t> GetNameEnc(uint32_t item_id)
+{
+    GW::Item* item = GW::Items::GetItemById(item_id);
+    wchar_t* enc_str = item->name_enc;
+
+
+    // Find length in wchar_t units (null terminated)
+    size_t n = 0;
+    while (enc_str[n] != 0) n++;
+
+    // Copy raw bytes INCLUDING terminator
+    const size_t bytes = (n + 1) * sizeof(wchar_t);
+
+    std::vector<uint8_t> out(bytes);
+    std::memcpy(out.data(), enc_str, bytes);
+    return out;
+}
+
+static std::vector<uint8_t> GetCompleteNameEnc(uint32_t item_id)
+{
+    GW::Item* item = GW::Items::GetItemById(item_id);
+    wchar_t* enc_str = item->complete_name_enc;
+    
+
+    // Find length in wchar_t units (null terminated)
+    size_t n = 0;
+    while (enc_str[n] != 0) n++;
+
+    // Copy raw bytes INCLUDING terminator
+    const size_t bytes = (n + 1) * sizeof(wchar_t);
+
+    std::vector<uint8_t> out(bytes);
+    std::memcpy(out.data(), enc_str, bytes);
+    return out;
+}
+
+static std::vector<uint8_t> GetSingleItemName(uint32_t item_id)
+{
+    GW::Item* item = GW::Items::GetItemById(item_id);
+    wchar_t* enc_str = item->single_item_name;
+
+
+    // Find length in wchar_t units (null terminated)
+    size_t n = 0;
+    while (enc_str[n] != 0) n++;
+
+    // Copy raw bytes INCLUDING terminator
+    const size_t bytes = (n + 1) * sizeof(wchar_t);
+
+    std::vector<uint8_t> out(bytes);
+    std::memcpy(out.data(), enc_str, bytes);
+    return out;
+}
+
+
+
 
 void bind_SafeDyeColor(py::module_& m) {
     py::enum_<SafeDyeColor>(m, "DyeColor")
@@ -639,6 +713,10 @@ void bind_SafeItem(py::module_& m) {
 		.def("RequestName", &SafeItem::RequestName)
 		.def("IsItemNameReady", &SafeItem::IsItemNameReady)
 		.def("GetName", &SafeItem::GetName)
+		.def("GetInfoString", &GetInfoString)
+		.def("GetNameEnc", &GetNameEnc)
+		.def("GetCompleteNameEnc", &GetCompleteNameEnc)
+		.def("GetSingleItemName", &GetSingleItemName)
 		.def("IsItemValid", &SafeItem::IsItemValid)
         .def_readonly("item_id", &SafeItem::item_id)
         .def_readonly("agent_id", &SafeItem::agent_id)
