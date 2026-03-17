@@ -3,6 +3,7 @@
 #include "dllmain.h"
 
 #include "Py4GW.h"
+#include "py_dialog.h"
 #include "Headers.h"
 #include "WinUser.h"
 #include "hidusage.h"
@@ -113,6 +114,7 @@ void DLLMain::Terminate() {
 
 	GW::GameThread::RemoveGameThreadCallback(&Update_Entry);
     Logger::Instance().LogInfo("Terminating DLL...");
+    Dialog::Terminate();
     Py4GW::Instance().Terminate();
 
     // Clean up ImGui
