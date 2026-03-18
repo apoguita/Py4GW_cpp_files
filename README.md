@@ -82,7 +82,7 @@ Py4GW_cpp_files/
 
 ## Exposed Python Modules
 
-The DLL exposes the following embedded Python modules:
+The DLL exposes embedded Python modules, including:
 
 - `Py4GW` - Main module with Console and Game submodules
 - `PyAgent` - Agent/NPC management
@@ -90,6 +90,9 @@ The DLL exposes the following embedded Python modules:
 - `PyParty` - Party management
 - `PyMap` - World map access
 - `PySkill` / `PySkillbar` - Skill system
+- `PyDialog` - Live NPC dialog state, callbacks, journals, and decoded button/body capture
+- `PyDialogCatalog` - Static dialog catalog lookup and decode-status surface
+- `PySkillAccept` - Pending skill-offer inspection and accept/replace flows
 - `PyInventory` / `PyItem` - Item management
 - `PyImGui` - ImGui UI integration
 - `PyOverlay` / `Py2DRenderer` - Overlay rendering
