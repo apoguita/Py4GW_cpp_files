@@ -46,6 +46,11 @@ public:
         uint32_t skill_id,
         uint32_t slot_index,
         std::optional<uint32_t> copy_id = std::nullopt);
+    static bool ApplyPendingSkillReplace(
+        uint32_t skill_id,
+        uint32_t slot_index,
+        std::optional<uint32_t> copy_id = std::nullopt,
+        uint32_t agent_id = 0);
 
     static std::vector<PendingSkillInfo> GetPendingSkills(uint32_t agent_id = 0);
     static PendingSkillDebugEvent GetPendingSkillDebugEvent();

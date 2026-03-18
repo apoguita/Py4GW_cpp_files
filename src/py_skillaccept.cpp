@@ -53,6 +53,27 @@ namespace {
         }
     }
 
+    bool QueuePendingSkillReplace(
+        uint32_t owner_id,
+        uint32_t slot,
+        uint32_t skill_id,
+        uint32_t copy_id) {
+        SkillBar_SetSlotData_fn set_slot_fn =
+            reinterpret_cast<SkillBar_SetSlotData_fn>(ToRuntimeAddress(kSkillBarSetSlotData));
+        if (!set_slot_fn) {
+            return false;
+        }
+
+        GW::GameThread::Enqueue([owner_id, slot, skill_id, copy_id, set_slot_fn]() {
+            const uint32_t resolved_owner_id = owner_id ? owner_id : GW::Agents::GetControlledCharacterId();
+            if (!resolved_owner_id) {
+                return;
+            }
+            SafeCallSkillBarSetSlotData(set_slot_fn, resolved_owner_id, slot, skill_id, copy_id);
+        });
+        return true;
+    }
+
     void AppendPendingSkillFrameEvent(
         std::vector<PendingSkillFrameEvent>& events,
         uint32_t source,
@@ -128,6 +149,13 @@ PYBIND11_EMBEDDED_MODULE(PySkillAccept, m) {
             py::arg("skill_id"),
             py::arg("slot_index"),
             py::arg("copy_id") = std::nullopt)
+        .def_static(
+            "apply_pending_skill_replace",
+            &SkillAccept::ApplyPendingSkillReplace,
+            py::arg("skill_id"),
+            py::arg("slot_index"),
+            py::arg("copy_id") = std::nullopt,
+            py::arg("agent_id") = 0)
         .def_static("clear_cache", &SkillAccept::ClearCache)
         .def_static("initialize", &SkillAccept::Initialize)
         .def_static("terminate", &SkillAccept::Terminate);
@@ -270,6 +298,29 @@ bool SkillAccept::AcceptOfferedSkillReplace(
     });
 
     return do_replace;
+}
+
+bool SkillAccept::ApplyPendingSkillReplace(
+    uint32_t skill_id,
+    uint32_t slot_index,
+    std::optional<uint32_t> copy_id,
+    uint32_t agent_id) {
+    if (skill_id == 0 || slot_index > 7) {
+        return false;
+    }
+
+    uint32_t resolved_copy_id = 0;
+    if (copy_id.has_value()) {
+        resolved_copy_id = copy_id.value();
+    } else if (!TryGetPendingCopyId(agent_id, skill_id, resolved_copy_id)) {
+        return false;
+    }
+
+    if (resolved_copy_id == 0) {
+        return false;
+    }
+
+    return QueuePendingSkillReplace(agent_id, slot_index, skill_id, resolved_copy_id);
 }
 
 std::vector<PendingSkillInfo> SkillAccept::GetPendingSkills(uint32_t agent_id) {
