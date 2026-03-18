@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
+#include <new>
 
 #include <GWCA/Logger/Logger.h>
 
@@ -70,9 +71,17 @@ namespace {
         if (len <= 0) {
             return {};
         }
-        std::string out(static_cast<size_t>(len - 1), '\0');
-        WideCharToMultiByte(CP_UTF8, 0, wstr, -1, out.data(), len, nullptr, nullptr);
-        return out;
+        try {
+            std::string out(static_cast<size_t>(len), '\0');
+            const int written = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, out.data(), len, nullptr, nullptr);
+            if (written <= 0) {
+                return {};
+            }
+            out.resize(static_cast<size_t>(written - 1));
+            return out;
+        } catch (...) {
+            return {};
+        }
     }
 
     bool TryReadU32(uintptr_t address, uint32_t& out, const char* label) {
@@ -142,7 +151,10 @@ namespace {
         }
         __try {
             const size_t len = wcslen(src);
-            auto* buf = new wchar_t[len + 1];
+            auto* buf = new (std::nothrow) wchar_t[len + 1];
+            if (!buf) {
+                return nullptr;
+            }
             std::wmemcpy(buf, src, len + 1);
             return buf;
         } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -158,6 +170,26 @@ namespace {
             result = nullptr;
         }
         return result;
+    }
+
+    bool SafeAsyncDecodeStr(const wchar_t* encoded, GW::UI::DecodeStr_Callback callback, void* callback_param) {
+        if (!encoded || !callback) {
+            return false;
+        }
+        __try {
+            GW::UI::AsyncDecodeStr(encoded, callback, callback_param);
+            return true;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return false;
+        }
+    }
+
+    void ReleaseDialogDecodeRequest(DialogDecodeRequest* req) {
+        if (!req) {
+            return;
+        }
+        delete[] req->encoded;
+        delete req;
     }
 
     DialogMemory::DialogLoader_GetText_fn ResolveDialogLoaderGetText() {
@@ -561,17 +593,23 @@ void DialogCatalog::Terminate() {
     }
 
     std::unique_lock lock(catalog_mutex);
-    const bool drained = catalog_async_decode_drained.wait_for(
-        lock,
-        kDialogAsyncDrainTimeout,
-        [] { return DialogCatalog::pending_async_decode_count == 0; });
+    bool logged_wait = false;
+    while (pending_async_decode_count != 0) {
+        const bool drained = catalog_async_decode_drained.wait_for(
+            lock,
+            kDialogAsyncDrainTimeout,
+            [] { return DialogCatalog::pending_async_decode_count == 0; });
+        if (drained) {
+            break;
+        }
+        if (!logged_wait) {
+            Logger::LogStaticInfo("[DialogCatalog] Async dialog decodes did not drain within the initial shutdown timeout; continuing to wait fail-closed.");
+            logged_wait = true;
+        }
+    }
     decoded_text_cache.clear();
     decoded_text_pending.clear();
     lock.unlock();
-
-    if (!drained) {
-        Logger::LogStaticInfo("[DialogCatalog] Timed out waiting for async dialog decodes to drain during shutdown.");
-    }
 }
 
 void DialogCatalog::ClearCache() {
@@ -689,7 +727,12 @@ void DialogCatalog::QueueDialogTextDecode(uint32_t dialog_id) {
         if (pending != decoded_text_pending.end() && pending->second) {
             return;
         }
-        decoded_text_pending[dialog_id] = true;
+        try {
+            decoded_text_pending[dialog_id] = true;
+        } catch (...) {
+            decoded_text_pending.erase(dialog_id);
+            return;
+        }
         request_epoch = decode_epoch;
     }
 
@@ -697,8 +740,11 @@ void DialogCatalog::QueueDialogTextDecode(uint32_t dialog_id) {
     if (!dialog_loader_get_text) {
         std::scoped_lock lock(catalog_mutex);
         if (request_epoch == decode_epoch && !shutdown_requested) {
-            decoded_text_cache[dialog_id] = {};
-            decoded_text_pending[dialog_id] = false;
+            try {
+                decoded_text_cache[dialog_id] = {};
+            } catch (...) {
+            }
+            decoded_text_pending.erase(dialog_id);
         }
         return;
     }
@@ -707,8 +753,11 @@ void DialogCatalog::QueueDialogTextDecode(uint32_t dialog_id) {
     if (!encoded_ptr) {
         std::scoped_lock lock(catalog_mutex);
         if (request_epoch == decode_epoch && !shutdown_requested) {
-            decoded_text_cache[dialog_id] = {};
-            decoded_text_pending[dialog_id] = false;
+            try {
+                decoded_text_cache[dialog_id] = {};
+            } catch (...) {
+            }
+            decoded_text_pending.erase(dialog_id);
         }
         return;
     }
@@ -717,8 +766,11 @@ void DialogCatalog::QueueDialogTextDecode(uint32_t dialog_id) {
     if (!encoded_copy) {
         std::scoped_lock lock(catalog_mutex);
         if (request_epoch == decode_epoch && !shutdown_requested) {
-            decoded_text_cache[dialog_id] = {};
-            decoded_text_pending[dialog_id] = false;
+            try {
+                decoded_text_cache[dialog_id] = {};
+            } catch (...) {
+            }
+            decoded_text_pending.erase(dialog_id);
         }
         return;
     }
@@ -726,14 +778,27 @@ void DialogCatalog::QueueDialogTextDecode(uint32_t dialog_id) {
     if (!SafeIsValidEncStr(encoded_copy)) {
         std::scoped_lock lock(catalog_mutex);
         if (request_epoch == decode_epoch && !shutdown_requested) {
-            decoded_text_cache[dialog_id] = WideToUtf8Safe(encoded_copy);
-            decoded_text_pending[dialog_id] = false;
+            try {
+                decoded_text_cache[dialog_id] = WideToUtf8Safe(encoded_copy);
+            } catch (...) {
+            }
+            decoded_text_pending.erase(dialog_id);
         }
         delete[] encoded_copy;
         return;
     }
 
-    auto* req = new DialogDecodeRequest();
+    auto* req = new (std::nothrow) DialogDecodeRequest();
+    if (!req) {
+        {
+            std::scoped_lock lock(catalog_mutex);
+            if (request_epoch == decode_epoch && !shutdown_requested) {
+                decoded_text_pending.erase(dialog_id);
+            }
+        }
+        delete[] encoded_copy;
+        return;
+    }
     req->dialog_id = dialog_id;
     req->decode_epoch = request_epoch;
     req->encoded = encoded_copy;
@@ -741,13 +806,24 @@ void DialogCatalog::QueueDialogTextDecode(uint32_t dialog_id) {
     {
         std::scoped_lock lock(catalog_mutex);
         if (shutdown_requested || req->decode_epoch != decode_epoch) {
-            delete[] req->encoded;
-            delete req;
+            ReleaseDialogDecodeRequest(req);
             return;
         }
         ++pending_async_decode_count;
     }
-    GW::UI::AsyncDecodeStr(req->encoded, DialogCatalog::OnDialogTextDecoded, req);
+    if (!SafeAsyncDecodeStr(req->encoded, DialogCatalog::OnDialogTextDecoded, req)) {
+        {
+            std::scoped_lock lock(catalog_mutex);
+            if (pending_async_decode_count > 0) {
+                --pending_async_decode_count;
+            }
+            if (request_epoch == decode_epoch && !shutdown_requested) {
+                decoded_text_pending.erase(dialog_id);
+            }
+        }
+        catalog_async_decode_drained.notify_all();
+        ReleaseDialogDecodeRequest(req);
+    }
 }
 
 uint32_t DialogCatalog::ReadDialogFlags(uint32_t dialog_id) {
@@ -867,19 +943,25 @@ void __cdecl DialogCatalog::OnDialogTextDecoded(void* param, const wchar_t* s) {
     if (!req) {
         return;
     }
+    wchar_t* decoded_copy = DupWideStringSafe(s);
+    const std::string decoded_text = decoded_copy ? WideToUtf8Safe(decoded_copy) : std::string{};
     {
         std::scoped_lock lock(catalog_mutex);
         if (pending_async_decode_count > 0) {
             --pending_async_decode_count;
         }
         if (!shutdown_requested && req->decode_epoch == decode_epoch) {
-            decoded_text_cache[req->dialog_id] = WideToUtf8Safe(s);
-            decoded_text_pending[req->dialog_id] = false;
+            try {
+                decoded_text_cache[req->dialog_id] = decoded_text;
+                decoded_text_pending.erase(req->dialog_id);
+            } catch (...) {
+                decoded_text_pending.erase(req->dialog_id);
+            }
         }
     }
     catalog_async_decode_drained.notify_all();
-    delete[] req->encoded;
-    delete req;
+    delete[] decoded_copy;
+    ReleaseDialogDecodeRequest(req);
 }
 
 PYBIND11_EMBEDDED_MODULE(PyDialogCatalog, m) {

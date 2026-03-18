@@ -167,7 +167,6 @@ private:
     static std::vector<DialogButtonInfo> active_dialog_buttons;
     static std::unordered_map<uint32_t, std::string> decoded_button_label_cache;
     static std::unordered_map<uint32_t, bool> decoded_button_label_pending;
-    static uint32_t last_dialog_id;
     static bool dialog_hook_registered;
     static GW::HookEntry dialog_ui_message_entry_body;
     static GW::HookEntry dialog_ui_message_entry_button;

@@ -10,6 +10,7 @@
 #include <cstring>
 #include <algorithm>
 #include <chrono>
+#include <new>
 #include <GWCA/Logger/Logger.h>
 
 using namespace pybind11;
@@ -23,9 +24,17 @@ namespace {
         if (len <= 0) {
             return {};
         }
-        std::string out(static_cast<size_t>(len - 1), '\0');
-        WideCharToMultiByte(CP_UTF8, 0, wstr, -1, out.data(), len, nullptr, nullptr);
-        return out;
+        try {
+            std::string out(static_cast<size_t>(len), '\0');
+            const int written = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, out.data(), len, nullptr, nullptr);
+            if (written <= 0) {
+                return {};
+            }
+            out.resize(static_cast<size_t>(written - 1));
+            return out;
+        } catch (...) {
+            return {};
+        }
     }
 
     uint32_t GetCurrentMapIdSafe() {
@@ -67,7 +76,6 @@ namespace {
     struct DialogBodyDecodeRequest {
         uint64_t tick = 0;
         uint32_t message_id = 0;
-        uint32_t dialog_id = 0;
         uint32_t agent_id = 0;
         uint32_t context_dialog_id = 0;
         uint64_t decode_epoch = 0;
@@ -99,7 +107,10 @@ namespace {
         }
         __try {
             size_t len = wcslen(src);
-            auto* buf = new wchar_t[len + 1];
+            auto* buf = new (std::nothrow) wchar_t[len + 1];
+            if (!buf) {
+                return nullptr;
+            }
             std::wmemcpy(buf, src, len + 1);
             return buf;
         } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -112,20 +123,104 @@ namespace {
     constexpr size_t kMaxDialogEventLogs = 512;
     constexpr size_t kMaxDialogCallbackJournal = 1000;
 
+    bool CopyBytesNoFault(const void* src, size_t size, void* dst) {
+        __try {
+            std::memcpy(dst, src, size);
+            return true;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return false;
+        }
+    }
+
     void CopyBytesSafe(const void* src, size_t size, std::vector<uint8_t>& out) {
         out.clear();
         if (!src || size == 0) {
             return;
         }
-        __try {
+        try {
             out.resize(size);
-            std::memcpy(out.data(), src, size);
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        } catch (...) {
+            out.clear();
+            return;
+        }
+        if (!CopyBytesNoFault(src, size, out.data())) {
             out.clear();
         }
     }
 
+    bool CopyDialogButtonInfoSafe(const void* src, GW::UI::DialogButtonInfo& out) {
+        std::memset(&out, 0, sizeof(out));
+        if (!src) {
+            return false;
+        }
+        __try {
+            std::memcpy(&out, src, sizeof(out));
+            return true;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            std::memset(&out, 0, sizeof(out));
+            return false;
+        }
+    }
+
+    bool CopyDialogBodyInfoSafe(const void* src, GW::UI::DialogBodyInfo& out) {
+        std::memset(&out, 0, sizeof(out));
+        if (!src) {
+            return false;
+        }
+        __try {
+            std::memcpy(&out, src, sizeof(out));
+            return true;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            std::memset(&out, 0, sizeof(out));
+            return false;
+        }
+    }
+
+    bool SafeAsyncDecodeStr(const wchar_t* encoded, GW::UI::DecodeStr_Callback callback, void* callback_param) {
+        if (!encoded || !callback) {
+            return false;
+        }
+        __try {
+            GW::UI::AsyncDecodeStr(encoded, callback, callback_param);
+            return true;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return false;
+        }
+    }
+
+    void ReleaseDialogBodyDecodeRequest(DialogBodyDecodeRequest* req) {
+        if (!req) {
+            return;
+        }
+        delete[] req->encoded;
+        delete req;
+    }
+
+    void ReleaseDialogButtonDecodeRequest(DialogButtonDecodeRequest* req) {
+        if (!req) {
+            return;
+        }
+        delete[] req->encoded;
+        delete req;
+    }
+
     // defined below as Dialog::AppendDialogEventLog
+
+    bool TryUnregisterDialogUiHooksRaw(
+        GW::HookEntry* body_entry,
+        GW::HookEntry* button_entry,
+        GW::HookEntry* send_agent_entry,
+        GW::HookEntry* send_gadget_entry) {
+        __try {
+            GW::UI::RemoveUIMessageCallback(body_entry, GW::UI::UIMessage::kDialogBody);
+            GW::UI::RemoveUIMessageCallback(button_entry, GW::UI::UIMessage::kDialogButton);
+            GW::UI::RemoveUIMessageCallback(send_agent_entry, GW::UI::UIMessage::kSendAgentDialog);
+            GW::UI::RemoveUIMessageCallback(send_gadget_entry, GW::UI::UIMessage::kSendGadgetDialog);
+            return true;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return false;
+        }
+    }
 
 }
 
@@ -248,7 +343,6 @@ ActiveDialogInfo Dialog::active_dialog_cache = {0, 0, 0, false, L""};
 std::vector<DialogButtonInfo> Dialog::active_dialog_buttons;
 std::unordered_map<uint32_t, std::string> Dialog::decoded_button_label_cache;
 std::unordered_map<uint32_t, bool> Dialog::decoded_button_label_pending;
-uint32_t Dialog::last_dialog_id = 0;
 bool Dialog::dialog_hook_registered = false;
 GW::HookEntry Dialog::dialog_ui_message_entry_body;
 GW::HookEntry Dialog::dialog_ui_message_entry_button;
@@ -287,16 +381,23 @@ void Dialog::Terminate() {
         ++active_dialog_body_decode_nonce;
     }
     UnregisterDialogUiHooks();
-    ClearCache();
     std::unique_lock lock(dialog_mutex);
-    const bool drained = dialog_async_decode_drained.wait_for(
-        lock,
-        kDialogAsyncDrainTimeout,
-        [] { return Dialog::pending_async_decode_count == 0; });
-    lock.unlock();
-    if (!drained) {
-        Logger::LogStaticInfo("[Dialog] Timed out waiting for async dialog decodes to drain during shutdown.");
+    bool logged_wait = false;
+    while (pending_async_decode_count != 0) {
+        const bool drained = dialog_async_decode_drained.wait_for(
+            lock,
+            kDialogAsyncDrainTimeout,
+            [] { return Dialog::pending_async_decode_count == 0; });
+        if (drained) {
+            break;
+        }
+        if (!logged_wait) {
+            Logger::LogStaticInfo("[Dialog] Async dialog decodes did not drain within the initial shutdown timeout; continuing to wait fail-closed.");
+            logged_wait = true;
+        }
     }
+    lock.unlock();
+    ClearCache();
     DialogCatalog::Terminate();
 }
 
@@ -356,15 +457,19 @@ std::vector<DialogButtonInfo> Dialog::GetActiveDialogButtons() {
     bool Dialog::IsDialogActive() {
         // "NPC Dialog" root frame hash used across Py4GW UI helpers.
         constexpr uint32_t kNpcDialogHash = 3856160816u;
-        const uint32_t frame_id = GW::UI::GetFrameIDByHash(kNpcDialogHash);
-        if (!frame_id) {
+        __try {
+            const uint32_t frame_id = GW::UI::GetFrameIDByHash(kNpcDialogHash);
+            if (!frame_id) {
+                return false;
+            }
+            const GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+            if (!frame) {
+                return false;
+            }
+            return frame->IsCreated() && frame->IsVisible();
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
             return false;
         }
-        const GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
-        if (!frame) {
-            return false;
-        }
-        return frame->IsCreated() && frame->IsVisible();
     }
 
 bool Dialog::IsDialogDisplayed(uint32_t dialog_id) {
@@ -396,7 +501,6 @@ void Dialog::ClearCache() {
     std::scoped_lock lock(dialog_mutex);
     active_dialog_cache = {0, 0, 0, false, L""};
     active_dialog_buttons.clear();
-    last_dialog_id = 0;
     last_selected_dialog_id = 0;
     pending_body_context_dialog_id = 0;
     pending_body_context_agent_id = 0;
@@ -414,48 +518,52 @@ void Dialog::ClearCache() {
 }
 
 void Dialog::RegisterDialogUiHooks() {
-        {
-            std::scoped_lock lock(dialog_mutex);
-            if (dialog_hook_registered) {
-                return;
-            }
-            dialog_hook_registered = true;
+    {
+        std::scoped_lock lock(dialog_mutex);
+        if (dialog_hook_registered) {
+            return;
         }
-        GW::UI::RegisterUIMessageCallback(
-            &dialog_ui_message_entry_body,
-            GW::UI::UIMessage::kDialogBody,
-            Dialog::OnDialogUIMessage,
-            0x1);
-        GW::UI::RegisterUIMessageCallback(
-            &dialog_ui_message_entry_button,
-            GW::UI::UIMessage::kDialogButton,
-            Dialog::OnDialogUIMessage,
-            0x1);
-        GW::UI::RegisterUIMessageCallback(
-            &dialog_ui_message_entry_send_agent,
-            GW::UI::UIMessage::kSendAgentDialog,
-            Dialog::OnDialogUIMessage,
-            0x1);
-        GW::UI::RegisterUIMessageCallback(
-            &dialog_ui_message_entry_send_gadget,
-            GW::UI::UIMessage::kSendGadgetDialog,
-            Dialog::OnDialogUIMessage,
-            0x1);
     }
+    GW::UI::RegisterUIMessageCallback(
+        &dialog_ui_message_entry_body,
+        GW::UI::UIMessage::kDialogBody,
+        Dialog::OnDialogUIMessage,
+        0x1);
+    GW::UI::RegisterUIMessageCallback(
+        &dialog_ui_message_entry_button,
+        GW::UI::UIMessage::kDialogButton,
+        Dialog::OnDialogUIMessage,
+        0x1);
+    GW::UI::RegisterUIMessageCallback(
+        &dialog_ui_message_entry_send_agent,
+        GW::UI::UIMessage::kSendAgentDialog,
+        Dialog::OnDialogUIMessage,
+        0x1);
+    GW::UI::RegisterUIMessageCallback(
+        &dialog_ui_message_entry_send_gadget,
+        GW::UI::UIMessage::kSendGadgetDialog,
+        Dialog::OnDialogUIMessage,
+        0x1);
+    std::scoped_lock lock(dialog_mutex);
+    dialog_hook_registered = true;
+}
 
-    void Dialog::UnregisterDialogUiHooks() {
-        {
-            std::scoped_lock lock(dialog_mutex);
-            if (!dialog_hook_registered) {
-                return;
-            }
-            dialog_hook_registered = false;
+void Dialog::UnregisterDialogUiHooks() {
+    {
+        std::scoped_lock lock(dialog_mutex);
+        if (!dialog_hook_registered) {
+            return;
         }
-        GW::UI::RemoveUIMessageCallback(&dialog_ui_message_entry_body, GW::UI::UIMessage::kDialogBody);
-        GW::UI::RemoveUIMessageCallback(&dialog_ui_message_entry_button, GW::UI::UIMessage::kDialogButton);
-        GW::UI::RemoveUIMessageCallback(&dialog_ui_message_entry_send_agent, GW::UI::UIMessage::kSendAgentDialog);
-        GW::UI::RemoveUIMessageCallback(&dialog_ui_message_entry_send_gadget, GW::UI::UIMessage::kSendGadgetDialog);
+        dialog_hook_registered = false;
     }
+    if (!TryUnregisterDialogUiHooksRaw(
+            &dialog_ui_message_entry_body,
+            &dialog_ui_message_entry_button,
+            &dialog_ui_message_entry_send_agent,
+            &dialog_ui_message_entry_send_gadget)) {
+        Logger::LogStaticInfo("[Dialog] Failed to remove one or more dialog UI hooks during shutdown.");
+    }
+}
 
     void Dialog::OnDialogUIMessage(GW::HookStatus*, GW::UI::UIMessage message_id, void* wparam, void*) {
         if (!wparam) {
@@ -470,10 +578,11 @@ void Dialog::RegisterDialogUiHooks() {
 
         switch (message_id) {
             case GW::UI::UIMessage::kDialogButton: {
-                const auto* info = static_cast<GW::UI::DialogButtonInfo*>(wparam);
-                if (!info) {
+                GW::UI::DialogButtonInfo info_local{};
+                if (!CopyDialogButtonInfoSafe(wparam, info_local)) {
                     return;
                 }
+                const auto* info = &info_local;
                 const uint64_t tick = GetTickCount64();
                 uint32_t context_dialog_id = 0;
                 uint32_t context_agent_id = 0;
@@ -506,7 +615,11 @@ void Dialog::RegisterDialogUiHooks() {
                             delete[] encoded_copy;
                         }
                         else {
-                            auto* req = new DialogButtonDecodeRequest();
+                            auto* req = new (std::nothrow) DialogButtonDecodeRequest();
+                            if (!req) {
+                                delete[] encoded_copy;
+                                break;
+                            }
                             bool queue_async_label = false;
                             req->tick = tick;
                             req->message_id = static_cast<uint32_t>(message_id);
@@ -515,20 +628,41 @@ void Dialog::RegisterDialogUiHooks() {
                             req->agent_id = context_agent_id;
                             req->decode_epoch = request_epoch;
                             req->encoded = encoded_copy;
+                            bool release_req = false;
                             {
                                 std::scoped_lock lock(dialog_mutex);
                                 if (dialog_shutdown_requested || req->decode_epoch != decode_epoch) {
-                                    delete[] req->encoded;
-                                    delete req;
-                                } else {
-                                    decoded_button_label_pending[info->dialog_id] = true;
-                                    ++pending_async_decode_count;
-                                    queue_async_label = true;
+                                    release_req = true;
+                                }
+                                else {
+                                    try {
+                                        decoded_button_label_pending[info->dialog_id] = true;
+                                        ++pending_async_decode_count;
+                                        queue_async_label = true;
+                                    } catch (...) {
+                                        decoded_button_label_pending.erase(info->dialog_id);
+                                        release_req = true;
+                                    }
                                 }
                             }
-                            if (queue_async_label) {
-                                GW::UI::AsyncDecodeStr(req->encoded, Dialog::OnDialogButtonDecoded, req);
-                                label_pending = true;
+                            if (release_req) {
+                                ReleaseDialogButtonDecodeRequest(req);
+                            }
+                            else if (queue_async_label) {
+                                if (SafeAsyncDecodeStr(req->encoded, Dialog::OnDialogButtonDecoded, req)) {
+                                    label_pending = true;
+                                }
+                                else {
+                                    {
+                                        std::scoped_lock lock(dialog_mutex);
+                                        if (pending_async_decode_count > 0) {
+                                            --pending_async_decode_count;
+                                        }
+                                        decoded_button_label_pending.erase(info->dialog_id);
+                                    }
+                                    dialog_async_decode_drained.notify_all();
+                                    ReleaseDialogButtonDecodeRequest(req);
+                                }
                             }
                         }
                     }
@@ -536,18 +670,24 @@ void Dialog::RegisterDialogUiHooks() {
 
                 {
                     std::scoped_lock lock(dialog_mutex);
-                    if (request_epoch == decode_epoch && !dialog_shutdown_requested && !label_utf8.empty()) {
-                        decoded_button_label_cache[info->dialog_id] = label_utf8;
-                        decoded_button_label_pending[info->dialog_id] = false;
-                    }
-                    if (request_epoch == decode_epoch && !dialog_shutdown_requested) {
-                        DialogButtonInfo button{};
-                        button.dialog_id = info->dialog_id;
-                        button.button_icon = info->button_icon;
-                        button.message = label_utf8;
-                        button.message_decoded = label_utf8;
-                        button.message_decode_pending = label_pending;
-                        active_dialog_buttons.push_back(std::move(button));
+                    try {
+                        if (request_epoch == decode_epoch && !dialog_shutdown_requested && !label_utf8.empty()) {
+                            decoded_button_label_cache[info->dialog_id] = label_utf8;
+                            decoded_button_label_pending.erase(info->dialog_id);
+                        }
+                        if (request_epoch == decode_epoch && !dialog_shutdown_requested) {
+                            DialogButtonInfo button{};
+                            button.dialog_id = info->dialog_id;
+                            button.button_icon = info->button_icon;
+                            button.message = label_utf8;
+                            button.message_decoded = label_utf8;
+                            button.message_decode_pending = label_pending;
+                            active_dialog_buttons.push_back(std::move(button));
+                        }
+                    } catch (...) {
+                        if (request_epoch == decode_epoch) {
+                            decoded_button_label_pending.erase(info->dialog_id);
+                        }
                     }
                 }
                 if (!label_pending) {
@@ -573,10 +713,11 @@ void Dialog::RegisterDialogUiHooks() {
                 }
             } break;
             case GW::UI::UIMessage::kDialogBody: {
-                const auto* info = static_cast<GW::UI::DialogBodyInfo*>(wparam);
-                if (!info) {
+                GW::UI::DialogBodyInfo info_local{};
+                if (!CopyDialogBodyInfoSafe(wparam, info_local)) {
                     return;
                 }
+                const auto* info = &info_local;
                 const uint64_t tick = GetTickCount64();
 
                 Dialog::AppendDialogEventLog(
@@ -593,8 +734,12 @@ void Dialog::RegisterDialogUiHooks() {
                 uint32_t context_dialog_id = 0;
                 uint64_t request_epoch = 0;
                 uint64_t decode_nonce = 0;
+                bool body_state_active = false;
                 {
                     std::scoped_lock lock(dialog_mutex);
+                    if (dialog_shutdown_requested) {
+                        break;
+                    }
                     active_dialog_cache.agent_id = info->agent_id;
                     if (pending_body_context_dialog_id != 0) {
                         const bool same_agent =
@@ -613,6 +758,10 @@ void Dialog::RegisterDialogUiHooks() {
                     active_dialog_buttons.clear();
                     request_epoch = decode_epoch;
                     decode_nonce = ++active_dialog_body_decode_nonce;
+                    body_state_active = true;
+                }
+                if (!body_state_active) {
+                    break;
                 }
 
                 bool append_immediate = true;
@@ -622,23 +771,35 @@ void Dialog::RegisterDialogUiHooks() {
                     wchar_t* encoded_copy = DupWideStringSafe(info->message_enc);
                     if (encoded_copy) {
                         if (!SafeIsValidEncStr(encoded_copy)) {
-                            const std::wstring plain_text(encoded_copy);
+                            std::wstring plain_text;
+                            try {
+                                plain_text.assign(encoded_copy);
+                            } catch (...) {
+                            }
                             immediate_text = WideToUtf8Safe(encoded_copy);
                             delete[] encoded_copy;
                             {
                                 std::scoped_lock lock(dialog_mutex);
-                                if (active_dialog_cache.agent_id == info->agent_id &&
+                                if (!dialog_shutdown_requested &&
+                                    request_epoch == decode_epoch &&
+                                    active_dialog_cache.agent_id == info->agent_id &&
                                     active_dialog_body_decode_nonce == decode_nonce) {
-                                    active_dialog_cache.message = plain_text;
+                                    try {
+                                        active_dialog_cache.message = plain_text;
+                                    } catch (...) {
+                                    }
                                 }
                             }
                         }
                         else {
-                            auto* req = new DialogBodyDecodeRequest();
+                            auto* req = new (std::nothrow) DialogBodyDecodeRequest();
+                            if (!req) {
+                                delete[] encoded_copy;
+                                break;
+                            }
                             bool queue_async_body = false;
                             req->tick = tick;
                             req->message_id = static_cast<uint32_t>(message_id);
-                            req->dialog_id = context_dialog_id;
                             req->agent_id = info->agent_id;
                             req->context_dialog_id = context_dialog_id;
                             req->decode_epoch = request_epoch;
@@ -655,8 +816,19 @@ void Dialog::RegisterDialogUiHooks() {
                                 }
                             }
                             if (queue_async_body) {
-                                GW::UI::AsyncDecodeStr(req->encoded, Dialog::OnDialogBodyDecoded, req);
-                                append_immediate = false;
+                                if (SafeAsyncDecodeStr(req->encoded, Dialog::OnDialogBodyDecoded, req)) {
+                                    append_immediate = false;
+                                }
+                                else {
+                                    {
+                                        std::scoped_lock lock(dialog_mutex);
+                                        if (pending_async_decode_count > 0) {
+                                            --pending_async_decode_count;
+                                        }
+                                    }
+                                    dialog_async_decode_drained.notify_all();
+                                    ReleaseDialogBodyDecodeRequest(req);
+                                }
                             }
                         }
                     }
@@ -700,39 +872,49 @@ void Dialog::RegisterDialogUiHooks() {
                 uint32_t context_dialog_id = 0;
                 uint32_t context_agent_id = 0;
                 std::string sent_text;
+                bool emit_sent_choice = false;
                 {
                     std::scoped_lock lock(dialog_mutex);
+                    if (dialog_shutdown_requested) {
+                        break;
+                    }
                     context_dialog_id = active_dialog_cache.context_dialog_id
                         ? active_dialog_cache.context_dialog_id
                         : active_dialog_cache.dialog_id;
                     context_agent_id = active_dialog_cache.agent_id;
                     auto label_it = decoded_button_label_cache.find(selected_id);
-                    if (label_it != decoded_button_label_cache.end()) {
-                        sent_text = label_it->second;
-                    }
-                    else if (!DialogCatalog::TryGetCachedDialogTextDecoded(selected_id, sent_text)) {
+                    try {
+                        if (label_it != decoded_button_label_cache.end()) {
+                            sent_text = label_it->second;
+                        }
+                        else if (!DialogCatalog::TryGetCachedDialogTextDecoded(selected_id, sent_text)) {
+                            sent_text.clear();
+                        }
+                    } catch (...) {
                         sent_text.clear();
                     }
                     last_selected_dialog_id = selected_id;
-                    last_dialog_id = selected_id;
                     pending_body_context_dialog_id = selected_id;
                     pending_body_context_agent_id = context_agent_id;
                     active_dialog_cache.dialog_id = 0;
                     active_dialog_cache.context_dialog_id = selected_id;
                     active_dialog_cache.dialog_id_authoritative = false;
+                    emit_sent_choice = true;
                 }
-                Dialog::AppendDialogCallbackJournalEntry(
-                    tick,
-                    static_cast<uint32_t>(message_id),
-                    false,
-                    "sent_choice",
-                    selected_id,
-                    context_dialog_id,
-                    context_agent_id,
-                    true,
-                    context_dialog_id != 0,
-                    sent_text
-                );
+                if (emit_sent_choice) {
+                    Dialog::AppendDialogCallbackJournalEntry(
+                        tick,
+                        static_cast<uint32_t>(message_id),
+                        false,
+                        "sent_choice",
+                        selected_id,
+                        context_dialog_id,
+                        context_agent_id,
+                        true,
+                        context_dialog_id != 0,
+                        sent_text
+                    );
+                }
             } break;
             default:
                 break;
@@ -759,17 +941,20 @@ void Dialog::RegisterDialogUiHooks() {
         CopyBytesSafe(wparam, wparam_size, entry.w_bytes);
         CopyBytesSafe(lparam, lparam_size, entry.l_bytes);
         std::scoped_lock lock(dialog_mutex);
-        dialog_event_logs.push_back(std::move(entry));
-        if (dialog_event_logs.size() > kMaxDialogEventLogs) {
-            const size_t overflow = dialog_event_logs.size() - kMaxDialogEventLogs;
-            dialog_event_logs.erase(dialog_event_logs.begin(),
-                dialog_event_logs.begin() + overflow);
-        }
-        auto& dir_logs = incoming ? dialog_event_logs_received : dialog_event_logs_sent;
-        dir_logs.push_back(dialog_event_logs.back());
-        if (dir_logs.size() > kMaxDialogEventLogs) {
-            const size_t overflow = dir_logs.size() - kMaxDialogEventLogs;
-            dir_logs.erase(dir_logs.begin(), dir_logs.begin() + overflow);
+        try {
+            dialog_event_logs.push_back(std::move(entry));
+            if (dialog_event_logs.size() > kMaxDialogEventLogs) {
+                const size_t overflow = dialog_event_logs.size() - kMaxDialogEventLogs;
+                dialog_event_logs.erase(dialog_event_logs.begin(),
+                    dialog_event_logs.begin() + overflow);
+            }
+            auto& dir_logs = incoming ? dialog_event_logs_received : dialog_event_logs_sent;
+            dir_logs.push_back(dialog_event_logs.back());
+            if (dir_logs.size() > kMaxDialogEventLogs) {
+                const size_t overflow = dir_logs.size() - kMaxDialogEventLogs;
+                dir_logs.erase(dir_logs.begin(), dir_logs.begin() + overflow);
+            }
+        } catch (...) {
         }
     }
 
@@ -796,24 +981,31 @@ void Dialog::RegisterDialogUiHooks() {
         entry.model_id = GetAgentModelIdSafe(agent_id);
         entry.dialog_id_authoritative = dialog_id_authoritative;
         entry.context_dialog_id_inferred = context_dialog_id_inferred;
-        entry.npc_uid = BuildNpcUid(entry.map_id, entry.model_id, agent_id);
-        entry.event_type = event_type ? event_type : "";
-        entry.text = text;
-
-        std::scoped_lock lock(dialog_mutex);
-        dialog_callback_journal.push_back(entry);
-        if (dialog_callback_journal.size() > kMaxDialogCallbackJournal) {
-            const size_t overflow = dialog_callback_journal.size() - kMaxDialogCallbackJournal;
-            dialog_callback_journal.erase(
-                dialog_callback_journal.begin(),
-                dialog_callback_journal.begin() + overflow);
+        try {
+            entry.npc_uid = BuildNpcUid(entry.map_id, entry.model_id, agent_id);
+            entry.event_type = event_type ? event_type : "";
+            entry.text = text;
+        } catch (...) {
+            return;
         }
 
-        auto& dir_logs = incoming ? dialog_callback_journal_received : dialog_callback_journal_sent;
-        dir_logs.push_back(std::move(entry));
-        if (dir_logs.size() > kMaxDialogCallbackJournal) {
-            const size_t overflow = dir_logs.size() - kMaxDialogCallbackJournal;
-            dir_logs.erase(dir_logs.begin(), dir_logs.begin() + overflow);
+        std::scoped_lock lock(dialog_mutex);
+        try {
+            dialog_callback_journal.push_back(entry);
+            if (dialog_callback_journal.size() > kMaxDialogCallbackJournal) {
+                const size_t overflow = dialog_callback_journal.size() - kMaxDialogCallbackJournal;
+                dialog_callback_journal.erase(
+                    dialog_callback_journal.begin(),
+                    dialog_callback_journal.begin() + overflow);
+            }
+
+            auto& dir_logs = incoming ? dialog_callback_journal_received : dialog_callback_journal_sent;
+            dir_logs.push_back(std::move(entry));
+            if (dir_logs.size() > kMaxDialogCallbackJournal) {
+                const size_t overflow = dir_logs.size() - kMaxDialogCallbackJournal;
+                dir_logs.erase(dir_logs.begin(), dir_logs.begin() + overflow);
+            }
+        } catch (...) {
         }
     }
 
@@ -936,7 +1128,15 @@ void __cdecl Dialog::OnDialogBodyDecoded(void* param, const wchar_t* s) {
     if (!req) {
         return;
     }
-    const std::string decoded_text = WideToUtf8Safe(s);
+    wchar_t* decoded_copy = DupWideStringSafe(s);
+    std::wstring decoded_w;
+    if (decoded_copy) {
+        try {
+            decoded_w.assign(decoded_copy);
+        } catch (...) {
+        }
+    }
+    const std::string decoded_text = decoded_copy ? WideToUtf8Safe(decoded_copy) : std::string{};
     bool append_journal = false;
     {
         std::scoped_lock lock(dialog_mutex);
@@ -947,11 +1147,15 @@ void __cdecl Dialog::OnDialogBodyDecoded(void* param, const wchar_t* s) {
             append_journal = true;
             if (active_dialog_cache.agent_id == req->agent_id &&
                 active_dialog_body_decode_nonce == req->decode_nonce) {
-                active_dialog_cache.message = s ? s : L"";
+                try {
+                    active_dialog_cache.message = decoded_w;
+                } catch (...) {
+                }
             }
         }
     }
     dialog_async_decode_drained.notify_all();
+    delete[] decoded_copy;
     if (append_journal) {
         Dialog::AppendDialogCallbackJournalEntry(
             req->tick,
@@ -966,8 +1170,7 @@ void __cdecl Dialog::OnDialogBodyDecoded(void* param, const wchar_t* s) {
             decoded_text
         );
     }
-    delete[] req->encoded;
-    delete req;
+    ReleaseDialogBodyDecodeRequest(req);
 }
 
 void __cdecl Dialog::OnDialogButtonDecoded(void* param, const wchar_t* s) {
@@ -975,7 +1178,8 @@ void __cdecl Dialog::OnDialogButtonDecoded(void* param, const wchar_t* s) {
     if (!req) {
         return;
     }
-    const std::string decoded_label = WideToUtf8Safe(s);
+    wchar_t* decoded_copy = DupWideStringSafe(s);
+    const std::string decoded_label = decoded_copy ? WideToUtf8Safe(decoded_copy) : std::string{};
     bool append_journal = false;
     {
         std::scoped_lock lock(dialog_mutex);
@@ -983,12 +1187,17 @@ void __cdecl Dialog::OnDialogButtonDecoded(void* param, const wchar_t* s) {
             --pending_async_decode_count;
         }
         if (!dialog_shutdown_requested && req->decode_epoch == decode_epoch) {
-            decoded_button_label_cache[req->dialog_id] = decoded_label;
-            decoded_button_label_pending[req->dialog_id] = false;
-            append_journal = true;
+            try {
+                decoded_button_label_cache[req->dialog_id] = decoded_label;
+                decoded_button_label_pending.erase(req->dialog_id);
+                append_journal = true;
+            } catch (...) {
+                decoded_button_label_pending.erase(req->dialog_id);
+            }
         }
     }
     dialog_async_decode_drained.notify_all();
+    delete[] decoded_copy;
     if (append_journal) {
         Dialog::AppendDialogCallbackJournalEntry(
             req->tick,
@@ -1003,8 +1212,7 @@ void __cdecl Dialog::OnDialogButtonDecoded(void* param, const wchar_t* s) {
             decoded_label
         );
     }
-    delete[] req->encoded;
-    delete req;
+    ReleaseDialogButtonDecodeRequest(req);
 }
 
 ActiveDialogInfo Dialog::ReadActiveDialog() {
