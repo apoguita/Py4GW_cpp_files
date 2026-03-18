@@ -19,7 +19,9 @@ struct DialogInfo {
 
 struct ActiveDialogInfo {
     uint32_t dialog_id = 0;
+    uint32_t context_dialog_id = 0;
     uint32_t agent_id = 0;
+    bool dialog_id_authoritative = false;
     std::wstring message = L"";
 };
 
@@ -56,6 +58,8 @@ struct DialogCallbackJournalEntry {
     uint32_t agent_id = 0;
     uint32_t map_id = 0;
     uint32_t model_id = 0;
+    bool dialog_id_authoritative = false;
+    bool context_dialog_id_inferred = false;
     std::string npc_uid = "";
     std::string event_type = "";
     std::string text = "";
@@ -123,15 +127,6 @@ public:
     static void ClearCache();
 
 private:
-    static void QueueDialogTextDecode(uint32_t dialog_id);
-
-    static uint32_t ReadDialogFlags(uint32_t dialog_id);
-    static uint32_t ReadDialogFrameType(uint32_t dialog_id);
-    static uint32_t ReadDialogEventHandler(uint32_t dialog_id);
-    static uint32_t ReadDialogContentId(uint32_t dialog_id);
-    static uint32_t ReadDialogPropertyId(uint32_t dialog_id);
-    static uint8_t ReadDialogConfigType(uint32_t dialog_id);
-    static void* ReadDialogProperties(uint32_t dialog_id);
     static ActiveDialogInfo ReadActiveDialog();
 
     static void RegisterDialogUiHooks();
@@ -155,6 +150,8 @@ private:
         uint32_t dialog_id,
         uint32_t context_dialog_id,
         uint32_t agent_id,
+        bool dialog_id_authoritative,
+        bool context_dialog_id_inferred,
         const std::string& text);
 
     static void OnDialogUIMessage(
@@ -162,12 +159,9 @@ private:
         GW::UI::UIMessage message_id,
         void* wparam,
         void* lparam);
-    static void __cdecl OnDialogTextDecoded(void* param, const wchar_t* s);
     static void __cdecl OnDialogBodyDecoded(void* param, const wchar_t* s);
     static void __cdecl OnDialogButtonDecoded(void* param, const wchar_t* s);
 
-    static std::unordered_map<uint32_t, std::string> decoded_text_cache;
-    static std::unordered_map<uint32_t, bool> decoded_text_pending;
     static std::mutex dialog_mutex;
     static ActiveDialogInfo active_dialog_cache;
     static std::vector<DialogButtonInfo> active_dialog_buttons;

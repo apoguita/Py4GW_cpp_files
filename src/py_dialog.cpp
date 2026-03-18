@@ -15,22 +15,6 @@
 using namespace pybind11;
 
 namespace {
-    constexpr uintptr_t kGwImageBase = 0x00400000;
-
-    uintptr_t ToRuntimeAddress(uintptr_t va) {
-        static uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
-        if (!base) {
-            return va;
-        }
-        return base + (va - kGwImageBase);
-    }
-
-    void LogMemoryReadFailure(const char* label, uintptr_t address) {
-        char buffer[256];
-        std::snprintf(buffer, sizeof(buffer), "[Dialog] Failed to read %s at 0x%08X", label, static_cast<uint32_t>(address));
-        Logger::LogStaticInfo(buffer);
-    }
-
     std::string WideToUtf8Safe(const wchar_t* wstr) {
         if (!wstr) {
             return {};
@@ -41,19 +25,6 @@ namespace {
         }
         std::string out(static_cast<size_t>(len - 1), '\0');
         WideCharToMultiByte(CP_UTF8, 0, wstr, -1, out.data(), len, nullptr, nullptr);
-        return out;
-    }
-
-    std::wstring Utf8ToWide(const std::string& str) {
-        if (str.empty()) {
-            return {};
-        }
-        int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
-        if (len <= 0) {
-            return {};
-        }
-        std::wstring out(static_cast<size_t>(len - 1), L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, out.data(), len);
         return out;
     }
 
@@ -93,85 +64,26 @@ namespace {
         return std::string(buffer);
     }
 
-    bool TryReadU32(uintptr_t address, uint32_t& out, const char* label) {
-        __try {
-            out = *reinterpret_cast<uint32_t*>(address);
-            return true;
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            out = 0;
-            LogMemoryReadFailure(label, address);
-            return false;
-        }
-    }
+    struct DialogBodyDecodeRequest {
+        uint64_t tick = 0;
+        uint32_t message_id = 0;
+        uint32_t dialog_id = 0;
+        uint32_t agent_id = 0;
+        uint32_t context_dialog_id = 0;
+        uint64_t decode_epoch = 0;
+        uint64_t decode_nonce = 0;
+        wchar_t* encoded = nullptr;
+    };
 
-    bool TryReadU8(uintptr_t address, uint8_t& out, const char* label) {
-        __try {
-            out = *reinterpret_cast<uint8_t*>(address);
-            return true;
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            out = 0;
-            LogMemoryReadFailure(label, address);
-            return false;
-        }
-    }
-
-    bool TryReadPtr(uintptr_t address, void*& out, const char* label) {
-        __try {
-            out = *reinterpret_cast<void**>(address);
-            return true;
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            out = nullptr;
-            LogMemoryReadFailure(label, address);
-            return false;
-        }
-    }
-
-    bool TryReadU32NoLog(uintptr_t address, uint32_t& out) {
-        __try {
-            out = *reinterpret_cast<uint32_t*>(address);
-            return true;
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            out = 0;
-            return false;
-        }
-    }
-
-    bool TryReadU8NoLog(uintptr_t address, uint8_t& out) {
-        __try {
-            out = *reinterpret_cast<uint8_t*>(address);
-            return true;
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            out = 0;
-            return false;
-        }
-    }
-
-struct DialogDecodeRequest {
-    uint32_t dialog_id = 0;
-    uint64_t decode_epoch = 0;
-    wchar_t* encoded = nullptr;
-};
-
-struct DialogBodyDecodeRequest {
-    uint64_t tick = 0;
-    uint32_t message_id = 0;
-    uint32_t dialog_id = 0;
-    uint32_t agent_id = 0;
-    uint32_t context_dialog_id = 0;
-    uint64_t decode_epoch = 0;
-    uint64_t decode_nonce = 0;
-    wchar_t* encoded = nullptr;
-};
-
-struct DialogButtonDecodeRequest {
-    uint64_t tick = 0;
-    uint32_t message_id = 0;
-    uint32_t dialog_id = 0;
-    uint32_t context_dialog_id = 0;
-    uint32_t agent_id = 0;
-    uint64_t decode_epoch = 0;
-    wchar_t* encoded = nullptr;
-};
+    struct DialogButtonDecodeRequest {
+        uint64_t tick = 0;
+        uint32_t message_id = 0;
+        uint32_t dialog_id = 0;
+        uint32_t context_dialog_id = 0;
+        uint32_t agent_id = 0;
+        uint64_t decode_epoch = 0;
+        wchar_t* encoded = nullptr;
+    };
 
     bool SafeIsValidEncStr(const wchar_t* enc_str) {
         __try {
@@ -181,7 +93,7 @@ struct DialogButtonDecodeRequest {
         }
     }
 
-wchar_t* DupWideStringSafe(const wchar_t* src) {
+    wchar_t* DupWideStringSafe(const wchar_t* src) {
         if (!src) {
             return nullptr;
         }
@@ -193,396 +105,9 @@ wchar_t* DupWideStringSafe(const wchar_t* src) {
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             return nullptr;
         }
-}
-
-    void* SafeCallDialogLoader_GetText(DialogMemory::DialogLoader_GetText_fn fn, uint32_t dialog_id) {
-        void* result = nullptr;
-        __try {
-            result = fn(dialog_id);
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            result = nullptr;
-        }
-        return result;
     }
-
-    DialogMemory::DialogLoader_GetText_fn ResolveDialogLoaderGetText() {
-        static DialogMemory::DialogLoader_GetText_fn cached = nullptr;
-        if (cached) {
-            return cached;
-        }
-
-        cached = reinterpret_cast<DialogMemory::DialogLoader_GetText_fn>(
-            ToRuntimeAddress(DialogMemory::DIALOG_LOADER_GETTEXT));
-
-        return cached;
-    }
-
-    struct SectionRange {
-        uintptr_t start = 0;
-        uintptr_t end = 0;
-        bool valid() const { return start && end && end > start; }
-    };
-
-    bool GetModuleInfo(uintptr_t& base, size_t& size) {
-        HMODULE module = GetModuleHandleW(nullptr);
-        if (!module) {
-            base = 0;
-            size = 0;
-            return false;
-        }
-        base = reinterpret_cast<uintptr_t>(module);
-        auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
-        if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
-            size = 0;
-            return false;
-        }
-        auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
-        if (nt->Signature != IMAGE_NT_SIGNATURE) {
-            size = 0;
-            return false;
-        }
-        size = nt->OptionalHeader.SizeOfImage;
-        return true;
-    }
-
-    SectionRange GetSectionRange(const char* name) {
-        SectionRange out{};
-        uintptr_t base = 0;
-        size_t size = 0;
-        if (!GetModuleInfo(base, size)) {
-            return out;
-        }
-        auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
-        auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
-        auto* sections = IMAGE_FIRST_SECTION(nt);
-        for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
-            const auto& sec = sections[i];
-            char sec_name[9] = {};
-            std::memcpy(sec_name, sec.Name, 8);
-            if (std::strncmp(sec_name, name, 8) == 0) {
-                uintptr_t start = base + sec.VirtualAddress;
-                uintptr_t end = start + std::max(sec.Misc.VirtualSize, sec.SizeOfRawData);
-                out.start = start;
-                out.end = end;
-                return out;
-            }
-        }
-        return out;
-    }
-
-    struct DialogTableAddrs {
-        uintptr_t flags_base = 0;
-        uintptr_t frame_type_base = 0;
-        uintptr_t event_handler_base = 0;
-        uintptr_t content_id_base = 0;
-        uintptr_t property_id_base = 0;
-        uintptr_t button_ids_base = 0;
-        uintptr_t config_table = 0;
-        uintptr_t property_table = 0;
-        bool resolved = false;
-    };
 
     constexpr auto kDialogAsyncDrainTimeout = std::chrono::milliseconds(500);
-
-    uintptr_t ResolveConfigTable(const SectionRange& rdata) {
-        if (!rdata.valid()) {
-            return 0;
-        }
-        const size_t count = DialogMemory::MAX_DIALOG_ID + 1;
-        for (uintptr_t addr = rdata.start; addr + count <= rdata.end; ++addr) {
-            size_t non_zero = 0;
-            bool ok = true;
-            for (size_t i = 0; i < count; ++i) {
-                uint8_t val = 0;
-                if (!TryReadU8NoLog(addr + i, val)) {
-                    ok = false;
-                    break;
-                }
-                if (val > 7) {
-                    ok = false;
-                    break;
-                }
-                if (val != 0) {
-                    non_zero++;
-                }
-            }
-            if (ok && non_zero > 0) {
-                return addr;
-            }
-        }
-        return 0;
-    }
-
-    uintptr_t ResolveFlagsBase(const SectionRange& rdata, const SectionRange& text) {
-        if (!rdata.valid() || !text.valid()) {
-            return 0;
-        }
-        const size_t count = DialogMemory::MAX_DIALOG_ID + 1;
-        const size_t stride = DialogMemory::FLAGS_STRIDE;
-        const uintptr_t start = rdata.start + 8; // allow event handler base at -8
-        const uintptr_t end = rdata.end - (count * stride);
-        for (uintptr_t addr = start; addr + count * stride <= end; addr += 4) {
-            bool ok = true;
-            size_t enabled = 0;
-            for (size_t i = 0; i < count; ++i) {
-                uint32_t flags = 0;
-                if (!TryReadU32NoLog(addr + i * stride, flags)) {
-                    ok = false;
-                    break;
-                }
-                if (flags > 0xFFFF) {
-                    ok = false;
-                    break;
-                }
-                if (flags & 0x1) {
-                    enabled++;
-                }
-                uint32_t handler = 0;
-                if (!TryReadU32NoLog(addr - 8 + i * stride, handler)) {
-                    ok = false;
-                    break;
-                }
-                if (handler != 0 && (handler < text.start || handler >= text.end)) {
-                    ok = false;
-                    break;
-                }
-            }
-            if (ok && enabled > 0) {
-                return addr;
-            }
-        }
-        return 0;
-    }
-
-    uintptr_t ResolvePropertyTable(const SectionRange& data, uintptr_t module_base, size_t module_size) {
-        if (!data.valid() || !module_base || !module_size) {
-            return 0;
-        }
-        const size_t count = DialogMemory::MAX_DIALOG_ID + 1;
-        const uintptr_t end = data.end - (count * 8);
-        for (uintptr_t addr = data.start; addr + count * 8 <= end; addr += 4) {
-            bool ok = true;
-            size_t non_zero = 0;
-            for (size_t i = 0; i < count; ++i) {
-                uint32_t ptr = 0;
-                if (!TryReadU32NoLog(addr + i * 8, ptr)) {
-                    ok = false;
-                    break;
-                }
-                if (ptr == 0) {
-                    continue;
-                }
-                if (ptr < module_base || ptr >= (module_base + module_size)) {
-                    ok = false;
-                    break;
-                }
-                non_zero++;
-            }
-            if (ok && non_zero > 0) {
-                return addr;
-            }
-        }
-        return 0;
-    }
-
-    bool ValidateDialogConfigTable(uintptr_t config_table) {
-        if (!config_table) {
-            return false;
-        }
-        const size_t count = DialogMemory::MAX_DIALOG_ID + 1;
-        size_t non_zero = 0;
-        for (size_t i = 0; i < count; ++i) {
-            uint8_t val = 0;
-            if (!TryReadU8NoLog(config_table + i, val)) {
-                return false;
-            }
-            if (val > 7) {
-                return false;
-            }
-            if (val != 0) {
-                non_zero++;
-            }
-        }
-        return non_zero > 0;
-    }
-
-    bool ValidateDialogMetadataBases(
-        uintptr_t flags_base,
-        uintptr_t frame_type_base,
-        uintptr_t event_handler_base,
-        uintptr_t content_id_base,
-        uintptr_t property_id_base,
-        const SectionRange& text) {
-        if (!flags_base || !frame_type_base || !event_handler_base || !content_id_base || !property_id_base || !text.valid()) {
-            return false;
-        }
-        const size_t count = DialogMemory::MAX_DIALOG_ID + 1;
-        size_t enabled = 0;
-        for (size_t i = 0; i < count; ++i) {
-            const uintptr_t offset = i * DialogMemory::FLAGS_STRIDE;
-            uint32_t flags = 0;
-            uint32_t handler = 0;
-            uint32_t frame_type = 0;
-            uint32_t content_id = 0;
-            uint32_t property_id = 0;
-            if (!TryReadU32NoLog(flags_base + offset, flags) ||
-                !TryReadU32NoLog(event_handler_base + offset, handler) ||
-                !TryReadU32NoLog(frame_type_base + offset, frame_type) ||
-                !TryReadU32NoLog(content_id_base + i * DialogMemory::CONTENT_STRIDE, content_id) ||
-                !TryReadU32NoLog(property_id_base + i * DialogMemory::PROPERTY_STRIDE, property_id)) {
-                return false;
-            }
-            if (flags > 0xFFFF) {
-                return false;
-            }
-            if (handler != 0 && (handler < text.start || handler >= text.end)) {
-                return false;
-            }
-            if (flags & 0x1) {
-                enabled++;
-            }
-        }
-        return enabled > 0;
-    }
-
-    bool ValidateDialogPropertyTable(uintptr_t property_table, uintptr_t module_base, size_t module_size) {
-        if (!property_table || !module_base || !module_size) {
-            return false;
-        }
-        const size_t count = DialogMemory::MAX_DIALOG_ID + 1;
-        size_t non_zero = 0;
-        for (size_t i = 0; i < count; ++i) {
-            uint32_t ptr = 0;
-            if (!TryReadU32NoLog(property_table + i * 8, ptr)) {
-                return false;
-            }
-            if (ptr == 0) {
-                continue;
-            }
-            if (ptr < module_base || ptr >= (module_base + module_size)) {
-                return false;
-            }
-            non_zero++;
-        }
-        return non_zero > 0;
-    }
-
-    DialogTableAddrs BuildStaticDialogTables(const SectionRange& text, uintptr_t module_base, size_t module_size) {
-        DialogTableAddrs tables{};
-        tables.flags_base = ToRuntimeAddress(DialogMemory::FLAGS_BASE);
-        tables.frame_type_base = ToRuntimeAddress(DialogMemory::FRAME_TYPE_BASE);
-        tables.event_handler_base = ToRuntimeAddress(DialogMemory::EVENT_HANDLER_BASE);
-        tables.content_id_base = ToRuntimeAddress(DialogMemory::CONTENT_ID_BASE);
-        tables.property_id_base = ToRuntimeAddress(DialogMemory::PROPERTY_ID_BASE);
-        tables.button_ids_base = ToRuntimeAddress(DialogMemory::BUTTON_IDS_BASE);
-        tables.config_table = ToRuntimeAddress(DialogMemory::CONFIG_TABLE);
-        tables.property_table = ToRuntimeAddress(DialogMemory::PROPERTY_TABLE);
-
-        if (!ValidateDialogMetadataBases(
-                tables.flags_base,
-                tables.frame_type_base,
-                tables.event_handler_base,
-                tables.content_id_base,
-                tables.property_id_base,
-                text)) {
-            tables.flags_base = 0;
-            tables.frame_type_base = 0;
-            tables.event_handler_base = 0;
-            tables.content_id_base = 0;
-            tables.property_id_base = 0;
-            tables.button_ids_base = 0;
-        }
-        if (!ValidateDialogConfigTable(tables.config_table)) {
-            tables.config_table = 0;
-        }
-        if (!ValidateDialogPropertyTable(tables.property_table, module_base, module_size)) {
-            tables.property_table = 0;
-        }
-        return tables;
-    }
-
-    DialogTableAddrs BuildResolvedDialogTables(
-        const SectionRange& rdata,
-        const SectionRange& data,
-        const SectionRange& text,
-        uintptr_t module_base,
-        size_t module_size) {
-        DialogTableAddrs tables{};
-        tables.config_table = ResolveConfigTable(rdata);
-        tables.flags_base = ResolveFlagsBase(rdata, text);
-        if (tables.flags_base) {
-            tables.event_handler_base = tables.flags_base - 0x8;
-            tables.frame_type_base = tables.flags_base - 0x4;
-            tables.content_id_base = tables.flags_base + 0x4;
-            tables.property_id_base = tables.flags_base + 0x8;
-            tables.button_ids_base = tables.flags_base + 0x10;
-        }
-        tables.property_table = ResolvePropertyTable(data, module_base, module_size);
-
-        if (!ValidateDialogMetadataBases(
-                tables.flags_base,
-                tables.frame_type_base,
-                tables.event_handler_base,
-                tables.content_id_base,
-                tables.property_id_base,
-                text)) {
-            tables.flags_base = 0;
-            tables.frame_type_base = 0;
-            tables.event_handler_base = 0;
-            tables.content_id_base = 0;
-            tables.property_id_base = 0;
-            tables.button_ids_base = 0;
-        }
-        if (!ValidateDialogConfigTable(tables.config_table)) {
-            tables.config_table = 0;
-        }
-        if (!ValidateDialogPropertyTable(tables.property_table, module_base, module_size)) {
-            tables.property_table = 0;
-        }
-        return tables;
-    }
-
-    DialogTableAddrs& GetDialogTables() {
-        static DialogTableAddrs tables;
-        if (tables.resolved) {
-            return tables;
-        }
-        tables.resolved = true;
-
-        uintptr_t module_base = 0;
-        size_t module_size = 0;
-        GetModuleInfo(module_base, module_size);
-
-        SectionRange rdata = GetSectionRange(".rdata");
-        SectionRange data = GetSectionRange(".data");
-        SectionRange text = GetSectionRange(".text");
-
-        tables = BuildStaticDialogTables(text, module_base, module_size);
-        if (!tables.flags_base || !tables.config_table || !tables.property_table) {
-            DialogTableAddrs resolved = BuildResolvedDialogTables(rdata, data, text, module_base, module_size);
-            if (!tables.flags_base) {
-                tables.flags_base = resolved.flags_base;
-                tables.frame_type_base = resolved.frame_type_base;
-                tables.event_handler_base = resolved.event_handler_base;
-                tables.content_id_base = resolved.content_id_base;
-                tables.property_id_base = resolved.property_id_base;
-                tables.button_ids_base = resolved.button_ids_base;
-            }
-            if (!tables.config_table) {
-                tables.config_table = resolved.config_table;
-            }
-            if (!tables.property_table) {
-                tables.property_table = resolved.property_table;
-            }
-        }
-        tables.resolved = true;
-
-        if (!tables.flags_base || !tables.config_table) {
-            Logger::LogStaticInfo("[Dialog] Dialog table resolution incomplete. Some dialog metadata may be unavailable.");
-        }
-
-        return tables;
-    }
 
     constexpr size_t kMaxDialogEventLogs = 512;
     constexpr size_t kMaxDialogCallbackJournal = 1000;
@@ -621,7 +146,9 @@ void BindActiveDialogInfo(py::module_& m) {
     py::class_<ActiveDialogInfo>(m, "ActiveDialogInfo")
         .def(py::init<>())
         .def_readwrite("dialog_id", &ActiveDialogInfo::dialog_id)
+        .def_readwrite("context_dialog_id", &ActiveDialogInfo::context_dialog_id)
         .def_readwrite("agent_id", &ActiveDialogInfo::agent_id)
+        .def_readwrite("dialog_id_authoritative", &ActiveDialogInfo::dialog_id_authoritative)
         .def_readwrite("message", &ActiveDialogInfo::message);
 }
 
@@ -666,6 +193,8 @@ void BindDialogCallbackJournalEntry(py::module_& m) {
         .def_readwrite("agent_id", &DialogCallbackJournalEntry::agent_id)
         .def_readwrite("map_id", &DialogCallbackJournalEntry::map_id)
         .def_readwrite("model_id", &DialogCallbackJournalEntry::model_id)
+        .def_readwrite("dialog_id_authoritative", &DialogCallbackJournalEntry::dialog_id_authoritative)
+        .def_readwrite("context_dialog_id_inferred", &DialogCallbackJournalEntry::context_dialog_id_inferred)
         .def_readwrite("npc_uid", &DialogCallbackJournalEntry::npc_uid)
         .def_readwrite("event_type", &DialogCallbackJournalEntry::event_type)
         .def_readwrite("text", &DialogCallbackJournalEntry::text);
@@ -714,10 +243,8 @@ PYBIND11_EMBEDDED_MODULE(PyDialog, m) {
 }
 
 // Initialize static members
-std::unordered_map<uint32_t, std::string> Dialog::decoded_text_cache;
-std::unordered_map<uint32_t, bool> Dialog::decoded_text_pending;
 std::mutex Dialog::dialog_mutex;
-ActiveDialogInfo Dialog::active_dialog_cache = {0, 0, L""};
+ActiveDialogInfo Dialog::active_dialog_cache = {0, 0, 0, false, L""};
 std::vector<DialogButtonInfo> Dialog::active_dialog_buttons;
 std::unordered_map<uint32_t, std::string> Dialog::decoded_button_label_cache;
 std::unordered_map<uint32_t, bool> Dialog::decoded_button_label_pending;
@@ -752,7 +279,7 @@ void Dialog::Initialize() {
     RegisterDialogUiHooks();
 }
 
-    void Dialog::Terminate() {
+void Dialog::Terminate() {
     {
         std::scoped_lock lock(dialog_mutex);
         dialog_shutdown_requested = true;
@@ -773,27 +300,27 @@ void Dialog::Initialize() {
     DialogCatalog::Terminate();
 }
 
-    // ================= Synchronous Methods (Direct Memory Access) =================
+// ================= Synchronous Methods (Direct Memory Access) =================
 
-    bool Dialog::IsDialogAvailable(uint32_t dialog_id) {
-        return DialogCatalog::IsDialogAvailable(dialog_id);
-    }
+bool Dialog::IsDialogAvailable(uint32_t dialog_id) {
+    return DialogCatalog::IsDialogAvailable(dialog_id);
+}
 
-    DialogInfo Dialog::GetDialogInfo(uint32_t dialog_id) {
-        return DialogCatalog::GetDialogInfo(dialog_id);
-    }
+DialogInfo Dialog::GetDialogInfo(uint32_t dialog_id) {
+    return DialogCatalog::GetDialogInfo(dialog_id);
+}
 
-    uint32_t Dialog::GetLastSelectedDialogId() {
-        std::scoped_lock lock(dialog_mutex);
-        return last_selected_dialog_id;
-    }
+uint32_t Dialog::GetLastSelectedDialogId() {
+    std::scoped_lock lock(dialog_mutex);
+    return last_selected_dialog_id;
+}
 
-    ActiveDialogInfo Dialog::GetActiveDialog() {
-        return ReadActiveDialog();
-    }
+ActiveDialogInfo Dialog::GetActiveDialog() {
+    return ReadActiveDialog();
+}
 
-    std::vector<DialogButtonInfo> Dialog::GetActiveDialogButtons() {
-        std::vector<DialogButtonInfo> out;
+std::vector<DialogButtonInfo> Dialog::GetActiveDialogButtons() {
+    std::vector<DialogButtonInfo> out;
         {
             std::scoped_lock lock(dialog_mutex);
             out = active_dialog_buttons;
@@ -840,10 +367,14 @@ void Dialog::Initialize() {
         return frame->IsCreated() && frame->IsVisible();
     }
 
-    bool Dialog::IsDialogDisplayed(uint32_t dialog_id) {
-        std::scoped_lock lock(dialog_mutex);
-        return dialog_id != 0 && active_dialog_cache.dialog_id == dialog_id;
+bool Dialog::IsDialogDisplayed(uint32_t dialog_id) {
+    std::scoped_lock lock(dialog_mutex);
+    if (dialog_id == 0) {
+        return false;
     }
+    return active_dialog_cache.dialog_id == dialog_id ||
+        active_dialog_cache.context_dialog_id == dialog_id;
+}
 
     std::vector<DialogInfo> Dialog::EnumerateAvailableDialogs() {
         return DialogCatalog::EnumerateAvailableDialogs();
@@ -853,72 +384,36 @@ std::string Dialog::GetDialogTextDecoded(uint32_t dialog_id) {
     return DialogCatalog::GetDialogTextDecoded(dialog_id);
 }
 
-    bool Dialog::IsDialogTextDecodePending(uint32_t dialog_id) {
-        return DialogCatalog::IsDialogTextDecodePending(dialog_id);
-    }
+bool Dialog::IsDialogTextDecodePending(uint32_t dialog_id) {
+    return DialogCatalog::IsDialogTextDecodePending(dialog_id);
+}
 
-    std::vector<DialogTextDecodedInfo> Dialog::GetDecodedDialogTextStatus() {
-        return DialogCatalog::GetDecodedDialogTextStatus();
-    }
+std::vector<DialogTextDecodedInfo> Dialog::GetDecodedDialogTextStatus() {
+    return DialogCatalog::GetDecodedDialogTextStatus();
+}
 
-    void Dialog::ClearCache() {
-        std::scoped_lock lock(dialog_mutex);
-        active_dialog_cache = {0, 0, L""};
-        active_dialog_buttons.clear();
-        last_dialog_id = 0;
-        last_selected_dialog_id = 0;
-        pending_body_context_dialog_id = 0;
-        pending_body_context_agent_id = 0;
-        decoded_text_cache.clear();
-        decoded_text_pending.clear();
-        decoded_button_label_cache.clear();
-        decoded_button_label_pending.clear();
-        dialog_event_logs.clear();
-        dialog_event_logs_received.clear();
-        dialog_event_logs_sent.clear();
-        dialog_callback_journal.clear();
-        dialog_callback_journal_received.clear();
-        dialog_callback_journal_sent.clear();
-        ++decode_epoch;
-        ++active_dialog_body_decode_nonce;
-        DialogCatalog::ClearCache();
-    }
+void Dialog::ClearCache() {
+    std::scoped_lock lock(dialog_mutex);
+    active_dialog_cache = {0, 0, 0, false, L""};
+    active_dialog_buttons.clear();
+    last_dialog_id = 0;
+    last_selected_dialog_id = 0;
+    pending_body_context_dialog_id = 0;
+    pending_body_context_agent_id = 0;
+    decoded_button_label_cache.clear();
+    decoded_button_label_pending.clear();
+    dialog_event_logs.clear();
+    dialog_event_logs_received.clear();
+    dialog_event_logs_sent.clear();
+    dialog_callback_journal.clear();
+    dialog_callback_journal_received.clear();
+    dialog_callback_journal_sent.clear();
+    ++decode_epoch;
+    ++active_dialog_body_decode_nonce;
+    DialogCatalog::ClearCache();
+}
 
-    void Dialog::QueueDialogTextDecode(uint32_t dialog_id) {
-        static_cast<void>(DialogCatalog::GetDialogTextDecoded(dialog_id));
-    }
-
-    // ================= Internal Memory Access Functions =================
-
-    uint32_t Dialog::ReadDialogFlags(uint32_t dialog_id) {
-        return DialogCatalog::ReadDialogFlags(dialog_id);
-    }
-
-    uint32_t Dialog::ReadDialogFrameType(uint32_t dialog_id) {
-        return DialogCatalog::ReadDialogFrameType(dialog_id);
-    }
-
-    uint32_t Dialog::ReadDialogEventHandler(uint32_t dialog_id) {
-        return DialogCatalog::ReadDialogEventHandler(dialog_id);
-    }
-
-    uint32_t Dialog::ReadDialogContentId(uint32_t dialog_id) {
-        return DialogCatalog::ReadDialogContentId(dialog_id);
-    }
-
-    uint32_t Dialog::ReadDialogPropertyId(uint32_t dialog_id) {
-        return DialogCatalog::ReadDialogPropertyId(dialog_id);
-    }
-
-    uint8_t Dialog::ReadDialogConfigType(uint32_t dialog_id) {
-        return DialogCatalog::ReadDialogConfigType(dialog_id);
-    }
-
-    void* Dialog::ReadDialogProperties(uint32_t dialog_id) {
-        return DialogCatalog::ReadDialogProperties(dialog_id);
-    }
-
-    void Dialog::RegisterDialogUiHooks() {
+void Dialog::RegisterDialogUiHooks() {
         {
             std::scoped_lock lock(dialog_mutex);
             if (dialog_hook_registered) {
@@ -985,7 +480,9 @@ std::string Dialog::GetDialogTextDecoded(uint32_t dialog_id) {
                 uint64_t request_epoch = 0;
                 {
                     std::scoped_lock lock(dialog_mutex);
-                    context_dialog_id = active_dialog_cache.dialog_id;
+                    context_dialog_id = active_dialog_cache.context_dialog_id
+                        ? active_dialog_cache.context_dialog_id
+                        : active_dialog_cache.dialog_id;
                     context_agent_id = active_dialog_cache.agent_id;
                     request_epoch = decode_epoch;
                 }
@@ -1068,6 +565,8 @@ std::string Dialog::GetDialogTextDecoded(uint32_t dialog_id) {
                             info->dialog_id,
                             context_dialog_id,
                             context_agent_id,
+                            true,
+                            context_dialog_id != 0,
                             label_utf8
                         );
                     }
@@ -1107,7 +606,9 @@ std::string Dialog::GetDialogTextDecoded(uint32_t dialog_id) {
                     }
                     pending_body_context_dialog_id = 0;
                     pending_body_context_agent_id = 0;
-                    active_dialog_cache.dialog_id = context_dialog_id;
+                    active_dialog_cache.dialog_id = 0;
+                    active_dialog_cache.context_dialog_id = context_dialog_id;
+                    active_dialog_cache.dialog_id_authoritative = false;
                     active_dialog_cache.message.clear();
                     active_dialog_buttons.clear();
                     request_epoch = decode_epoch;
@@ -1172,9 +673,11 @@ std::string Dialog::GetDialogTextDecoded(uint32_t dialog_id) {
                             static_cast<uint32_t>(message_id),
                             true,
                             "recv_body",
-                            context_dialog_id,
+                            0,
                             context_dialog_id,
                             info->agent_id,
+                            false,
+                            context_dialog_id != 0,
                             immediate_text
                         );
                     }
@@ -1199,7 +702,9 @@ std::string Dialog::GetDialogTextDecoded(uint32_t dialog_id) {
                 std::string sent_text;
                 {
                     std::scoped_lock lock(dialog_mutex);
-                    context_dialog_id = active_dialog_cache.dialog_id;
+                    context_dialog_id = active_dialog_cache.context_dialog_id
+                        ? active_dialog_cache.context_dialog_id
+                        : active_dialog_cache.dialog_id;
                     context_agent_id = active_dialog_cache.agent_id;
                     auto label_it = decoded_button_label_cache.find(selected_id);
                     if (label_it != decoded_button_label_cache.end()) {
@@ -1212,7 +717,9 @@ std::string Dialog::GetDialogTextDecoded(uint32_t dialog_id) {
                     last_dialog_id = selected_id;
                     pending_body_context_dialog_id = selected_id;
                     pending_body_context_agent_id = context_agent_id;
-                    active_dialog_cache.dialog_id = selected_id;
+                    active_dialog_cache.dialog_id = 0;
+                    active_dialog_cache.context_dialog_id = selected_id;
+                    active_dialog_cache.dialog_id_authoritative = false;
                 }
                 Dialog::AppendDialogCallbackJournalEntry(
                     tick,
@@ -1222,6 +729,8 @@ std::string Dialog::GetDialogTextDecoded(uint32_t dialog_id) {
                     selected_id,
                     context_dialog_id,
                     context_agent_id,
+                    true,
+                    context_dialog_id != 0,
                     sent_text
                 );
             } break;
@@ -1272,6 +781,8 @@ std::string Dialog::GetDialogTextDecoded(uint32_t dialog_id) {
         uint32_t dialog_id,
         uint32_t context_dialog_id,
         uint32_t agent_id,
+        bool dialog_id_authoritative,
+        bool context_dialog_id_inferred,
         const std::string& text
     ) {
         DialogCallbackJournalEntry entry{};
@@ -1283,6 +794,8 @@ std::string Dialog::GetDialogTextDecoded(uint32_t dialog_id) {
         entry.agent_id = agent_id;
         entry.map_id = GetCurrentMapIdSafe();
         entry.model_id = GetAgentModelIdSafe(agent_id);
+        entry.dialog_id_authoritative = dialog_id_authoritative;
+        entry.context_dialog_id_inferred = context_dialog_id_inferred;
         entry.npc_uid = BuildNpcUid(entry.map_id, entry.model_id, agent_id);
         entry.event_type = event_type ? event_type : "";
         entry.text = text;
@@ -1418,26 +931,6 @@ std::string Dialog::GetDialogTextDecoded(uint32_t dialog_id) {
         }
     }
 
-void __cdecl Dialog::OnDialogTextDecoded(void* param, const wchar_t* s) {
-    auto* req = static_cast<DialogDecodeRequest*>(param);
-    if (!req) {
-        return;
-    }
-    {
-        std::scoped_lock lock(dialog_mutex);
-        if (pending_async_decode_count > 0) {
-            --pending_async_decode_count;
-        }
-        if (!dialog_shutdown_requested && req->decode_epoch == decode_epoch) {
-            decoded_text_cache[req->dialog_id] = WideToUtf8Safe(s);
-            decoded_text_pending[req->dialog_id] = false;
-        }
-    }
-    dialog_async_decode_drained.notify_all();
-    delete[] req->encoded;
-    delete req;
-}
-
 void __cdecl Dialog::OnDialogBodyDecoded(void* param, const wchar_t* s) {
     auto* req = static_cast<DialogBodyDecodeRequest*>(param);
     if (!req) {
@@ -1465,9 +958,11 @@ void __cdecl Dialog::OnDialogBodyDecoded(void* param, const wchar_t* s) {
             req->message_id,
             true,
             "recv_body",
-            req->dialog_id,
+            0,
             req->context_dialog_id,
             req->agent_id,
+            false,
+            req->context_dialog_id != 0,
             decoded_text
         );
     }
@@ -1503,6 +998,8 @@ void __cdecl Dialog::OnDialogButtonDecoded(void* param, const wchar_t* s) {
             req->dialog_id,
             req->context_dialog_id,
             req->agent_id,
+            true,
+            req->context_dialog_id != 0,
             decoded_label
         );
     }
