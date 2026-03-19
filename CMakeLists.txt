@@ -1,11 +1,4 @@
 cmake_minimum_required(VERSION 3.16)
-
-# CMake 4.x drops compatibility modes that older vendored deps still request.
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-if(POLICY CMP0169)
-    cmake_policy(SET CMP0169 OLD)
-endif()
-
 project(Py4GW)
 
 # Set output directories

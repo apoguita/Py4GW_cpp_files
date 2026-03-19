@@ -61,28 +61,28 @@ cmake --build . --config RelWithDebInfo
 Copy the built DLL to the Py4GW Python project:
 
 ```powershell
-copy bin/RelWithDebInfo/Py4GW.dll ../Py4GW_python/
+copy bin/Release/Py4GW.dll ../Py4GW/
 ```
 
 ## Project Structure
 
-```text
+```
 Py4GW_cpp_files/
-|-- src/                    # C++ source files
-|   |-- dllmain.cpp         # DLL entry point
-|   |-- Py4GW.cpp           # Main pybind11 module
-|   `-- py_*.cpp            # Individual Python module bindings
-|-- include/                # Header files
-|-- vendor/
-|   `-- gwca/               # Guild Wars Client API
-|-- pybind11/               # Python/C++ binding library
-|-- bin/                    # Output directory
-`-- CMakeLists.txt          # Build configuration
+├── src/                    # C++ source files
+│   ├── dllmain.cpp         # DLL entry point
+│   ├── Py4GW.cpp           # Main pybind11 module
+│   └── py_*.cpp            # Individual Python module bindings
+├── include/                # Header files
+├── vendor/
+│   └── gwca/               # Guild Wars Client API
+├── pybind11/               # Python/C++ binding library
+├── bin/                    # Output directory
+└── CMakeLists.txt          # Build configuration
 ```
 
 ## Exposed Python Modules
 
-The DLL exposes embedded Python modules, including:
+The DLL exposes the following embedded Python modules:
 
 - `Py4GW` - Main module with Console and Game submodules
 - `PyAgent` - Agent/NPC management
@@ -90,9 +90,6 @@ The DLL exposes embedded Python modules, including:
 - `PyParty` - Party management
 - `PyMap` - World map access
 - `PySkill` / `PySkillbar` - Skill system
-- `PyDialog` - Live NPC dialog state, callbacks, journals, and decoded button/body capture
-- `PyDialogCatalog` - Static dialog catalog lookup and decode-status surface
-- `PySkillAccept` - Pending skill-offer inspection and accept/replace flows
 - `PyInventory` / `PyItem` - Item management
 - `PyImGui` - ImGui UI integration
 - `PyOverlay` / `Py2DRenderer` - Overlay rendering
@@ -103,19 +100,14 @@ The DLL exposes embedded Python modules, including:
 ## Troubleshooting
 
 ### "Python is 64-bit, chosen compiler is 32-bit"
-
 Make sure you're using Python 32-bit. Check with:
-
-```powershell
+```
 py -3.13-32 -c "import struct; print(struct.calcsize('P') * 8)"
 ```
-
 Should output `32`.
 
 ### Missing d3dx9.lib
-
 Follow step 1 above to download and install the D3DX9 libraries from the NuGet package.
 
-### Linker Errors for D3DX Functions
-
+### Linker errors for D3DX functions
 Ensure the D3DX9 libs are in `vendor/gwca/Dependencies/DirectX/Lib/x86/` and that `D3DX9_43.dll` is in the `bin/` directory.
