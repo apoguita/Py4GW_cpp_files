@@ -78,6 +78,8 @@ namespace {
         uint32_t message_id = 0;
         uint32_t agent_id = 0;
         uint32_t context_dialog_id = 0;
+        uint32_t map_id = 0;
+        uint32_t model_id = 0;
         uint64_t decode_epoch = 0;
         uint64_t decode_nonce = 0;
         wchar_t* encoded = nullptr;
@@ -89,6 +91,8 @@ namespace {
         uint32_t dialog_id = 0;
         uint32_t context_dialog_id = 0;
         uint32_t agent_id = 0;
+        uint32_t map_id = 0;
+        uint32_t model_id = 0;
         uint64_t decode_epoch = 0;
         wchar_t* encoded = nullptr;
     };
@@ -220,6 +224,48 @@ namespace {
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             return false;
         }
+    }
+
+    int DialogCallbackJournalEventPriority(const std::string& event_type) {
+        if (event_type == "recv_body") {
+            return 0;
+        }
+        if (event_type == "recv_choice") {
+            return 1;
+        }
+        if (event_type == "sent_choice") {
+            return 2;
+        }
+        return 3;
+    }
+
+    bool DialogCallbackJournalChronologicalLess(
+        const DialogCallbackJournalEntry& lhs,
+        const DialogCallbackJournalEntry& rhs) {
+        if (lhs.tick != rhs.tick) {
+            return lhs.tick < rhs.tick;
+        }
+
+        const int lhs_priority = DialogCallbackJournalEventPriority(lhs.event_type);
+        const int rhs_priority = DialogCallbackJournalEventPriority(rhs.event_type);
+        if (lhs_priority != rhs_priority) {
+            return lhs_priority < rhs_priority;
+        }
+
+        if (lhs.incoming != rhs.incoming) {
+            return lhs.incoming && !rhs.incoming;
+        }
+
+        return false;
+    }
+
+    std::vector<DialogCallbackJournalEntry> SortDialogCallbackJournalEntries(
+        std::vector<DialogCallbackJournalEntry> entries) {
+        std::stable_sort(
+            entries.begin(),
+            entries.end(),
+            DialogCallbackJournalChronologicalLess);
+        return entries;
     }
 
 }
@@ -569,11 +615,11 @@ void Dialog::UnregisterDialogUiHooks() {
         if (!wparam) {
             return;
         }
-        {
-            std::scoped_lock lock(dialog_mutex);
-            if (dialog_shutdown_requested) {
-                return;
-            }
+                {
+                    std::scoped_lock lock(dialog_mutex);
+                    if (dialog_shutdown_requested) {
+                        return;
+                    }
         }
 
         switch (message_id) {
@@ -595,6 +641,8 @@ void Dialog::UnregisterDialogUiHooks() {
                     context_agent_id = active_dialog_cache.agent_id;
                     request_epoch = decode_epoch;
                 }
+                const uint32_t callback_map_id = GetCurrentMapIdSafe();
+                const uint32_t callback_model_id = GetAgentModelIdSafe(context_agent_id);
                 Dialog::AppendDialogEventLog(
                     message_id,
                     true,
@@ -626,6 +674,8 @@ void Dialog::UnregisterDialogUiHooks() {
                             req->dialog_id = info->dialog_id;
                             req->context_dialog_id = context_dialog_id;
                             req->agent_id = context_agent_id;
+                            req->map_id = callback_map_id;
+                            req->model_id = callback_model_id;
                             req->decode_epoch = request_epoch;
                             req->encoded = encoded_copy;
                             bool release_req = false;
@@ -707,6 +757,8 @@ void Dialog::UnregisterDialogUiHooks() {
                             context_agent_id,
                             true,
                             context_dialog_id != 0,
+                            callback_map_id,
+                            callback_model_id,
                             label_utf8
                         );
                     }
@@ -766,6 +818,8 @@ void Dialog::UnregisterDialogUiHooks() {
 
                 bool append_immediate = true;
                 std::string immediate_text;
+                const uint32_t callback_map_id = GetCurrentMapIdSafe();
+                const uint32_t callback_model_id = GetAgentModelIdSafe(info->agent_id);
 
                 if (info->message_enc) {
                     wchar_t* encoded_copy = DupWideStringSafe(info->message_enc);
@@ -802,6 +856,8 @@ void Dialog::UnregisterDialogUiHooks() {
                             req->message_id = static_cast<uint32_t>(message_id);
                             req->agent_id = info->agent_id;
                             req->context_dialog_id = context_dialog_id;
+                            req->map_id = callback_map_id;
+                            req->model_id = callback_model_id;
                             req->decode_epoch = request_epoch;
                             req->decode_nonce = decode_nonce;
                             req->encoded = encoded_copy;
@@ -850,6 +906,8 @@ void Dialog::UnregisterDialogUiHooks() {
                             info->agent_id,
                             false,
                             context_dialog_id != 0,
+                            callback_map_id,
+                            callback_model_id,
                             immediate_text
                         );
                     }
@@ -912,6 +970,8 @@ void Dialog::UnregisterDialogUiHooks() {
                         context_agent_id,
                         true,
                         context_dialog_id != 0,
+                        std::nullopt,
+                        std::nullopt,
                         sent_text
                     );
                 }
@@ -968,6 +1028,8 @@ void Dialog::UnregisterDialogUiHooks() {
         uint32_t agent_id,
         bool dialog_id_authoritative,
         bool context_dialog_id_inferred,
+        std::optional<uint32_t> map_id,
+        std::optional<uint32_t> model_id,
         const std::string& text
     ) {
         DialogCallbackJournalEntry entry{};
@@ -977,8 +1039,8 @@ void Dialog::UnregisterDialogUiHooks() {
         entry.dialog_id = dialog_id;
         entry.context_dialog_id = context_dialog_id;
         entry.agent_id = agent_id;
-        entry.map_id = GetCurrentMapIdSafe();
-        entry.model_id = GetAgentModelIdSafe(agent_id);
+        entry.map_id = map_id.has_value() ? *map_id : GetCurrentMapIdSafe();
+        entry.model_id = model_id.has_value() ? *model_id : GetAgentModelIdSafe(agent_id);
         entry.dialog_id_authoritative = dialog_id_authoritative;
         entry.context_dialog_id_inferred = context_dialog_id_inferred;
         try {
@@ -1042,18 +1104,30 @@ void Dialog::UnregisterDialogUiHooks() {
     }
 
     std::vector<DialogCallbackJournalEntry> Dialog::GetDialogCallbackJournal() {
-        std::scoped_lock lock(dialog_mutex);
-        return dialog_callback_journal;
+        std::vector<DialogCallbackJournalEntry> entries;
+        {
+            std::scoped_lock lock(dialog_mutex);
+            entries = dialog_callback_journal;
+        }
+        return SortDialogCallbackJournalEntries(entries);
     }
 
     std::vector<DialogCallbackJournalEntry> Dialog::GetDialogCallbackJournalReceived() {
-        std::scoped_lock lock(dialog_mutex);
-        return dialog_callback_journal_received;
+        std::vector<DialogCallbackJournalEntry> entries;
+        {
+            std::scoped_lock lock(dialog_mutex);
+            entries = dialog_callback_journal_received;
+        }
+        return SortDialogCallbackJournalEntries(entries);
     }
 
     std::vector<DialogCallbackJournalEntry> Dialog::GetDialogCallbackJournalSent() {
-        std::scoped_lock lock(dialog_mutex);
-        return dialog_callback_journal_sent;
+        std::vector<DialogCallbackJournalEntry> entries;
+        {
+            std::scoped_lock lock(dialog_mutex);
+            entries = dialog_callback_journal_sent;
+        }
+        return SortDialogCallbackJournalEntries(entries);
     }
 
     void Dialog::ClearDialogCallbackJournal() {
@@ -1167,6 +1241,8 @@ void __cdecl Dialog::OnDialogBodyDecoded(void* param, const wchar_t* s) {
             req->agent_id,
             false,
             req->context_dialog_id != 0,
+            req->map_id,
+            req->model_id,
             decoded_text
         );
     }
@@ -1209,6 +1285,8 @@ void __cdecl Dialog::OnDialogButtonDecoded(void* param, const wchar_t* s) {
             req->agent_id,
             true,
             req->context_dialog_id != 0,
+            req->map_id,
+            req->model_id,
             decoded_label
         );
     }

@@ -152,7 +152,9 @@ private:
         uint32_t agent_id,
         bool dialog_id_authoritative,
         bool context_dialog_id_inferred,
-        const std::string& text);
+        std::optional<uint32_t> map_id = std::nullopt,
+        std::optional<uint32_t> model_id = std::nullopt,
+        const std::string& text = std::string{});
 
     static void OnDialogUIMessage(
         GW::HookStatus*,
