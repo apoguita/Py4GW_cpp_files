@@ -16,6 +16,11 @@
 using namespace pybind11;
 
 namespace {
+    struct DialogMapStateSnapshot {
+        uint32_t map_id = 0;
+        bool map_ready = false;
+    };
+
     std::string WideToUtf8Safe(const wchar_t* wstr) {
         if (!wstr) {
             return {};
@@ -35,6 +40,21 @@ namespace {
         } catch (...) {
             return {};
         }
+    }
+
+    DialogMapStateSnapshot GetDialogMapStateSafe() {
+        DialogMapStateSnapshot snapshot{};
+        __try {
+            snapshot.map_id = static_cast<uint32_t>(GW::Map::GetMapID());
+            const auto instance_type = GW::Map::GetInstanceType();
+            snapshot.map_ready = GW::Map::GetIsMapLoaded() &&
+                !GW::Map::GetIsObserving() &&
+                instance_type != GW::Constants::InstanceType::Loading;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            snapshot.map_id = 0;
+            snapshot.map_ready = false;
+        }
+        return snapshot;
     }
 
     uint32_t GetCurrentMapIdSafe() {
@@ -123,9 +143,13 @@ namespace {
     }
 
     constexpr auto kDialogAsyncDrainTimeout = std::chrono::milliseconds(500);
+    constexpr auto kDialogCallbackResumeDelay = std::chrono::milliseconds(100);
 
     constexpr size_t kMaxDialogEventLogs = 512;
     constexpr size_t kMaxDialogCallbackJournal = 1000;
+    constexpr size_t kMaxActiveDialogButtons = 64;
+    constexpr size_t kMaxDecodedButtonLabelCache = 256;
+    constexpr size_t kMaxDecodedButtonLabelPending = 128;
 
     bool CopyBytesNoFault(const void* src, size_t size, void* dst) {
         __try {
@@ -407,7 +431,11 @@ std::condition_variable Dialog::dialog_async_decode_drained;
 uint32_t Dialog::pending_async_decode_count = 0;
 uint64_t Dialog::decode_epoch = 0;
 bool Dialog::dialog_shutdown_requested = false;
+bool Dialog::dialog_callbacks_suspended = true;
 uint64_t Dialog::active_dialog_body_decode_nonce = 0;
+uint32_t Dialog::last_observed_map_id = 0;
+bool Dialog::last_observed_map_ready = false;
+uint64_t Dialog::dialog_callbacks_resume_tick = 0;
 
 void Dialog::Initialize() {
     {
@@ -445,6 +473,29 @@ void Dialog::Terminate() {
     lock.unlock();
     ClearCache();
     DialogCatalog::Terminate();
+}
+
+void Dialog::PollMapChange() {
+    const DialogMapStateSnapshot map_state = GetDialogMapStateSafe();
+    ObserveMapChange(map_state.map_id, map_state.map_ready, true);
+
+    if (!map_state.map_ready || map_state.map_id == 0) {
+        return;
+    }
+
+    const uint64_t now = GetTickCount64();
+    std::scoped_lock lock(dialog_mutex);
+    if (dialog_shutdown_requested || !dialog_callbacks_suspended) {
+        return;
+    }
+    if (last_observed_map_id != map_state.map_id || !last_observed_map_ready) {
+        return;
+    }
+    if (now < dialog_callbacks_resume_tick) {
+        return;
+    }
+    dialog_callbacks_suspended = false;
+    dialog_callbacks_resume_tick = 0;
 }
 
 // ================= Synchronous Methods (Direct Memory Access) =================
@@ -544,6 +595,8 @@ std::vector<DialogTextDecodedInfo> Dialog::GetDecodedDialogTextStatus() {
 }
 
 void Dialog::ClearCache() {
+    const DialogMapStateSnapshot map_state = GetDialogMapStateSafe();
+    const uint64_t now = GetTickCount64();
     std::scoped_lock lock(dialog_mutex);
     active_dialog_cache = {0, 0, 0, false, L""};
     active_dialog_buttons.clear();
@@ -560,7 +613,82 @@ void Dialog::ClearCache() {
     dialog_callback_journal_sent.clear();
     ++decode_epoch;
     ++active_dialog_body_decode_nonce;
+    last_observed_map_id = map_state.map_id;
+    last_observed_map_ready = map_state.map_ready;
+    dialog_callbacks_suspended = !map_state.map_ready;
+    dialog_callbacks_resume_tick = map_state.map_ready ? 0 : now;
     DialogCatalog::ClearCache();
+}
+
+void Dialog::ObserveMapChange(uint32_t current_map_id, bool current_map_ready, bool log_transition) {
+    const uint64_t now = GetTickCount64();
+    uint32_t previous_map_id = 0;
+    bool previous_map_ready = false;
+    uint32_t pending_decode_snapshot = 0;
+    bool should_log = false;
+    {
+        std::scoped_lock lock(dialog_mutex);
+        previous_map_id = last_observed_map_id;
+        previous_map_ready = last_observed_map_ready;
+        const bool map_id_changed = previous_map_id != current_map_id;
+        const bool map_ready_changed = previous_map_ready != current_map_ready;
+        if (!map_id_changed && !map_ready_changed) {
+            return;
+        }
+
+        last_observed_map_id = current_map_id;
+        last_observed_map_ready = current_map_ready;
+        if (dialog_shutdown_requested) {
+            return;
+        }
+
+        if (!current_map_ready || map_id_changed) {
+            dialog_callbacks_suspended = true;
+            dialog_callbacks_resume_tick = now + static_cast<uint64_t>(kDialogCallbackResumeDelay.count());
+        }
+
+        const bool should_invalidate_runtime_state =
+            (map_id_changed && previous_map_id != 0) ||
+            (previous_map_ready && !current_map_ready);
+        if (!should_invalidate_runtime_state) {
+            return;
+        }
+
+        const bool had_runtime_state =
+            active_dialog_cache.dialog_id != 0 ||
+            active_dialog_cache.context_dialog_id != 0 ||
+            active_dialog_cache.agent_id != 0 ||
+            !active_dialog_cache.message.empty() ||
+            !active_dialog_buttons.empty() ||
+            last_selected_dialog_id != 0 ||
+            pending_body_context_dialog_id != 0 ||
+            pending_body_context_agent_id != 0 ||
+            !decoded_button_label_pending.empty() ||
+            pending_async_decode_count != 0;
+
+        active_dialog_cache = {0, 0, 0, false, L""};
+        active_dialog_buttons.clear();
+        last_selected_dialog_id = 0;
+        pending_body_context_dialog_id = 0;
+        pending_body_context_agent_id = 0;
+        decoded_button_label_cache.clear();
+        decoded_button_label_pending.clear();
+        ++decode_epoch;
+        ++active_dialog_body_decode_nonce;
+
+        if (log_transition && had_runtime_state) {
+            pending_decode_snapshot = pending_async_decode_count;
+            should_log = true;
+        }
+    }
+
+    if (should_log) {
+        Logger::LogStaticInfo(
+            "[Dialog] Invalidated active dialog state on map transition/readiness change (" +
+            std::to_string(previous_map_id) + ":" + (previous_map_ready ? "ready" : "not_ready") +
+            " -> " + std::to_string(current_map_id) + ":" + (current_map_ready ? "ready" : "not_ready") +
+            ", pending_async=" + std::to_string(pending_decode_snapshot) + ").");
+    }
 }
 
 void Dialog::RegisterDialogUiHooks() {
@@ -611,19 +739,21 @@ void Dialog::UnregisterDialogUiHooks() {
     }
 }
 
-    void Dialog::OnDialogUIMessage(GW::HookStatus*, GW::UI::UIMessage message_id, void* wparam, void*) {
-        if (!wparam) {
+void Dialog::OnDialogUIMessage(GW::HookStatus*, GW::UI::UIMessage message_id, void* wparam, void*) {
+    const DialogMapStateSnapshot map_state = GetDialogMapStateSafe();
+    ObserveMapChange(map_state.map_id, map_state.map_ready, false);
+    if (!wparam) {
+        return;
+    }
+    {
+        std::scoped_lock lock(dialog_mutex);
+        if (dialog_shutdown_requested || dialog_callbacks_suspended || !map_state.map_ready) {
             return;
         }
-                {
-                    std::scoped_lock lock(dialog_mutex);
-                    if (dialog_shutdown_requested) {
-                        return;
-                    }
-        }
+    }
 
-        switch (message_id) {
-            case GW::UI::UIMessage::kDialogButton: {
+    switch (message_id) {
+        case GW::UI::UIMessage::kDialogButton: {
                 GW::UI::DialogButtonInfo info_local{};
                 if (!CopyDialogButtonInfoSafe(wparam, info_local)) {
                     return;
@@ -641,7 +771,7 @@ void Dialog::UnregisterDialogUiHooks() {
                     context_agent_id = active_dialog_cache.agent_id;
                     request_epoch = decode_epoch;
                 }
-                const uint32_t callback_map_id = GetCurrentMapIdSafe();
+                const uint32_t callback_map_id = map_state.map_id;
                 const uint32_t callback_model_id = GetAgentModelIdSafe(context_agent_id);
                 Dialog::AppendDialogEventLog(
                     message_id,
@@ -681,14 +811,24 @@ void Dialog::UnregisterDialogUiHooks() {
                             bool release_req = false;
                             {
                                 std::scoped_lock lock(dialog_mutex);
-                                if (dialog_shutdown_requested || req->decode_epoch != decode_epoch) {
+                                if (dialog_shutdown_requested ||
+                                    dialog_callbacks_suspended ||
+                                    req->decode_epoch != decode_epoch) {
                                     release_req = true;
                                 }
                                 else {
                                     try {
-                                        decoded_button_label_pending[info->dialog_id] = true;
-                                        ++pending_async_decode_count;
-                                        queue_async_label = true;
+                                        const bool is_new_pending =
+                                            decoded_button_label_pending.find(info->dialog_id) == decoded_button_label_pending.end();
+                                        if (is_new_pending &&
+                                            decoded_button_label_pending.size() >= kMaxDecodedButtonLabelPending) {
+                                            release_req = true;
+                                        }
+                                        else {
+                                            decoded_button_label_pending[info->dialog_id] = true;
+                                            ++pending_async_decode_count;
+                                            queue_async_label = true;
+                                        }
                                     } catch (...) {
                                         decoded_button_label_pending.erase(info->dialog_id);
                                         release_req = true;
@@ -721,11 +861,19 @@ void Dialog::UnregisterDialogUiHooks() {
                 {
                     std::scoped_lock lock(dialog_mutex);
                     try {
-                        if (request_epoch == decode_epoch && !dialog_shutdown_requested && !label_utf8.empty()) {
+                        if (request_epoch == decode_epoch &&
+                            !dialog_shutdown_requested &&
+                            !dialog_callbacks_suspended &&
+                            !label_utf8.empty()) {
                             decoded_button_label_cache[info->dialog_id] = label_utf8;
+                            if (decoded_button_label_cache.size() > kMaxDecodedButtonLabelCache) {
+                                decoded_button_label_cache.erase(decoded_button_label_cache.begin());
+                            }
                             decoded_button_label_pending.erase(info->dialog_id);
                         }
-                        if (request_epoch == decode_epoch && !dialog_shutdown_requested) {
+                        if (request_epoch == decode_epoch &&
+                            !dialog_shutdown_requested &&
+                            !dialog_callbacks_suspended) {
                             DialogButtonInfo button{};
                             button.dialog_id = info->dialog_id;
                             button.button_icon = info->button_icon;
@@ -733,6 +881,12 @@ void Dialog::UnregisterDialogUiHooks() {
                             button.message_decoded = label_utf8;
                             button.message_decode_pending = label_pending;
                             active_dialog_buttons.push_back(std::move(button));
+                            if (active_dialog_buttons.size() > kMaxActiveDialogButtons) {
+                                const size_t overflow = active_dialog_buttons.size() - kMaxActiveDialogButtons;
+                                active_dialog_buttons.erase(
+                                    active_dialog_buttons.begin(),
+                                    active_dialog_buttons.begin() + overflow);
+                            }
                         }
                     } catch (...) {
                         if (request_epoch == decode_epoch) {
@@ -744,7 +898,10 @@ void Dialog::UnregisterDialogUiHooks() {
                     bool append_journal = false;
                     {
                         std::scoped_lock lock(dialog_mutex);
-                        append_journal = request_epoch == decode_epoch && !dialog_shutdown_requested;
+                        append_journal =
+                            request_epoch == decode_epoch &&
+                            !dialog_shutdown_requested &&
+                            !dialog_callbacks_suspended;
                     }
                     if (append_journal) {
                         Dialog::AppendDialogCallbackJournalEntry(
@@ -771,6 +928,7 @@ void Dialog::UnregisterDialogUiHooks() {
                 }
                 const auto* info = &info_local;
                 const uint64_t tick = GetTickCount64();
+                const uint32_t callback_map_id = map_state.map_id;
 
                 Dialog::AppendDialogEventLog(
                     message_id,
@@ -789,7 +947,7 @@ void Dialog::UnregisterDialogUiHooks() {
                 bool body_state_active = false;
                 {
                     std::scoped_lock lock(dialog_mutex);
-                    if (dialog_shutdown_requested) {
+                    if (dialog_shutdown_requested || dialog_callbacks_suspended) {
                         break;
                     }
                     active_dialog_cache.agent_id = info->agent_id;
@@ -818,7 +976,6 @@ void Dialog::UnregisterDialogUiHooks() {
 
                 bool append_immediate = true;
                 std::string immediate_text;
-                const uint32_t callback_map_id = GetCurrentMapIdSafe();
                 const uint32_t callback_model_id = GetAgentModelIdSafe(info->agent_id);
 
                 if (info->message_enc) {
@@ -835,6 +992,7 @@ void Dialog::UnregisterDialogUiHooks() {
                             {
                                 std::scoped_lock lock(dialog_mutex);
                                 if (!dialog_shutdown_requested &&
+                                    !dialog_callbacks_suspended &&
                                     request_epoch == decode_epoch &&
                                     active_dialog_cache.agent_id == info->agent_id &&
                                     active_dialog_body_decode_nonce == decode_nonce) {
@@ -863,7 +1021,9 @@ void Dialog::UnregisterDialogUiHooks() {
                             req->encoded = encoded_copy;
                             {
                                 std::scoped_lock lock(dialog_mutex);
-                                if (dialog_shutdown_requested || req->decode_epoch != decode_epoch) {
+                                if (dialog_shutdown_requested ||
+                                    dialog_callbacks_suspended ||
+                                    req->decode_epoch != decode_epoch) {
                                     delete[] req->encoded;
                                     delete req;
                                 } else {
@@ -893,7 +1053,10 @@ void Dialog::UnregisterDialogUiHooks() {
                     bool append_journal = false;
                     {
                         std::scoped_lock lock(dialog_mutex);
-                        append_journal = request_epoch == decode_epoch && !dialog_shutdown_requested;
+                        append_journal =
+                            request_epoch == decode_epoch &&
+                            !dialog_shutdown_requested &&
+                            !dialog_callbacks_suspended;
                     }
                     if (append_journal) {
                         Dialog::AppendDialogCallbackJournalEntry(
@@ -933,7 +1096,7 @@ void Dialog::UnregisterDialogUiHooks() {
                 bool emit_sent_choice = false;
                 {
                     std::scoped_lock lock(dialog_mutex);
-                    if (dialog_shutdown_requested) {
+                    if (dialog_shutdown_requested || dialog_callbacks_suspended) {
                         break;
                     }
                     context_dialog_id = active_dialog_cache.context_dialog_id
@@ -1202,6 +1365,8 @@ void __cdecl Dialog::OnDialogBodyDecoded(void* param, const wchar_t* s) {
     if (!req) {
         return;
     }
+    const DialogMapStateSnapshot map_state = GetDialogMapStateSafe();
+    ObserveMapChange(map_state.map_id, map_state.map_ready, false);
     wchar_t* decoded_copy = DupWideStringSafe(s);
     std::wstring decoded_w;
     if (decoded_copy) {
@@ -1217,7 +1382,10 @@ void __cdecl Dialog::OnDialogBodyDecoded(void* param, const wchar_t* s) {
         if (pending_async_decode_count > 0) {
             --pending_async_decode_count;
         }
-        if (!dialog_shutdown_requested && req->decode_epoch == decode_epoch) {
+        if (!dialog_shutdown_requested &&
+            !dialog_callbacks_suspended &&
+            map_state.map_ready &&
+            req->decode_epoch == decode_epoch) {
             append_journal = true;
             if (active_dialog_cache.agent_id == req->agent_id &&
                 active_dialog_body_decode_nonce == req->decode_nonce) {
@@ -1254,6 +1422,8 @@ void __cdecl Dialog::OnDialogButtonDecoded(void* param, const wchar_t* s) {
     if (!req) {
         return;
     }
+    const DialogMapStateSnapshot map_state = GetDialogMapStateSafe();
+    ObserveMapChange(map_state.map_id, map_state.map_ready, false);
     wchar_t* decoded_copy = DupWideStringSafe(s);
     const std::string decoded_label = decoded_copy ? WideToUtf8Safe(decoded_copy) : std::string{};
     bool append_journal = false;
@@ -1262,9 +1432,15 @@ void __cdecl Dialog::OnDialogButtonDecoded(void* param, const wchar_t* s) {
         if (pending_async_decode_count > 0) {
             --pending_async_decode_count;
         }
-        if (!dialog_shutdown_requested && req->decode_epoch == decode_epoch) {
+        if (!dialog_shutdown_requested &&
+            !dialog_callbacks_suspended &&
+            map_state.map_ready &&
+            req->decode_epoch == decode_epoch) {
             try {
                 decoded_button_label_cache[req->dialog_id] = decoded_label;
+                if (decoded_button_label_cache.size() > kMaxDecodedButtonLabelCache) {
+                    decoded_button_label_cache.erase(decoded_button_label_cache.begin());
+                }
                 decoded_button_label_pending.erase(req->dialog_id);
                 append_journal = true;
             } catch (...) {

@@ -313,6 +313,8 @@ void DLLMain::Update(GW::HookStatus*) {
 	// Update Py4GW
 	if (!gw_client_window_handle) { gw_client_window_handle = gw_window_handle; }
 
+    Dialog::PollMapChange();
+
     //following line is empty
 	Py4GW::Instance().Update();
 

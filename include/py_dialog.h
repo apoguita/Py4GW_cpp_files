@@ -91,6 +91,7 @@ public:
 
     static void Initialize();
     static void Terminate();
+    static void PollMapChange();
 
     static bool IsDialogAvailable(uint32_t dialog_id);
     static DialogInfo GetDialogInfo(uint32_t dialog_id);
@@ -161,6 +162,7 @@ private:
         GW::UI::UIMessage message_id,
         void* wparam,
         void* lparam);
+    static void ObserveMapChange(uint32_t current_map_id, bool current_map_ready, bool log_transition);
     static void __cdecl OnDialogBodyDecoded(void* param, const wchar_t* s);
     static void __cdecl OnDialogButtonDecoded(void* param, const wchar_t* s);
 
@@ -187,5 +189,9 @@ private:
     static uint32_t pending_async_decode_count;
     static uint64_t decode_epoch;
     static bool dialog_shutdown_requested;
+    static bool dialog_callbacks_suspended;
     static uint64_t active_dialog_body_decode_nonce;
+    static uint32_t last_observed_map_id;
+    static bool last_observed_map_ready;
+    static uint64_t dialog_callbacks_resume_tick;
 };
