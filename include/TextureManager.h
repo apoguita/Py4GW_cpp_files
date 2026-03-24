@@ -1,5 +1,6 @@
 #pragma once
 #include "Headers.h"
+#include "GwDatTextureManager.h"
 
 struct TimedTexture {
     IDirect3DTexture9* texture = nullptr;
@@ -27,6 +28,7 @@ public:
     // Assign device before any texture use
     void SetDevice(IDirect3DDevice9* device) {
         d3d_device = device;
+        GwDatTextureManager::Instance().SetDevice(device);
     }
 
     void AddTexture(const std::wstring& name, IDirect3DTexture9* texture) {
@@ -34,6 +36,13 @@ public:
     }
 
     IDirect3DTexture9* GetTexture(const std::wstring& name) {
+        if (GwDatTextureManager::IsDatTextureKey(name)) {
+            if (!d3d_device && g_d3d_device)
+                SetDevice(g_d3d_device);
+
+            return GwDatTextureManager::Instance().GetTexture(name);
+        }
+
         auto it = textures.find(name);
         if (it != textures.end()) {
             it->second.Touch();
@@ -76,6 +85,7 @@ public:
                 ++it;
             }
         }
+        GwDatTextureManager::Instance().CleanupOldTextures(timeout_seconds);
     }
 
 private:

@@ -759,6 +759,10 @@ bool ImGui_BeginTabBar(const std::string& str_id) {
     return ImGui::BeginTabBar(str_id.c_str());
 }
 
+bool ImGui_BeginTabBarWithFlags(const std::string& str_id, ImGuiTabBarFlags flags) {
+    return ImGui::BeginTabBar(str_id.c_str(), flags);
+}
+
 void ImGui_EndTabBar() {
     ImGui::EndTabBar();
 }
@@ -1676,6 +1680,40 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
         return static_cast<ImGuiSelectableFlags_>(static_cast<int>(a) | static_cast<int>(b));
             });
 
+    // Tab Bar Flags
+    py::enum_<ImGuiTabBarFlags_>(m, "TabBarFlags")
+        .value("NoFlag", ImGuiTabBarFlags_None)
+        .value("Reorderable", ImGuiTabBarFlags_Reorderable)
+        .value("AutoSelectNewTabs", ImGuiTabBarFlags_AutoSelectNewTabs)
+        .value("TabListPopupButton", ImGuiTabBarFlags_TabListPopupButton)
+        .value("NoCloseWithMiddleMouseButton", ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)
+        .value("NoTabListScrollingButtons", ImGuiTabBarFlags_NoTabListScrollingButtons)
+        .value("NoTooltip", ImGuiTabBarFlags_NoTooltip)
+        .value("FittingPolicyResizeDown", ImGuiTabBarFlags_FittingPolicyResizeDown)
+        .value("FittingPolicyScroll", ImGuiTabBarFlags_FittingPolicyScroll)
+        .value("FittingPolicyMask_", ImGuiTabBarFlags_FittingPolicyMask_)
+        .value("FittingPolicyDefault_", ImGuiTabBarFlags_FittingPolicyDefault_)
+        .export_values()
+        .def("__or__", [](ImGuiTabBarFlags_ a, ImGuiTabBarFlags_ b) {
+        return static_cast<ImGuiTabBarFlags_>(static_cast<int>(a) | static_cast<int>(b));
+            });
+
+    // Tab Item Flags
+    py::enum_<ImGuiTabItemFlags_>(m, "TabItemFlags")
+        .value("NoFlag", ImGuiTabItemFlags_None)
+        .value("UnsavedDocument", ImGuiTabItemFlags_UnsavedDocument)
+        .value("SetSelected", ImGuiTabItemFlags_SetSelected)
+        .value("NoCloseWithMiddleMouseButton", ImGuiTabItemFlags_NoCloseWithMiddleMouseButton)
+        .value("NoPushId", ImGuiTabItemFlags_NoPushId)
+        .value("NoTooltip", ImGuiTabItemFlags_NoTooltip)
+        .value("NoReorder", ImGuiTabItemFlags_NoReorder)
+        .value("Leading", ImGuiTabItemFlags_Leading)
+        .value("Trailing", ImGuiTabItemFlags_Trailing)
+        .export_values()
+        .def("__or__", [](ImGuiTabItemFlags_ a, ImGuiTabItemFlags_ b) {
+        return static_cast<ImGuiTabItemFlags_>(static_cast<int>(a) | static_cast<int>(b));
+            });
+
     // Table Flags
     py::enum_<ImGuiTableFlags_>(m, "TableFlags")
         .value("NoFlag", ImGuiTableFlags_None)
@@ -2283,6 +2321,7 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
 
     // Tabs
     m.def("begin_tab_bar", &ImGui_BeginTabBar, "Begins a tab bar in ImGui");
+    m.def("begin_tab_bar", &ImGui_BeginTabBarWithFlags, py::arg("str_id"), py::arg("flags"), "Begins a tab bar in ImGui with flags");
     m.def("end_tab_bar", &ImGui_EndTabBar, "Ends the tab bar in ImGui");
     // Overload bindings
     m.def("begin_tab_item",

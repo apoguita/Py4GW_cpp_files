@@ -2005,6 +2005,14 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
 
 
     bool is_map_loading = GW::Map::GetInstanceType() == GW::Constants::InstanceType::Loading;
+    if (!is_map_loading) {
+        auto map_info = GW::Map::GetMapInfo();
+        if (map_info) {
+            if ((GW::Map::GetMapInfo()->flags & 0x40001) != 0)
+                return;
+        }
+
+    }
 
     if (show_console || is_map_loading) {
         DrawConsole("Py4GW Console", &console_open);
