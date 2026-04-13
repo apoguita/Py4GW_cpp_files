@@ -37,6 +37,37 @@
 
 namespace py = pybind11;
 
+// Backwards compatibility: create namespace with constexpr aliases to enum class values
+// This allows existing code using CombatEventTypes::FOO to continue working
+namespace CombatEventTypes {
+    constexpr uint32_t SKILL_ACTIVATED = to_uint(CombatEventType::SKILL_ACTIVATED);
+    constexpr uint32_t ATTACK_SKILL_ACTIVATED = to_uint(CombatEventType::ATTACK_SKILL_ACTIVATED);
+    constexpr uint32_t SKILL_STOPPED = to_uint(CombatEventType::SKILL_STOPPED);
+    constexpr uint32_t SKILL_FINISHED = to_uint(CombatEventType::SKILL_FINISHED);
+    constexpr uint32_t ATTACK_SKILL_FINISHED = to_uint(CombatEventType::ATTACK_SKILL_FINISHED);
+    constexpr uint32_t INTERRUPTED = to_uint(CombatEventType::INTERRUPTED);
+    constexpr uint32_t INSTANT_SKILL_ACTIVATED = to_uint(CombatEventType::INSTANT_SKILL_ACTIVATED);
+    constexpr uint32_t ATTACK_SKILL_STOPPED = to_uint(CombatEventType::ATTACK_SKILL_STOPPED);
+    constexpr uint32_t ATTACK_STARTED = to_uint(CombatEventType::ATTACK_STARTED);
+    constexpr uint32_t ATTACK_STOPPED = to_uint(CombatEventType::ATTACK_STOPPED);
+    constexpr uint32_t MELEE_ATTACK_FINISHED = to_uint(CombatEventType::MELEE_ATTACK_FINISHED);
+    constexpr uint32_t DISABLED = to_uint(CombatEventType::DISABLED);
+    constexpr uint32_t KNOCKED_DOWN = to_uint(CombatEventType::KNOCKED_DOWN);
+    constexpr uint32_t CASTTIME = to_uint(CombatEventType::CASTTIME);
+    constexpr uint32_t DAMAGE = to_uint(CombatEventType::DAMAGE);
+    constexpr uint32_t CRITICAL = to_uint(CombatEventType::CRITICAL);
+    constexpr uint32_t ARMOR_IGNORING = to_uint(CombatEventType::ARMOR_IGNORING);
+    constexpr uint32_t EFFECT_APPLIED = to_uint(CombatEventType::EFFECT_APPLIED);
+    constexpr uint32_t EFFECT_REMOVED = to_uint(CombatEventType::EFFECT_REMOVED);
+    constexpr uint32_t EFFECT_ON_TARGET = to_uint(CombatEventType::EFFECT_ON_TARGET);
+    constexpr uint32_t ENERGY_GAINED = to_uint(CombatEventType::ENERGY_GAINED);
+    constexpr uint32_t ENERGY_SPENT = to_uint(CombatEventType::ENERGY_SPENT);
+    constexpr uint32_t SKILL_DAMAGE = to_uint(CombatEventType::SKILL_DAMAGE);
+    constexpr uint32_t SKILL_ACTIVATE_PACKET = to_uint(CombatEventType::SKILL_ACTIVATE_PACKET);
+    constexpr uint32_t SKILL_RECHARGE = to_uint(CombatEventType::SKILL_RECHARGE);
+    constexpr uint32_t SKILL_RECHARGED = to_uint(CombatEventType::SKILL_RECHARGED);
+}
+
 // ============================================================================
 // Lifecycle Implementation
 // ============================================================================
@@ -156,6 +187,12 @@ void CombatEventQueue::PushEvent(const RawCombatEvent& event) {
     }
 }
 
+bool CombatEventQueue::IsMapReady() const {
+    auto instance_type = GW::Map::GetInstanceType();
+    return GW::Map::GetIsMapLoaded() &&
+           instance_type != GW::Constants::InstanceType::Loading;
+}
+
 // ============================================================================
 // Packet Handlers
 // ============================================================================
@@ -170,7 +207,8 @@ void CombatEventQueue::PushEvent(const RawCombatEvent& event) {
  * with other packets that may not have the skill_id.
  */
 void CombatEventQueue::OnSkillActivate(GW::Packet::StoC::SkillActivate* packet) {
-    uint32_t now = GetTickCount64 ();
+    if (!IsMapReady()) return;
+    uint32_t now = static_cast<uint32_t>(GetTickCount64());
     PushEvent(RawCombatEvent(now, CombatEventTypes::SKILL_ACTIVATE_PACKET,
         packet->agent_id, packet->skill_id, 0, 0.0f));
 }
@@ -191,7 +229,8 @@ void CombatEventQueue::OnSkillActivate(GW::Packet::StoC::SkillActivate* packet) 
  * - energygain: Energy gained
  */
 void CombatEventQueue::OnGenericValue(GW::Packet::StoC::GenericValue* packet) {
-    uint32_t now = GetTickCount64();
+    if (!IsMapReady()) return;
+    uint32_t now = static_cast<uint32_t>(GetTickCount64());
 
     using namespace GW::Packet::StoC::GenericValueID;
 
@@ -293,7 +332,8 @@ void CombatEventQueue::OnGenericValue(GW::Packet::StoC::GenericValue* packet) {
  * - target_id = target/victim
  */
 void CombatEventQueue::OnGenericValueTarget(GW::Packet::StoC::GenericValueTarget* packet) {
-    uint32_t now = GetTickCount64();
+    if (!IsMapReady()) return;
+    uint32_t now = static_cast<uint32_t>(GetTickCount64());
 
     using namespace GW::Packet::StoC::GenericValueID;
 
@@ -339,7 +379,8 @@ void CombatEventQueue::OnGenericValueTarget(GW::Packet::StoC::GenericValueTarget
  * - energy_spent: Energy consumed, float_value = energy as fraction of max
  */
 void CombatEventQueue::OnGenericFloat(GW::Packet::StoC::GenericFloat* packet) {
-    uint32_t now = GetTickCount64();
+    if (!IsMapReady()) return;
+    uint32_t now = static_cast<uint32_t>(GetTickCount64());
 
     using namespace GW::Packet::StoC::GenericValueID;
 
@@ -380,7 +421,8 @@ void CombatEventQueue::OnGenericFloat(GW::Packet::StoC::GenericFloat* packet) {
  * Example: float_value = 0.15 on a target with 480 HP = 72 damage
  */
 void CombatEventQueue::OnGenericModifier(GW::Packet::StoC::GenericModifier* packet) {
-    uint32_t now = GetTickCount64();
+    if (!IsMapReady()) return;
+    uint32_t now = static_cast<uint32_t>(GetTickCount64());
 
     using namespace GW::Packet::StoC::GenericValueID;
 
@@ -427,7 +469,8 @@ void CombatEventQueue::OnGenericModifier(GW::Packet::StoC::GenericModifier* pack
  * - recharge: Cooldown duration in milliseconds
  */
 void CombatEventQueue::OnSkillRecharge(GW::Packet::StoC::SkillRecharge* packet) {
-    uint32_t now = GetTickCount();
+    if (!IsMapReady()) return;
+    uint32_t now = static_cast<uint32_t>(GetTickCount64());
     // agent_id=who, value=skill_id, float_value=recharge_ms
     PushEvent(RawCombatEvent(now, CombatEventTypes::SKILL_RECHARGE,
         packet->agent_id, packet->skill_id, 0, static_cast<float>(packet->recharge)));
@@ -449,7 +492,8 @@ void CombatEventQueue::OnSkillRecharge(GW::Packet::StoC::SkillRecharge* packet) 
  * - skill_id: The skill that is now ready to use
  */
 void CombatEventQueue::OnSkillRecharged(GW::Packet::StoC::SkillRecharged* packet) {
-    uint32_t now = GetTickCount();
+    if (!IsMapReady()) return;
+    uint32_t now = static_cast<uint32_t>(GetTickCount64());
     // agent_id=who, value=skill_id
     PushEvent(RawCombatEvent(now, CombatEventTypes::SKILL_RECHARGED,
         packet->agent_id, packet->skill_id, 0, 0.0f));
