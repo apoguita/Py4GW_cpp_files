@@ -21,7 +21,9 @@ public:
 
 private:
     GwDatTextureManager() = default;
-    ~GwDatTextureManager() = default;
+public:
+    ~GwDatTextureManager();
+private:
     GwDatTextureManager(const GwDatTextureManager&) = delete;
     GwDatTextureManager& operator=(const GwDatTextureManager&) = delete;
 

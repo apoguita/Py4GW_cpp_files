@@ -468,9 +468,9 @@ namespace {
             WorldMapState_Addr = *(uintptr_t*)address;
 
 
-        //address = Scanner::Find("\x83\xfb\x47\x73\x14", "xxxxx", -0x34);
-        //address = Scanner::Find("\x83\xfb\x54\x73\x14", "xxxxx", -0x34);
-        address = Scanner::Find("\x83\xfb\x55\x73\x14", "xxxxx", -0x34);
+        //SendFrameUIMessageById: volatile switch case count (was 0x47, 0x55, 0x56).
+        //address = Scanner::Find("\x83\xfb\x47\x73\x14", "xxxxx", -0x34); //commented address on exe 28-nov-2025
+        address = Scanner::Find("\x83\xfb\x56\x73\x14", "xxxxx", -0x34);
         if (address) {
             SendFrameUIMessageById_Func = (SendFrameUIMessageById_pt)address;
             SendFrameUIMessage_Func = (SendFrameUIMessage_pt)Scanner::FunctionFromNearCall(address + 0x67);
@@ -487,8 +487,7 @@ namespace {
 
         // @TODO: Grab the relationship array from memory, write this ourselves!
         //address = Scanner::FindAssertion("\\Code\\Engine\\Controls\\CtlView.cpp", "pageId", 0, 0x16);
-        //address = Scanner::FindAssertion("\\Code\\Engine\\Controls\\CtlView.cpp", "pageId", 0, 0x14);
-        // Fixed: Offset is 0x19 (CALL to GetChildFrameId at +0x19 from CtlView.cpp assertion)
+
         address = Scanner::FindAssertion("\\Code\\Engine\\Controls\\CtlView.cpp", "pageId", 0, 0x19);
         GetChildFrameId_Func = (GetChildFrameId_pt)GW::Scanner::FunctionFromNearCall(address);
 
@@ -521,10 +520,9 @@ namespace {
             PreferencesInitialised_Addr = *(uintptr_t*)address;
 
 
-        //address = GW::Scanner::Find("\x8d\x85\x78\xf7\xff\xff\x50", "xxxxxxx", 0x7);
+
         //address = GW::Scanner::Find("\x8d\x85\x74\xf7\xff\xff\x50", "xxxxxxx", 0x7);
-        // Fixed: New call site for BuildLoginStruct (call moved to different function after update)
-        // Pattern: lea eax, [ebp-0x47c]; push eax; call BuildLoginStruct
+
         address = GW::Scanner::Find("\x8d\x85\x84\xfb\xff\xff\x50\xe8", "xxxxxxxx", 0x7);
         address = GW::Scanner::FunctionFromNearCall(address); // BuildLoginStruct
         if (address) {

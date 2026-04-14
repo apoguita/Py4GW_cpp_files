@@ -41,12 +41,25 @@ namespace {
         bool resolved = false;
     };
 
+    DialogTableAddrs g_dialog_tables;
+
     uintptr_t ToRuntimeAddress(uintptr_t va) {
         static uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
         if (!base) {
             return va;
         }
         return base + (va - kGwImageBase);
+    }
+
+    bool IsDialogCatalogMapReadySafe() {
+        __try {
+            const auto instance_type = GW::Map::GetInstanceType();
+            return GW::Map::GetIsMapLoaded() &&
+                !GW::Map::GetIsObserving() &&
+                instance_type != GW::Constants::InstanceType::Loading;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return false;
+        }
     }
 
     void LogMemoryReadFailure(const char* label, uintptr_t address) {
@@ -364,33 +377,32 @@ namespace {
     }
 
     DialogTableAddrs& GetDialogTables() {
-        static DialogTableAddrs tables;
-        if (tables.resolved) {
-            return tables;
+        if (g_dialog_tables.resolved) {
+            return g_dialog_tables;
         }
-        tables.resolved = true;
+        g_dialog_tables.resolved = true;
 
         const SectionRange rdata = GetSectionRange(".rdata");
         const SectionRange text = GetSectionRange(".text");
 
-        tables = BuildStaticDialogTables(text);
-        if (!tables.flags_base) {
+        g_dialog_tables = BuildStaticDialogTables(text);
+        if (!g_dialog_tables.flags_base) {
             DialogTableAddrs resolved = BuildResolvedDialogTables(rdata, text);
-            if (!tables.flags_base) {
-                tables.flags_base = resolved.flags_base;
-                tables.frame_type_base = resolved.frame_type_base;
-                tables.event_handler_base = resolved.event_handler_base;
-                tables.content_id_base = resolved.content_id_base;
-                tables.property_id_base = resolved.property_id_base;
+            if (!g_dialog_tables.flags_base) {
+                g_dialog_tables.flags_base = resolved.flags_base;
+                g_dialog_tables.frame_type_base = resolved.frame_type_base;
+                g_dialog_tables.event_handler_base = resolved.event_handler_base;
+                g_dialog_tables.content_id_base = resolved.content_id_base;
+                g_dialog_tables.property_id_base = resolved.property_id_base;
             }
         }
-        tables.resolved = true;
+        g_dialog_tables.resolved = true;
 
-        if (!tables.flags_base) {
+        if (!g_dialog_tables.flags_base) {
             Logger::LogStaticInfo("[DialogCatalog] Dialog table resolution incomplete. Some dialog metadata may be unavailable.");
         }
 
-        return tables;
+        return g_dialog_tables;
     }
 
     py::dict ToPythonDialogInfo(const DialogInfo& info) {
@@ -460,9 +472,13 @@ void DialogCatalog::ClearCache() {
     decoded_text_cache.clear();
     decoded_text_pending.clear();
     ++decode_epoch;
+    g_dialog_tables = {};
 }
 
 bool DialogCatalog::IsDialogAvailable(uint32_t dialog_id) {
+    if (!IsDialogCatalogMapReadySafe()) {
+        return false;
+    }
     if (dialog_id > DialogMemory::MAX_DIALOG_ID) {
         return false;
     }
@@ -471,6 +487,9 @@ bool DialogCatalog::IsDialogAvailable(uint32_t dialog_id) {
 
 DialogInfo DialogCatalog::GetDialogInfo(uint32_t dialog_id) {
     DialogInfo info = {dialog_id, 0, 0, 0, 0, 0, L"", 0};
+    if (!IsDialogCatalogMapReadySafe()) {
+        return info;
+    }
     if (dialog_id > DialogMemory::MAX_DIALOG_ID) {
         return info;
     }
@@ -486,6 +505,9 @@ DialogInfo DialogCatalog::GetDialogInfo(uint32_t dialog_id) {
 
 std::vector<DialogInfo> DialogCatalog::EnumerateAvailableDialogs() {
     std::vector<DialogInfo> dialogs;
+    if (!IsDialogCatalogMapReadySafe()) {
+        return dialogs;
+    }
     dialogs.reserve(DialogMemory::MAX_DIALOG_ID + 1);
     for (uint32_t dialog_id = 0; dialog_id <= DialogMemory::MAX_DIALOG_ID; ++dialog_id) {
         if (IsDialogAvailable(dialog_id)) {
@@ -496,6 +518,9 @@ std::vector<DialogInfo> DialogCatalog::EnumerateAvailableDialogs() {
 }
 
 std::string DialogCatalog::GetDialogTextDecoded(uint32_t dialog_id) {
+    if (!IsDialogCatalogMapReadySafe()) {
+        return {};
+    }
     if (dialog_id > DialogMemory::MAX_DIALOG_ID) {
         return {};
     }
@@ -515,12 +540,18 @@ std::string DialogCatalog::GetDialogTextDecoded(uint32_t dialog_id) {
 }
 
 bool DialogCatalog::IsDialogTextDecodePending(uint32_t dialog_id) {
+    if (!IsDialogCatalogMapReadySafe()) {
+        return false;
+    }
     std::scoped_lock lock(catalog_mutex);
     auto it = decoded_text_pending.find(dialog_id);
     return it != decoded_text_pending.end() && it->second;
 }
 
 std::vector<DialogTextDecodedInfo> DialogCatalog::GetDecodedDialogTextStatus() {
+    if (!IsDialogCatalogMapReadySafe()) {
+        return {};
+    }
     std::scoped_lock lock(catalog_mutex);
     std::vector<DialogTextDecodedInfo> out;
     out.reserve(decoded_text_cache.size() + decoded_text_pending.size());
@@ -544,6 +575,9 @@ std::vector<DialogTextDecodedInfo> DialogCatalog::GetDecodedDialogTextStatus() {
 }
 
 bool DialogCatalog::TryGetCachedDialogTextDecoded(uint32_t dialog_id, std::string& out) {
+    if (!IsDialogCatalogMapReadySafe()) {
+        return false;
+    }
     std::scoped_lock lock(catalog_mutex);
     auto it = decoded_text_cache.find(dialog_id);
     if (it == decoded_text_cache.end()) {
@@ -554,6 +588,9 @@ bool DialogCatalog::TryGetCachedDialogTextDecoded(uint32_t dialog_id, std::strin
 }
 
 void DialogCatalog::QueueDialogTextDecode(uint32_t dialog_id) {
+    if (!IsDialogCatalogMapReadySafe()) {
+        return;
+    }
     if (dialog_id > DialogMemory::MAX_DIALOG_ID) {
         return;
     }
@@ -671,6 +708,9 @@ void DialogCatalog::QueueDialogTextDecode(uint32_t dialog_id) {
 }
 
 uint32_t DialogCatalog::ReadDialogFlags(uint32_t dialog_id) {
+    if (!IsDialogCatalogMapReadySafe()) {
+        return 0;
+    }
     if (dialog_id > DialogMemory::MAX_DIALOG_ID) {
         return 0;
     }
@@ -687,6 +727,9 @@ uint32_t DialogCatalog::ReadDialogFlags(uint32_t dialog_id) {
 }
 
 uint32_t DialogCatalog::ReadDialogFrameType(uint32_t dialog_id) {
+    if (!IsDialogCatalogMapReadySafe()) {
+        return 0;
+    }
     if (dialog_id > DialogMemory::MAX_DIALOG_ID) {
         return 0;
     }
@@ -703,6 +746,9 @@ uint32_t DialogCatalog::ReadDialogFrameType(uint32_t dialog_id) {
 }
 
 uint32_t DialogCatalog::ReadDialogEventHandler(uint32_t dialog_id) {
+    if (!IsDialogCatalogMapReadySafe()) {
+        return 0;
+    }
     if (dialog_id > DialogMemory::MAX_DIALOG_ID) {
         return 0;
     }
@@ -719,6 +765,9 @@ uint32_t DialogCatalog::ReadDialogEventHandler(uint32_t dialog_id) {
 }
 
 uint32_t DialogCatalog::ReadDialogContentId(uint32_t dialog_id) {
+    if (!IsDialogCatalogMapReadySafe()) {
+        return 0;
+    }
     if (dialog_id > DialogMemory::MAX_DIALOG_ID) {
         return 0;
     }
@@ -735,6 +784,9 @@ uint32_t DialogCatalog::ReadDialogContentId(uint32_t dialog_id) {
 }
 
 uint32_t DialogCatalog::ReadDialogPropertyId(uint32_t dialog_id) {
+    if (!IsDialogCatalogMapReadySafe()) {
+        return 0;
+    }
     if (dialog_id > DialogMemory::MAX_DIALOG_ID) {
         return 0;
     }

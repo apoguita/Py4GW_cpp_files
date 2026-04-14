@@ -40,6 +40,8 @@
 #include <cstdint>
 #include <deque>
 #include <tuple>
+#include <unordered_map>
+#include <unordered_set>
 
 #include <GWCA/Packets/StoC.h>
 #include <GWCA/Managers/StoCMgr.h>
@@ -163,6 +165,9 @@ enum class CombatEventType : uint32_t {
                                   // Can be negative for heals!
                                   // agent_id=target, target_id=source, float_value=damage%
 
+    HEALING = 33,                 // Healing or positive armor-ignoring gain
+                                  // agent_id=target, target_id=source, float_value=heal%
+
     // ---- Effect Events (from GenericValue/GenericValueTarget) ----
 
     EFFECT_APPLIED = 40,          // Visual effect applied (internal effect_id, not skill_id!)
@@ -174,6 +179,9 @@ enum class CombatEventType : uint32_t {
     EFFECT_ON_TARGET = 42,        // Skill effect hit a target (from effect_on_target packet)
                                   // agent_id=caster, value=effect_id, target_id=target
                                   // Python correlates this with recent casts to get skill_id
+
+    EFFECT_RENEWED = 43,          // Existing effect was applied again before removal
+                                  // agent_id=affected agent, value=effect_id
 
     // ---- Energy Events ----
 
@@ -301,6 +309,7 @@ private:
     // Thread-safe event queue
     mutable std::mutex queue_mutex;
     std::deque<RawCombatEvent> event_queue;
+    std::unordered_map<uint32_t, std::unordered_set<uint32_t>> active_effects;
 
     // ---- Packet Handlers ----
     // These are called by GWCA when packets arrive.

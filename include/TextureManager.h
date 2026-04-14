@@ -32,7 +32,19 @@ public:
     }
 
     void AddTexture(const std::wstring& name, IDirect3DTexture9* texture) {
-        textures[name] = TimedTexture(texture, name);
+        if (!texture) return;
+
+        auto it = textures.find(name);
+        if (it != textures.end()) {
+            IDirect3DTexture9* old_texture = it->second.texture;
+            it->second = TimedTexture(texture, name);
+            if (old_texture && old_texture != texture) {
+                old_texture->Release();
+            }
+            return;
+        }
+
+        textures.emplace(name, TimedTexture(texture, name));
     }
 
     IDirect3DTexture9* GetTexture(const std::wstring& name) {
@@ -68,8 +80,7 @@ public:
     void AddInMemoryTexture(const std::wstring& name, IDirect3DTexture9* texture) {
         if (!texture) return;
 
-        // Store without taking ownership beyond caching
-        textures[name] = TimedTexture(texture, name);
+        AddTexture(name, texture);
     }
 
 
@@ -86,6 +97,10 @@ public:
             }
         }
         GwDatTextureManager::Instance().CleanupOldTextures(timeout_seconds);
+    }
+
+    ~TextureManager() {
+        CleanupOldTextures(0);
     }
 
 private:

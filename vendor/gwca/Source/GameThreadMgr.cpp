@@ -5,7 +5,9 @@
 
 #include <GWCA/Managers/Module.h>
 #include <GWCA/Managers/GameThreadMgr.h>
+#include <GWCA/Managers/MapMgr.h>
 #include <GWCA/Utilities/Hooker.h>
+#include <GWCA/Constants/Constants.h>
 #include <mutex>
 #include <GWCA/Logger/Logger.h>
 
@@ -34,13 +36,23 @@ namespace {
     };
     std::vector<CallbackEntry> GameThread_callbacks;
 
+    bool IsMapReadyForQueue()
+    {
+        const auto instance_type = GW::Map::GetInstanceType();
+        return GW::Map::GetIsMapLoaded()
+            && instance_type != GW::Constants::InstanceType::Loading;
+    }
+
     void CallFunctions()
     {
         if (!initialised)
             return;
         EnterCriticalSection(&mutex);
         in_gamethread = true;
-        if (!singleshot_callbacks.empty()) {
+        if (!IsMapReadyForQueue()) {
+            singleshot_callbacks.clear();
+        }
+        else if (!singleshot_callbacks.empty()) {
             for (const auto& call : singleshot_callbacks) {
                 call();
             }
@@ -139,12 +151,24 @@ namespace GW {
         LeaveCriticalSection(&mutex);
     }
 
+    void GameThread::ClearEnqueuedCalls()
+    {
+        if (!initialised)
+            return;
+        EnterCriticalSection(&mutex);
+        singleshot_callbacks.clear();
+        LeaveCriticalSection(&mutex);
+    }
+
     void GameThread::Enqueue(std::function<void()> f)
     {
         if (!initialised)
             return;
         EnterCriticalSection(&mutex);
-        if (in_gamethread) {
+        if (!IsMapReadyForQueue()) {
+            singleshot_callbacks.clear();
+        }
+        else if (in_gamethread) {
             f();
         }
         else {

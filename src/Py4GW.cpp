@@ -654,9 +654,8 @@ bool ChangeWorkingDirectory(const std::string& new_directory) {
 }
 
 static uint64_t Get_Tick_Count64() {
-    return GetTickCount64();
+    return frame_id_timestamp ? frame_id_timestamp : GetTickCount64();
 }
-
 HWND Py4GW::get_gw_window_handle() {
     return GW::MemoryMgr::GetGWWindowHandle();
     //return gw_window_handle; 
@@ -1125,6 +1124,13 @@ void Py4GW_DeferStopAndRun(int delay_ms) {
 }
 
 void EnqueuePythonCallback(py::function func) {
+    auto instance_type = GW::Map::GetInstanceType();
+    bool is_map_ready = (GW::Map::GetIsMapLoaded()) && (instance_type != GW::Constants::InstanceType::Loading);
+    if (!is_map_ready) {
+        GW::GameThread::ClearEnqueuedCalls();
+        return;
+    }
+
     // move func into the lambda so it stays alive
     GW::GameThread::Enqueue([func = std::move(func)]() mutable {
         // We're now running on the GW game thread here
@@ -1133,7 +1139,7 @@ void EnqueuePythonCallback(py::function func) {
         bool is_map_ready = (GW::Map::GetIsMapLoaded()) && (instance_type != GW::Constants::InstanceType::Loading);
 
         if (!is_map_ready) {
-
+            GW::GameThread::ClearEnqueuedCalls();
             return;
         }
 
@@ -2303,7 +2309,7 @@ void bind_Window(py::module_& console)
     console.def("bring_window_to_front",&WindowCfg::BringWindowToFront,"Bring the Guild Wars window to the front of the Z-order stack");
     console.def("transparent_click_through",&WindowCfg::TransparentClickThrough,"Make the Guild Wars window click-through",
         py::arg("enable"));
-    console.def("adjust_window_opacity", &WindowCfg::AdjustWindowOpacity,"Adjust the Guild Wars window opacity (0–255)",
+    console.def("adjust_window_opacity", &WindowCfg::AdjustWindowOpacity,"Adjust the Guild Wars window opacity (0ï¿½255)",
         py::arg("alpha") );
     console.def( "hide_window",&WindowCfg::HideWindow, "Hide the Guild Wars window");
     console.def("show_window",&WindowCfg::ShowWindowAgain,"Show the Guild Wars window if hidden");
@@ -2437,3 +2443,4 @@ PYBIND11_EMBEDDED_MODULE(PyCallback, m)
                 );
 
 }
+

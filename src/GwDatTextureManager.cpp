@@ -492,11 +492,15 @@ namespace {
         }
     };
 
-    static std::map<uint32_t, GwImg*> textures_by_file_id;
+    static std::map<uint32_t, std::unique_ptr<GwImg>> textures_by_file_id;
 }
 
 void GwDatTextureManager::SetDevice(IDirect3DDevice9* device) {
     d3d_device_ = device;
+}
+
+GwDatTextureManager::~GwDatTextureManager() {
+    CleanupOldTextures(0);
 }
 
 bool GwDatTextureManager::IsDatTextureKey(const std::wstring& texture_key) {
@@ -595,10 +599,15 @@ IDirect3DTexture9* GwDatTextureManager::LoadTextureFromFileId(uint32_t file_id) 
         return found->second->m_tex;
     }
 
-    auto* gwimg_ptr = new GwImg(file_id);
-    textures_by_file_id[file_id] = gwimg_ptr;
-    gwimg_ptr->m_tex = CreateTexture(d3d_device_, gwimg_ptr->m_file_id, gwimg_ptr->m_dims);
-    return gwimg_ptr->m_tex;
+    auto gwimg = std::make_unique<GwImg>(file_id);
+    gwimg->m_tex = CreateTexture(d3d_device_, gwimg->m_file_id, gwimg->m_dims);
+    if (!gwimg->m_tex) {
+        return nullptr;
+    }
+
+    IDirect3DTexture9* loaded_texture = gwimg->m_tex;
+    textures_by_file_id[file_id] = std::move(gwimg);
+    return loaded_texture;
 }
 
 IDirect3DTexture9* GwDatTextureManager::GetTexture(const std::wstring& texture_key) {
@@ -612,10 +621,9 @@ IDirect3DTexture9* GwDatTextureManager::GetTextureByFileId(uint32_t file_id) {
 void GwDatTextureManager::CleanupOldTextures(int timeout_seconds) {
     const auto now = std::chrono::steady_clock::now();
     for (auto it = textures_by_file_id.begin(); it != textures_by_file_id.end();) {
-        GwImg* gwimg_ptr = it->second;
+        GwImg* gwimg_ptr = it->second.get();
         const auto age = std::chrono::duration_cast<std::chrono::seconds>(now - gwimg_ptr->last_used).count();
         if (age > timeout_seconds) {
-            delete gwimg_ptr;
             it = textures_by_file_id.erase(it);
         }
         else {

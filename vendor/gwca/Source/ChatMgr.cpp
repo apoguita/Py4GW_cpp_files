@@ -319,7 +319,8 @@ namespace {
 
         SendChat_Func = (SendChat_pt)GW::Scanner::ToFunctionStart(Scanner::Find("\x8D\x85\xE0\xFE\xFF\xFF\x50\x68\x1C\x01", "xxxxxxxxx"));
 
-        StartWhisper_Func = (StartWhisper_pt)GW::Scanner::ToFunctionStart(Scanner::Find("\xFC\x53\x56\x8B\xF1\x57\x6A\x05\xFF\x36\xE8", "xxxxxxxxxxx"));
+        //StartWhisper_Func = (StartWhisper_pt)GW::Scanner::ToFunctionStart(Scanner::Find("\xFC\x53\x56\x8B\xF1\x57\x6A\x05\xFF\x36\xE8", "xxxxxxxxxxx"));
+        StartWhisper_Func = (StartWhisper_pt)GW::Scanner::ToFunctionStart(Scanner::Find("\xFC\x53\x56\x8B\xF1\x57\x6A\x01\xFF\x36\xE8", "xxxxxxxxxxx"));
 
         AddToChatLog_Func = (AddToChatLog_pt)GW::Scanner::ToFunctionStart(Scanner::Find("\x40\x25\xff\x01\x00\x00", "xxxxxx"));
 

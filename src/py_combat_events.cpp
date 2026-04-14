@@ -57,9 +57,11 @@ namespace CombatEventTypes {
     constexpr uint32_t DAMAGE = to_uint(CombatEventType::DAMAGE);
     constexpr uint32_t CRITICAL = to_uint(CombatEventType::CRITICAL);
     constexpr uint32_t ARMOR_IGNORING = to_uint(CombatEventType::ARMOR_IGNORING);
+    constexpr uint32_t HEALING = to_uint(CombatEventType::HEALING);
     constexpr uint32_t EFFECT_APPLIED = to_uint(CombatEventType::EFFECT_APPLIED);
     constexpr uint32_t EFFECT_REMOVED = to_uint(CombatEventType::EFFECT_REMOVED);
     constexpr uint32_t EFFECT_ON_TARGET = to_uint(CombatEventType::EFFECT_ON_TARGET);
+    constexpr uint32_t EFFECT_RENEWED = to_uint(CombatEventType::EFFECT_RENEWED);
     constexpr uint32_t ENERGY_GAINED = to_uint(CombatEventType::ENERGY_GAINED);
     constexpr uint32_t ENERGY_SPENT = to_uint(CombatEventType::ENERGY_SPENT);
     constexpr uint32_t SKILL_DAMAGE = to_uint(CombatEventType::SKILL_DAMAGE);
@@ -155,6 +157,7 @@ void CombatEventQueue::Terminate() {
     GW::StoC::RemoveCallback(GW::Packet::StoC::SkillRecharge::STATIC_HEADER, &skill_recharge_entry);
     GW::StoC::RemoveCallback(GW::Packet::StoC::SkillRecharged::STATIC_HEADER, &skill_recharged_entry);
 
+    active_effects.clear();
     is_initialized = false;
 }
 
@@ -189,8 +192,9 @@ void CombatEventQueue::PushEvent(const RawCombatEvent& event) {
 
 bool CombatEventQueue::IsMapReady() const {
     auto instance_type = GW::Map::GetInstanceType();
-    return GW::Map::GetIsMapLoaded() &&
-           instance_type != GW::Constants::InstanceType::Loading;
+    bool is_map_ready = (GW::Map::GetIsMapLoaded()) && (!GW::Map::GetIsObserving()) && (instance_type != GW::Constants::InstanceType::Loading);
+
+    return is_map_ready;
 }
 
 // ============================================================================
@@ -207,7 +211,10 @@ bool CombatEventQueue::IsMapReady() const {
  * with other packets that may not have the skill_id.
  */
 void CombatEventQueue::OnSkillActivate(GW::Packet::StoC::SkillActivate* packet) {
-    if (!IsMapReady()) return;
+    if (!IsMapReady()) {
+        active_effects.clear();
+        return;
+    }
     uint32_t now = static_cast<uint32_t>(GetTickCount64());
     PushEvent(RawCombatEvent(now, CombatEventTypes::SKILL_ACTIVATE_PACKET,
         packet->agent_id, packet->skill_id, 0, 0.0f));
@@ -229,7 +236,10 @@ void CombatEventQueue::OnSkillActivate(GW::Packet::StoC::SkillActivate* packet) 
  * - energygain: Energy gained
  */
 void CombatEventQueue::OnGenericValue(GW::Packet::StoC::GenericValue* packet) {
-    if (!IsMapReady()) return;
+    if (!IsMapReady()) {
+        active_effects.clear();
+        return;
+    }
     uint32_t now = static_cast<uint32_t>(GetTickCount64());
 
     using namespace GW::Packet::StoC::GenericValueID;
@@ -292,11 +302,27 @@ void CombatEventQueue::OnGenericValue(GW::Packet::StoC::GenericValue* packet) {
             break;
 
         case add_effect:
-            PushEvent(RawCombatEvent(now, CombatEventTypes::EFFECT_APPLIED,
-                packet->agent_id, packet->value, 0, 0.0f));
+        {
+            auto& agent_effects = active_effects[packet->agent_id];
+            const bool already_active = agent_effects.find(packet->value) != agent_effects.end();
+            agent_effects.insert(packet->value);
+            PushEvent(RawCombatEvent(
+                now,
+                already_active ? CombatEventTypes::EFFECT_RENEWED : CombatEventTypes::EFFECT_APPLIED,
+                packet->agent_id,
+                packet->value,
+                0,
+                0.0f));
             break;
+        }
 
         case remove_effect:
+            if (auto it = active_effects.find(packet->agent_id); it != active_effects.end()) {
+                it->second.erase(packet->value);
+                if (it->second.empty()) {
+                    active_effects.erase(it);
+                }
+            }
             PushEvent(RawCombatEvent(now, CombatEventTypes::EFFECT_REMOVED,
                 packet->agent_id, packet->value, 0, 0.0f));
             break;
@@ -332,7 +358,10 @@ void CombatEventQueue::OnGenericValue(GW::Packet::StoC::GenericValue* packet) {
  * - target_id = target/victim
  */
 void CombatEventQueue::OnGenericValueTarget(GW::Packet::StoC::GenericValueTarget* packet) {
-    if (!IsMapReady()) return;
+    if (!IsMapReady()) {
+        active_effects.clear();
+        return;
+    }
     uint32_t now = static_cast<uint32_t>(GetTickCount64());
 
     using namespace GW::Packet::StoC::GenericValueID;
@@ -379,7 +408,10 @@ void CombatEventQueue::OnGenericValueTarget(GW::Packet::StoC::GenericValueTarget
  * - energy_spent: Energy consumed, float_value = energy as fraction of max
  */
 void CombatEventQueue::OnGenericFloat(GW::Packet::StoC::GenericFloat* packet) {
-    if (!IsMapReady()) return;
+    if (!IsMapReady()) {
+        active_effects.clear();
+        return;
+    }
     uint32_t now = static_cast<uint32_t>(GetTickCount64());
 
     using namespace GW::Packet::StoC::GenericValueID;
@@ -421,7 +453,10 @@ void CombatEventQueue::OnGenericFloat(GW::Packet::StoC::GenericFloat* packet) {
  * Example: float_value = 0.15 on a target with 480 HP = 72 damage
  */
 void CombatEventQueue::OnGenericModifier(GW::Packet::StoC::GenericModifier* packet) {
-    if (!IsMapReady()) return;
+    if (!IsMapReady()) {
+        active_effects.clear();
+        return;
+    }
     uint32_t now = static_cast<uint32_t>(GetTickCount64());
 
     using namespace GW::Packet::StoC::GenericValueID;
@@ -445,9 +480,14 @@ void CombatEventQueue::OnGenericModifier(GW::Packet::StoC::GenericModifier* pack
             break;
 
         case armorignoring:
-            // Armor-ignoring damage (or heal if negative)
-            PushEvent(RawCombatEvent(now, CombatEventTypes::ARMOR_IGNORING,
-                target_id, 0, source_id, value));
+            // Positive values are healing/lifesteal gain; non-positive are armor-ignoring damage.
+            PushEvent(RawCombatEvent(
+                now,
+                value > 0.0f ? CombatEventTypes::HEALING : CombatEventTypes::ARMOR_IGNORING,
+                target_id,
+                0,
+                source_id,
+                value));
             break;
     }
 }
@@ -469,7 +509,10 @@ void CombatEventQueue::OnGenericModifier(GW::Packet::StoC::GenericModifier* pack
  * - recharge: Cooldown duration in milliseconds
  */
 void CombatEventQueue::OnSkillRecharge(GW::Packet::StoC::SkillRecharge* packet) {
-    if (!IsMapReady()) return;
+    if (!IsMapReady()) {
+        active_effects.clear();
+        return;
+    }
     uint32_t now = static_cast<uint32_t>(GetTickCount64());
     // agent_id=who, value=skill_id, float_value=recharge_ms
     PushEvent(RawCombatEvent(now, CombatEventTypes::SKILL_RECHARGE,
@@ -492,7 +535,10 @@ void CombatEventQueue::OnSkillRecharge(GW::Packet::StoC::SkillRecharge* packet) 
  * - skill_id: The skill that is now ready to use
  */
 void CombatEventQueue::OnSkillRecharged(GW::Packet::StoC::SkillRecharged* packet) {
-    if (!IsMapReady()) return;
+    if (!IsMapReady()) {
+        active_effects.clear();
+        return;
+    }
     uint32_t now = static_cast<uint32_t>(GetTickCount64());
     // agent_id=who, value=skill_id
     PushEvent(RawCombatEvent(now, CombatEventTypes::SKILL_RECHARGED,
@@ -557,9 +603,11 @@ Note:
     types.attr("DAMAGE") = CombatEventTypes::DAMAGE;
     types.attr("CRITICAL") = CombatEventTypes::CRITICAL;
     types.attr("ARMOR_IGNORING") = CombatEventTypes::ARMOR_IGNORING;
+    types.attr("HEALING") = CombatEventTypes::HEALING;
     types.attr("EFFECT_APPLIED") = CombatEventTypes::EFFECT_APPLIED;
     types.attr("EFFECT_REMOVED") = CombatEventTypes::EFFECT_REMOVED;
     types.attr("EFFECT_ON_TARGET") = CombatEventTypes::EFFECT_ON_TARGET;
+    types.attr("EFFECT_RENEWED") = CombatEventTypes::EFFECT_RENEWED;
     types.attr("ENERGY_GAINED") = CombatEventTypes::ENERGY_GAINED;
     types.attr("ENERGY_SPENT") = CombatEventTypes::ENERGY_SPENT;
     types.attr("SKILL_DAMAGE") = CombatEventTypes::SKILL_DAMAGE;

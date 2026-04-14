@@ -552,6 +552,16 @@ void ImGui_SetNextWindowSize(const std::array<float, 2>& size, ImGuiCond cond = 
 	ImGui::SetNextWindowSize(size_vec, cond);
 }
 
+//void ImGui_SetNextWindowSizeConstraint
+void ImGui_SetNextWindowSizeConstraints(const std::array<float, 2>& size_min, const std::array<float, 2>& size_max) {
+    ImVec2 size_min_vec(size_min[0], size_min[1]);
+    ImVec2 size_max_vec(
+        size_max[0] == 0.0f ? FLT_MAX : size_max[0],
+        size_max[1] == 0.0f ? FLT_MAX : size_max[1]
+    );
+    ImGui::SetNextWindowSizeConstraints(size_min_vec, size_max_vec);
+}
+
 // SetNextWindowPos
 void ImGui_SetNextWindowPos(float x, float y) {
     ImGui::SetNextWindowPos(ImVec2(x, y));
@@ -777,6 +787,12 @@ bool ImGui_BeginTabItem(const std::string& label, bool popen) {
 
 bool ImGui_BeginTabItem(const std::string& label, bool p_open, ImGuiTabItemFlags flags) {
     return ImGui::BeginTabItem(label.c_str(), &p_open, flags);
+}
+
+std::pair<bool, bool> ImGui_BeginTabItemClosable(const std::string& label, bool p_open, ImGuiTabItemFlags flags) {
+    bool is_open = p_open;
+    const bool opened = ImGui::BeginTabItem(label.c_str(), &is_open, flags);
+    return {opened, is_open};
 }
 
 void ImGui_EndTabItem() {
@@ -2243,6 +2259,11 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
         py::arg("size"), py::arg("cond") = 0,
         "Set next window size with array and optional condition");
 
+	m.def("set_next_window_size_constraints",
+		py::overload_cast<const std::array<float, 2>&, const std::array<float, 2>&>(&ImGui_SetNextWindowSizeConstraints),
+		py::arg("size_min"), py::arg("size_max"),
+		"Set next window size constraints with minimum and maximum size arrays");
+
 
     m.def("set_next_window_pos", 
 		py::overload_cast<float, float>(&ImGui_SetNextWindowPos),
@@ -2335,6 +2356,13 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
     m.def("begin_tab_item",
         py::overload_cast<const std::string&, bool, ImGuiTabItemFlags>(&ImGui_BeginTabItem),
         "Begin tab item with full params");
+
+    m.def("begin_tab_item_closable",
+        &ImGui_BeginTabItemClosable,
+        py::arg("label"),
+        py::arg("p_open") = true,
+        py::arg("flags") = ImGuiTabItemFlags_None,
+        "Begin tab item and return a tuple of (opened, is_open)");
 
     m.def("end_tab_item", &ImGui_EndTabItem, "Ends the tab item in ImGui");
 
