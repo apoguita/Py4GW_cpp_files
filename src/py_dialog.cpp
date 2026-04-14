@@ -682,6 +682,7 @@ void Dialog::ObserveMapChange(uint32_t current_map_id, bool current_map_ready, b
         }
     }
 
+    should_log = false; //invalidating excessive logging
     if (should_log) {
         Logger::LogStaticInfo(
             "[Dialog] Invalidated active dialog state on map transition/readiness change (" +
