@@ -75,6 +75,8 @@ namespace CombatEventTypes {
 // ============================================================================
 
 void CombatEventQueue::Initialize() {
+    is_initialized = true; //disabled for now, we can re-enable after more testing
+
     if (is_initialized) return;
 
     // SkillActivate packet - gives us skill_id before GenericValue arrives

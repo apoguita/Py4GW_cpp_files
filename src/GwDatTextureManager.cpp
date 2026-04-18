@@ -1,3 +1,4 @@
+#if 0
 #include "Headers.h"
 #include "AtexAsm.h"
 #include "GwDatTextureManager.h"
@@ -631,3 +632,7 @@ void GwDatTextureManager::CleanupOldTextures(int timeout_seconds) {
         }
     }
 }
+
+#endif
+
+#include "GwDatTextureManager.h"

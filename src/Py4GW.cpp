@@ -1127,7 +1127,6 @@ void EnqueuePythonCallback(py::function func) {
     auto instance_type = GW::Map::GetInstanceType();
     bool is_map_ready = (GW::Map::GetIsMapLoaded()) && (instance_type != GW::Constants::InstanceType::Loading);
     if (!is_map_ready) {
-        GW::GameThread::ClearEnqueuedCalls();
         return;
     }
 
@@ -1139,7 +1138,6 @@ void EnqueuePythonCallback(py::function func) {
         bool is_map_ready = (GW::Map::GetIsMapLoaded()) && (instance_type != GW::Constants::InstanceType::Loading);
 
         if (!is_map_ready) {
-            GW::GameThread::ClearEnqueuedCalls();
             return;
         }
 

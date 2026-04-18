@@ -13,7 +13,6 @@ namespace GW {
 
     namespace GameThread {
         GWCA_API void ClearCalls();
-        GWCA_API void ClearEnqueuedCalls();
 
         void Enqueue(std::function<void ()> f);
 
