@@ -573,7 +573,17 @@ static std::vector<uint8_t> GetSingleItemName(uint32_t item_id)
     return out;
 }
 
-
+std::vector<uint32_t> GetCompositeModelIDs(uint32_t model_file_id)
+{
+    const auto model_file_info = GW::Items::GetCompositeModelInfo(model_file_id);
+    if (model_file_info) {
+        return std::vector<uint32_t>(
+            std::begin(model_file_info->file_ids),
+            std::end(model_file_info->file_ids)
+        );
+    }
+    return {};
+}
 
 
 void bind_SafeDyeColor(py::module_& m) {
@@ -718,6 +728,7 @@ void bind_SafeItem(py::module_& m) {
 		.def("GetCompleteNameEnc", &GetCompleteNameEnc)
 		.def("GetSingleItemName", &GetSingleItemName)
 		.def("IsItemValid", &SafeItem::IsItemValid)
+        .def("GetCompositeModelIDs",  &GetCompositeModelIDs)
         .def_readonly("item_id", &SafeItem::item_id)
         .def_readonly("agent_id", &SafeItem::agent_id)
         .def_readonly("agent_item_id", &SafeItem::agent_item_id)
