@@ -242,11 +242,14 @@ namespace {
         address = Scanner::Find("\x0f\xb6\x40\x04\x83\xc0\xf8", "xxxxxxx", 0x1f);
         UseItem_Func = (DoAction_pt)Scanner::FunctionFromNearCall(address);
 
-        address = Scanner::Find("\x83\xc4\x04\x85\xc0\x0f?????\x8d\x45\x0c", "xxxxxx?????xxx");
-        if (Scanner::IsValidPtr(address, ScannerSection::Section_TEXT)) {
-            EquipItem_Func = (EquipItem_pt)Scanner::FunctionFromNearCall(address + 0x1e);
-            MoveItem_Func = (MoveItem_pt)Scanner::FunctionFromNearCall(address + 0x6e);
-        }
+        //address = Scanner::Find("\x83\xc4\x04\x85\xc0\x0f?????\x8d\x45\x0c", "xxxxxx?????xxx");
+        //if (Scanner::IsValidPtr(address, ScannerSection::Section_TEXT)) {
+            //EquipItem_Func = (EquipItem_pt)Scanner::FunctionFromNearCall(address + 0x1e);
+            //MoveItem_Func = (MoveItem_pt)Scanner::FunctionFromNearCall(address + 0x6e);
+
+            EquipItem_Func = (EquipItem_pt)Scanner::ToFunctionStart(Scanner::FindAssertion("\\Code\\Gw\\Ui\\Game\\GmItemHelpers.cpp", "targetAgentId", 0, 0));
+            MoveItem_Func = (MoveItem_pt)Scanner::ToFunctionStart(Scanner::FindAssertion("\\Code\\Gw\\Ui\\Game\\GmItemHelpers.cpp", "ItemCliValidate(sourceItemId)", 0, 0));
+        //}
 
 
         // @Cleanup: All of these functions could be done via UI messages
@@ -284,7 +287,8 @@ namespace {
         ChangeEquipmentVisibility_Func = (ChangeEquipmentVisibility_pt)Scanner::FunctionFromNearCall(address);
 
         //address = Scanner::Find("\x68\x21\x03\x00\x00\x89\x45\xfc", "xxxxxxxx", 0x3a);
-        address = Scanner::Find("\x68\x21\x03\x00\x00\x89\x45\xfc", "xxxxxxxx", 0x3C);
+        //address = Scanner::Find("\x68\x21\x03\x00\x00\x89\x45\xfc", "xxxxxxxx", 0x3C);
+        address = Scanner::Find("\x68\x21\x03\x00\x00\x89\x45\xfc", "xxxxxxxx", 0x54);
         ChangeGold_Func = (ChangeGold_pt)Scanner::FunctionFromNearCall(address);
 
         address = Scanner::Find("\x83\xc9\x01\x89\x4b\x24", "xxxxxx", 0x28);

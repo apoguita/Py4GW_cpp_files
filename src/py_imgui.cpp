@@ -129,31 +129,40 @@ void ImGui_PopFont() {
 	ImGui::PopFont();
 }
 
-static float g_original_font_scale = 1.0f;
+struct ScaledFontState {
+    ImFont* font;
+    float original_scale;
+};
+
+static std::vector<ScaledFontState> g_scaled_font_stack;
 
 void ImGui_PushFontScaled(int font_id, float scale) {
-    if (font_id < 0 || font_id >= static_cast<int>(FontID::Count)) {
-        ImFont* fallback = ImGui::GetIO().Fonts->Fonts[0];
-        g_original_font_scale = fallback->Scale;
-        fallback->Scale = scale;
-        ImGui::PushFont(fallback);
-        return;
-    }
+    ImFont* font = nullptr;
 
-    ImFont* font = FontManager::Instance().Get(font_id);
-    if (!font) {
+    if (font_id < 0 || font_id >= static_cast<int>(FontID::Count)) {
         font = ImGui::GetIO().Fonts->Fonts[0];
     }
+    else {
+        font = FontManager::Instance().Get(font_id);
+        if (!font) {
+            font = ImGui::GetIO().Fonts->Fonts[0];
+        }
+    }
 
-    g_original_font_scale = font->Scale;
+    g_scaled_font_stack.push_back({ font, font->Scale });
     font->Scale = scale;
     ImGui::PushFont(font);
-
 }
 
 void ImGui_PopFontScaled() {
-    ImFont* font = ImGui::GetFont();
-    font->Scale = g_original_font_scale;
+    if (g_scaled_font_stack.empty()) {
+        ImGui::PopFont();
+        return;
+    }
+
+    ScaledFontState state = g_scaled_font_stack.back();
+    g_scaled_font_stack.pop_back();
+    state.font->Scale = state.original_scale;
     ImGui::PopFont();
 }
 
@@ -2536,6 +2545,7 @@ PYBIND11_EMBEDDED_MODULE(PyImGui, m) {
         self.Colors[idx] = { r,g,b,a };       // <-- 1:1 assign, no transform
             });
 }
+
 
 
 

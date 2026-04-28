@@ -514,26 +514,35 @@ namespace {
             shift_screen_addr = *(uintptr_t*)address;
 
 
-
-        address = Scanner::FindAssertion("\\Code\\Gw\\Pref\\PrApi.cpp", "location < arrsize(s_flushDelay)", 0, -0x12);
+        // 2026-04-28 update: function gained a prologue (PUSH EBP / MOV EBP,ESP /
+        // MOV EAX,[EBP+8]) and an extra `MOV [0x00bf36e8], EAX` after the flag
+        // set, pushing the address operand 5 bytes further from the \xBA anchor.
+        // Pre-update offset was -0x12.
+        //address = Scanner::FindAssertion("\\Code\\Gw\\Pref\\PrApi.cpp", "location < arrsize(s_flushDelay)", 0, -0x12);
+        address = Scanner::FindAssertion("\\Code\\Gw\\Pref\\PrApi.cpp", "location < arrsize(s_flushDelay)", 0, -0x17);
+        
         if (address && Scanner::IsValidPtr(*(uintptr_t*)address))
             PreferencesInitialised_Addr = *(uintptr_t*)address;
 
 
-
-        //address = GW::Scanner::Find("\x8d\x85\x74\xf7\xff\xff\x50", "xxxxxxx", 0x7);
-
-        address = GW::Scanner::Find("\x8d\x85\x84\xfb\xff\xff\x50\xe8", "xxxxxxxx", 0x7);
+        //address = GW::Scanner::Find("\x8d\x85\x84\xfb\xff\xff\x50\xe8", "xxxxxxxx", 0x7);
+        address = GW::Scanner::Find("\x8d\x85\x04\xfb\xff\xff\x50\xe8", "xxxxxxxx", 0x7);
         address = GW::Scanner::FunctionFromNearCall(address); // BuildLoginStruct
         if (address) {
             GetCommandLineFlag_Func = (GetFlagPreference_pt)GW::Scanner::FunctionFromNearCall(address + 0xf);
             GetCommandLineString_Func = (GetStringPreference_pt)GW::Scanner::FunctionFromNearCall(address + 0x32);
 
-            GetStringPreference_Func = (GetStringPreference_pt)GW::Scanner::FunctionFromNearCall(address + 0x5c);
-            GetFlagPreference_Func = (GetFlagPreference_pt)GW::Scanner::FunctionFromNearCall(address + 0x10b);
-            GetEnumPreference_Func = (GetEnumPreference_pt)GW::Scanner::FunctionFromNearCall(address + 0x118);
-            GetNumberPreference_Func = (GetNumberPreference_pt)GW::Scanner::FunctionFromNearCall(address + 0x13f);
+            //GetStringPreference_Func = (GetStringPreference_pt)GW::Scanner::FunctionFromNearCall(address + 0x5c);
+            //GetFlagPreference_Func = (GetFlagPreference_pt)GW::Scanner::FunctionFromNearCall(address + 0x10b);
+            //GetEnumPreference_Func = (GetEnumPreference_pt)GW::Scanner::FunctionFromNearCall(address + 0x118);
+            //GetNumberPreference_Func = (GetNumberPreference_pt)GW::Scanner::FunctionFromNearCall(address + 0x13f);
+            // Old offset - based scans replaced with string - based scans matching closed GWCA
         }
+
+        GetStringPreference_Func = (GetStringPreference_pt)Scanner::ToFunctionStart(Scanner::FindUseOfString("pref < PREF_STRINGS", 0));
+        GetFlagPreference_Func = (GetFlagPreference_pt)Scanner::ToFunctionStart(Scanner::FindUseOfString("pref < PREF_FLAGS", 0));
+        GetEnumPreference_Func = (GetEnumPreference_pt)Scanner::ToFunctionStart(Scanner::FindUseOfString("pref < PREF_ENUMS", 0));
+        GetNumberPreference_Func = (GetNumberPreference_pt)Scanner::ToFunctionStart(Scanner::FindUseOfString("pref < PREF_VALUES", 0));
 
 
 
