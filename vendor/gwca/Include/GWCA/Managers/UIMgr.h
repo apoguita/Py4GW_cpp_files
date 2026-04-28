@@ -426,22 +426,43 @@ namespace GW {
             kCheckUIState = 0x10000175,                  // 0x10000175
             kCloseSettings = 0x10000176,                 // 0x10000176
             kChangeSettingsTab = 0x10000177,             // 0x10000177, wparam = uint32_t is_interface_tab
-            kDestroyUIPositionOverlay = 0x10000179,                 // 0x10000179
-            kEnableUIPositionOverlay = 0x1000017a,             // 0x1000017a, wparam = uint32_t enable
+            kDestroyUIPositionOverlay = 0x1000017C,      // 0x1000017C
+            kEnableUIPositionOverlay = 0x1000017D,       // 0x1000017D, wparam = uint32_t enable
 
-            kGuildHall = 0x1000017C,                     // 0x1000017C, wparam = gh key (uint32_t[4])
-            kLeaveGuildHall = 0x1000017E,                // 0x1000017E
-            kTravel = 0x1000017F,                        // 0x1000017F
-            kOpenWikiUrl = 0x10000180,                   // 0x10000180, wparam = char* url
-            kAppendMessageToChat = 0x1000018E,           // 0x1000018E, wparam = wchar_t* message
-            kHideHeroPanel = 0x1000019C,                 // 0x1000019C, wparam = hero_id
-            kShowHeroPanel = 0x1000019D,                 // 0x1000019D, wparam = hero_id
-            kGetInventoryAgentId = 0x100001A1,           // 0x100001A1, wparam = 0, lparam = uint32_t* agent_id_out. Used to fetch which agent is selected
-            kEquipItem = 0x100001A2,                     // 0x100001A2, wparam = { item_id, agent_id }
-            kMoveItem = 0x100001A3,                      // 0x100001A3, wparam = { item_id, to_bag, to_slot, bool prompt }
-            kInitiateTrade = 0x100001A5,                 // 0x100001A5
-            kInventoryAgentChanged = 0x100001B5,         // 0x100001B5, Triggered when inventory needs updating due to agent change; no args
-            kOpenTemplate = 0x100001BE,                  // 0x100001BE, wparam = GW::UI::ChatTemplate*
+            kGuildHall = 0x1000017F,                     // 0x1000017F, wparam = gh key (uint32_t[4])
+            kLeaveGuildHall = 0x10000181,                // 0x10000181
+            kTravel = 0x10000182,                        // 0x10000182
+            kOpenWikiUrl = 0x10000183,                   // 0x10000183, wparam = char* url
+            kSetPreGameContext_Value0 = 0x10000187,      // 0x10000187, wparam = uint32_t value
+            kGetPreGameContext_Value0 = 0x10000189,      // 0x10000189, lparam = *uint32_t value_out
+            kSetPreGameContext_Value1 = 0x1000018A,      // 0x1000018A, wparam = uint32_t value
+            kGetPreGameContext_Value1 = 0x1000018B,      // 0x1000018B, lparam = *uint32_t value_out
+            kAppendMessageToChat = 0x10000194,           // 0x10000194, wparam = wchar_t* message
+            kHideHeroPanel = 0x100001A2,                 // 0x100001A2, wparam = hero_id
+            kShowHeroPanel = 0x100001A3,                 // 0x100001A3, wparam = hero_id
+            kGetInventoryAgentId = 0x100001A7,           // 0x100001A7, wparam = 0, lparam = uint32_t* agent_id_out. Used to fetch which agent is selected
+            kInventoryRelated1 = 0x100001A8,             // 0x100001A8
+            kInventoryRelated2 = 0x100001A9,             // 0x100001A9
+            kInventoryRelated3 = 0x100001AA,             // 0x100001AA
+            kEquipItem = 0x100001AB,                     // 0x100001AB, wparam = { item_id, agent_id }
+            kMoveItem = 0x100001AC,                      // 0x100001AC, wparam = { item_id, to_bag, to_slot, bool prompt }
+            kItemRelated_1 = 0x100001AD,                 // 0x100001AD
+            kItemTooltip = 0x100001AE,                   // 0x100001AE
+            kItemRelated_3 = 0x100001AF,                 // 0x100001AF
+            kItemRelated_4 = 0x100001B0,                 // 0x100001B0
+            kInitiateTrade = 0x100001B1,                 // 0x100001B1
+            kInventoryAgentChanged = 0x100001C1,         // 0x100001C1, Triggered when inventory needs updating due to agent change; no args
+            kInventoryRelated_1 = 0x100001C2,            // 0x100001C2
+            kInventoryRelated_2 = 0x100001C3,            // 0x100001C3
+            kMissionStatusRelated = 0x100001C4,          // 0x100001C4
+            kUnused_1c2 = 0x100001C5,                    // 0x100001C5
+            kCollapseExpandSkillListSection = 0x100001C6,// 0x100001C6
+            kTemplateRelated_1 = 0x100001C7,             // 0x100001C7
+            kTemplateRelated_2 = 0x100001C8,             // 0x100001C8
+            kPromptSaveTemplate = 0x100001C9,            // 0x100001C9
+            kOpenTemplate = 0x100001CA,                  // 0x100001CA, wparam = GW::UI::ChatTemplate*
+            kTemplateRelated_3 = 0x100001CB,             // 0x100001CB
+            kTemplateRelated_4 = 0x100001CC,             // 0x100001CC
 
             // GWCA Client to Server commands. Only added the ones that are used for hooks, everything else goes straight into GW
             
