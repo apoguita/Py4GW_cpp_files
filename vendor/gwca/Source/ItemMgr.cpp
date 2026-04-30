@@ -268,7 +268,13 @@ namespace {
         OnSalvagePopup_UICallback_Func = (UI::UIInteractionCallback)Scanner::ToFunctionStart(Scanner::FindAssertion("InvSalvage.cpp", "m_toolId", 0, 0), 0x200);
 
         //SalvageStart_Func = (SalvageStart_pt)Scanner::ToFunctionStart(Scanner::Find("\x75\x14\x68\x25\x06\x00\x00", "xxxxxxx"));
-        SalvageStart_Func = (SalvageStart_pt)Scanner::ToFunctionStart(Scanner::Find("\x75\x14\x68\x38\x06\x00\x00\xba\x7c\x9c", "xxxxxxxxxx"));
+        //SalvageStart_Func = (SalvageStart_pt)Scanner::ToFunctionStart(Scanner::Find("\x75\x14\x68\x38\x06\x00\x00\xba\x7c\x9c", "xxxxxxxxxx"));
+
+        SalvageStart_Func = (SalvageStart_pt)Scanner::ToFunctionStart(
+            Scanner::FindAssertion("ItCliApi.cpp", "context->inventoryTable.Get(targetInventoryId)", 0, 0)
+        );
+
+
 
         Logger::AssertAddress("SalvageStart_Func", (uintptr_t)SalvageStart_Func, "Item Module");
 
