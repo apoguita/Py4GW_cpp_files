@@ -26,6 +26,14 @@ HMODULE g_DllModule = nullptr;
 // Forward declare the WndProc handler for ImGui
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+namespace {
+    bool dat_texture_update_attached = false;
+
+    void DatTextureUpdate(GW::HookStatus*) {
+        GwDatTextureManager::Instance().CpuUpdate();
+    }
+}
+
 // DLLMain singleton implementation
 DLLMain& DLLMain::Instance() {
     static DLLMain instance;
@@ -93,10 +101,16 @@ bool DLLMain::Initialize() {
 		Logger::Instance().LogError("[DLLMain] Failed to attach window procedure");
         return false;
     }
-	else
+    else
 	{
         if (!initialized) Logger::Instance().LogInfo("[DLLMain] Window procedure hook attached successfully.");
-	}
+    }
+
+    if (!dat_texture_update_attached) {
+        GW::GameThread::RegisterGameThreadCallback(&Update_Entry, DatTextureUpdate);
+        dat_texture_update_attached = true;
+        Logger::Instance().LogInfo("[DLLMain] DAT texture game-thread update callback attached.");
+    }
     
     
     running = true;
@@ -112,6 +126,7 @@ void DLLMain::Terminate() {
     running = false;
 
 	GW::GameThread::RemoveGameThreadCallback(&Update_Entry);
+    dat_texture_update_attached = false;
     Logger::Instance().LogInfo("Terminating DLL...");
     Py4GW::Instance().Terminate();
 
@@ -353,6 +368,8 @@ void DLLMain::Draw(IDirect3DDevice9* device) {
 		//Logger::Instance().LogError("Device lost, skipping rendering");
         return; // Skip rendering
     }
+
+    GwDatTextureManager::Instance().DxUpdate(device);
 
     // Start new frame
     ImGui_ImplDX9_NewFrame();
