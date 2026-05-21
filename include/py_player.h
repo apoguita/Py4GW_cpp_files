@@ -76,6 +76,7 @@ public:
     bool Move(float x, float y, int zplane);
     bool Move(float x, float y);
     bool InteractAgent(int agent_id, bool call_target);
+    bool CallTarget(int agent_id, int call_type);
     bool OpenLockedChest(bool use_key);
     void SendDialog(uint32_t dialog_id);
 

@@ -438,6 +438,13 @@ namespace GW {
         }
 
 
+        bool CallTarget(CallTargetType type, uint32_t agent_id) {
+            if (!CallTarget_Func)
+                return false;
+            CallTarget_Func(type, agent_id);
+            return true;
+        }
+
         bool CallTarget(const AgentLiving* agent) {
             if (!agent)
                 return false;

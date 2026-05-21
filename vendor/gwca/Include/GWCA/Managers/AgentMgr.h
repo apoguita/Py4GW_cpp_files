@@ -106,6 +106,11 @@ namespace GW {
 
         bool InteractAgent(const Agent* agent, bool call_target = false);
 
+        // Direct call into CallTarget_Func. [Bound to Python as Player.CallTarget]
+        GWCA_API bool CallTarget(CallTargetType type, uint32_t agent_id);
+        // Looks up agent by id, forwards to CallTarget(AgentLiving*). [C++ only]
+        GWCA_API bool CallTarget(uint32_t agent_id);
+
         // Returns name of player with selected login_number.
         GWCA_API wchar_t *GetPlayerNameByLoginNumber(uint32_t login_number);
 
