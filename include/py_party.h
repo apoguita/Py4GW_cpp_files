@@ -142,13 +142,13 @@ public:
 
 class PetInfo {
 public:
-    uint32_t agent_id;
-    uint32_t owner_agent_id;
+    uint32_t agent_id = 0;
+    uint32_t owner_agent_id = 0;
     std::string pet_name;
-    uint32_t model_file_id1;
-    uint32_t model_file_id2;
-    int behavior;
-    uint32_t locked_target_id;
+    uint32_t model_file_id1 = 0;
+    uint32_t model_file_id2 = 0;
+    int behavior = 0;
+    uint32_t locked_target_id = 0;
 
     PetInfo(uint32_t owner_agentid) {
         GW::PetInfo* pet = GW::PartyMgr::GetPetInfo(owner_agentid);

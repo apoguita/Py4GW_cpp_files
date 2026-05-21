@@ -185,12 +185,14 @@ namespace {
         int success = HookBase::CreateHook((void**)&DoWorldActon_Func, OnDoWorldActon_Func, (void**)&DoWorldActon_Ret);
         Logger::AssertHook("DoWorldActon_Func", success);
 
-        //success = HookBase::CreateHook((void**)&CallTarget_Func, OnCallTarget_Func, (void**)&CallTarget_Ret);
-		//Logger::AssertHook("CallTarget_Func", success);
-        // 
-        // NOTE: CallTarget_Func initialization is currently missing - hook is disabled
-        // The CallTarget functionality still works through UI messages (kSendCallTarget)
-        // TODO: Add Scanner::Find for CallTarget_Func if direct hooking is needed
+        // CharCliPlayerOrderAlertSimple(ECharSimpleAlert, unsigned long) — underlying
+        // sender for kSendCallTarget. Matches the literal packet construction:
+        //   PUSH 0xC                        ; 6A 0C                  (packet size)
+        //   MOV  [EBP-0x10], 0x23           ; C7 45 F0 23 00 00 00   (network opcode 0x23)
+        // Opcode/size are protocol-stable across builds.
+        address = Scanner::Find("\x6A\x0C\xC7\x45\xF0\x23\x00\x00\x00", "xxxxxxxxx", 0);
+        CallTarget_Func = (CallTarget_pt)Scanner::ToFunctionStart(address);
+
         if (CallTarget_Func) {
             success = HookBase::CreateHook((void**)&CallTarget_Func, OnCallTarget_Func, (void**)&CallTarget_Ret);
             Logger::AssertHook("CallTarget_Func", success);
@@ -209,6 +211,7 @@ namespace {
         GWCA_INFO("[SCAN] ChangeTargetFunction = %p", ChangeTarget_Func);
         GWCA_INFO("[SCAN] SendAgentDialog_Func = %p", SendAgentDialog_Func);
         GWCA_INFO("[SCAN] SendGadgetDialog_Func = %p", SendGadgetDialog_Func);
+        GWCA_INFO("[SCAN] CallTarget_Func = %p", CallTarget_Func);
 
 
         Logger::AssertAddress("AgentArrayPtr", (uintptr_t)AgentArrayPtr, "Agent Module");
@@ -217,6 +220,7 @@ namespace {
 		Logger::AssertAddress("ChangeTarget_Func", (uintptr_t)ChangeTarget_Func, "Agent Module");
 		Logger::AssertAddress("SendAgentDialog_Func", (uintptr_t)SendAgentDialog_Func, "Agent Module");
 		Logger::AssertAddress("SendGadgetDialog_Func", (uintptr_t)SendGadgetDialog_Func, "Agent Module");
+		Logger::AssertAddress("CallTarget_Func", (uintptr_t)CallTarget_Func, "Agent Module");
 
         //Logger::Instance().LogInfo("############ AgentMgr initialization complete ############");
 
