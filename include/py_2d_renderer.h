@@ -30,6 +30,7 @@ public:
     void set_rectangle_mask_bounds(float x, float y, float width, float height);
 
     void build_pathing_trapezoid_geometry(D3DCOLOR color);
+    void inverse_rendering(bool enabled);
 
     void render();
 
@@ -104,6 +105,8 @@ private:
     float mask_rect_y = 0.0f;
     float mask_rect_width = 0.0f;
     float mask_rect_height = 0.0f;
+
+    bool inverse_rendering_enabled = false;
 
 
 
