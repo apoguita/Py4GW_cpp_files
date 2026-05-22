@@ -417,12 +417,11 @@ bool PyPlayer::ChangeTarget(uint32_t new_target_id) {
     return true;
 }
 
-bool PyPlayer::CallTarget(int agent_id, int call_type) {
+bool PyPlayer::CallTarget(int agent_id) {
     if (agent_id == 0) return false;
 
-    GW::GameThread::Enqueue([agent_id, call_type] {
-        GW::Agents::CallTarget(static_cast<GW::CallTargetType>(call_type),
-                               static_cast<uint32_t>(agent_id));
+    GW::GameThread::Enqueue([agent_id] {
+        GW::Agents::CallTarget(static_cast<uint32_t>(agent_id));
         });
     return true;
 }
@@ -479,7 +478,7 @@ void BindPyPlayer(py::module_& m) {
         .def("SendDialog", &PyPlayer::SendDialog, py::arg("dialog_id"))  // Bind the SendDialog method
         .def("ChangeTarget", &PyPlayer::ChangeTarget, py::arg("target_id"))  // Bind the ChangeTarget method
         .def("InteractAgent", &PyPlayer::InteractAgent, py::arg("agent_id"), py::arg("call_target"))  // Bind the InteractAgent method
-        .def("CallTarget", &PyPlayer::CallTarget, py::arg("agent_id"), py::arg("call_type") = 0xA)  // Direct CallTarget_Func call (default type = AttackingOrTargetting)
+        .def("CallTarget", &PyPlayer::CallTarget, py::arg("agent_id"))  // Forwards to GW::Agents::CallTarget(uint32_t) via game thread
 
         .def("IsAgentIDValid", &PyPlayer::IsAgentIDValid, py::arg("agent_id"))  // Bind the IsAgentIDValid method
         .def("GetChatHistory", &PyPlayer::GetChatHistory)  // Bind the GetChatHistory method
