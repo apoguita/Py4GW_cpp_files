@@ -110,8 +110,9 @@ void Py2DRenderer::build_pathing_trapezoid_geometry(D3DCOLOR color) {
 
 
 
-
-
+void Py2DRenderer::inverse_rendering(bool enabled) {
+    inverse_rendering_enabled = enabled;
+}
 
 void Py2DRenderer::ApplyStencilMask() {
     if (!g_d3d_device) return;
@@ -265,6 +266,198 @@ void Py2DRenderer::render() {
         g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, resolution, vertices, sizeof(D3DVertex));
         };
 
+    if (inverse_rendering_enabled) {
+        D3DVIEWPORT9 vp;
+        g_d3d_device->GetViewport(&vp);
+
+        float cos_r = cosf(world_rotation);
+        float sin_r = sinf(world_rotation);
+
+        auto BuildScreenVerts = [&](const std::vector<Point2D>& shape, D3DVertex* verts) {
+            for (size_t i = 0; i < shape.size(); ++i) {
+                float x = shape[i].x;
+                float y = shape[i].y;
+
+                float x_out = x, y_out = y;
+                if (world_space) {
+                    x_out = x * cos_r - y * sin_r;
+                    y_out = x * sin_r + y * cos_r;
+
+                    x_out *= world_scale;
+                    y_out *= world_scale;
+
+                    x_out = x_out * world_zoom_x + world_pan_x + screen_offset_x;
+                    y_out = y_out * world_zoom_y + world_pan_y + screen_offset_y;
+                }
+
+                verts[i] = { x_out, y_out, 0.0f, 1.0f, color };
+            }
+        };
+
+        g_d3d_device->SetTexture(0, nullptr);
+        g_d3d_device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+        g_d3d_device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+        g_d3d_device->SetRenderState(D3DRS_ZENABLE, FALSE);
+        g_d3d_device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        g_d3d_device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+        g_d3d_device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+        g_d3d_device->SetRenderState(D3DRS_STENCILENABLE, TRUE);
+        g_d3d_device->SetRenderState(D3DRS_STENCILMASK, 0xFFFFFFFF);
+        g_d3d_device->SetRenderState(D3DRS_STENCILWRITEMASK, 0xFFFFFFFF);
+        g_d3d_device->Clear(0, nullptr, D3DCLEAR_STENCIL, 0x00000000, 1.0f, 0);
+        g_d3d_device->SetRenderState(D3DRS_STENCILFUNC, D3DCMP_ALWAYS);
+        g_d3d_device->SetRenderState(D3DRS_STENCILFAIL, D3DSTENCILOP_KEEP);
+        g_d3d_device->SetRenderState(D3DRS_STENCILZFAIL, D3DSTENCILOP_KEEP);
+        g_d3d_device->SetRenderState(D3DRS_STENCILPASS, D3DSTENCILOP_REPLACE);
+
+        const bool has_mask = use_circular_mask || use_rectangle_mask;
+        if (has_mask) {
+            g_d3d_device->SetRenderState(D3DRS_STENCILREF, 2);
+            if (use_circular_mask)
+                FillCircle(mask_center_x, mask_center_y, mask_radius, D3DCOLOR_ARGB(0, 0, 0, 0));
+            else
+                FillRect(mask_rect_x, mask_rect_y, mask_rect_width, mask_rect_height, D3DCOLOR_ARGB(0, 0, 0, 0));
+        }
+
+        g_d3d_device->SetRenderState(D3DRS_STENCILREF, 1);
+
+        for (const auto& shape : primitives) {
+            if (shape.size() != 3 && shape.size() != 4) continue;
+
+            D3DVertex verts[4];
+            BuildScreenVerts(shape, verts);
+
+            if (shape.size() == 4)
+                g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, verts, sizeof(D3DVertex));
+            else
+                g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, verts, sizeof(D3DVertex));
+        }
+
+        g_d3d_device->SetRenderState(D3DRS_COLORWRITEENABLE,
+            D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN | D3DCOLORWRITEENABLE_BLUE | D3DCOLORWRITEENABLE_ALPHA);
+        g_d3d_device->SetRenderState(D3DRS_STENCILREF, has_mask ? 2 : 1);
+        g_d3d_device->SetRenderState(D3DRS_STENCILFUNC, has_mask ? D3DCMP_EQUAL : D3DCMP_NOTEQUAL);
+        g_d3d_device->SetRenderState(D3DRS_STENCILFAIL, D3DSTENCILOP_KEEP);
+        g_d3d_device->SetRenderState(D3DRS_STENCILPASS, D3DSTENCILOP_KEEP);
+
+        static IDirect3DPixelShader9* inverse_shader = nullptr;
+        static IDirect3DDevice9* inverse_shader_device = nullptr;
+        if (inverse_shader_device != g_d3d_device) {
+            if (inverse_shader) {
+                inverse_shader->Release();
+                inverse_shader = nullptr;
+            }
+            inverse_shader_device = g_d3d_device;
+        }
+
+        if (!inverse_shader) {
+            static const char shader_source[] =
+                "sampler2D scene_sampler : register(s0);\n"
+                "float4 tint : register(c0);\n"
+                "struct PS_INPUT { float2 uv : TEXCOORD0; };\n"
+                "float4 main(PS_INPUT input) : COLOR0 {\n"
+                "    float4 scene = tex2D(scene_sampler, input.uv);\n"
+                "    float3 inverted = tint.rgb * (1.0f - scene.rgb);\n"
+                "    return float4(lerp(scene.rgb, inverted, tint.a), scene.a);\n"
+                "}\n";
+
+            ID3DXBuffer* shader_buffer = nullptr;
+            ID3DXBuffer* error_buffer = nullptr;
+            HRESULT shader_hr = D3DXCompileShader(
+                shader_source,
+                sizeof(shader_source) - 1,
+                nullptr,
+                nullptr,
+                "main",
+                "ps_2_0",
+                0,
+                &shader_buffer,
+                &error_buffer,
+                nullptr);
+
+            if (SUCCEEDED(shader_hr) && shader_buffer) {
+                shader_hr = g_d3d_device->CreatePixelShader(
+                    static_cast<const DWORD*>(shader_buffer->GetBufferPointer()),
+                    &inverse_shader);
+            }
+
+            if (shader_buffer) shader_buffer->Release();
+            if (error_buffer) error_buffer->Release();
+        }
+
+        IDirect3DSurface9* current_rt = nullptr;
+        IDirect3DTexture9* scene_texture = nullptr;
+        IDirect3DSurface9* scene_surface = nullptr;
+        HRESULT copy_hr = inverse_shader ? g_d3d_device->GetRenderTarget(0, &current_rt) : E_FAIL;
+        D3DSURFACE_DESC rt_desc = {};
+        if (SUCCEEDED(copy_hr) && current_rt) {
+            copy_hr = current_rt->GetDesc(&rt_desc);
+        }
+        if (SUCCEEDED(copy_hr)) {
+            copy_hr = g_d3d_device->CreateTexture(
+                rt_desc.Width,
+                rt_desc.Height,
+                1,
+                D3DUSAGE_RENDERTARGET,
+                rt_desc.Format,
+                D3DPOOL_DEFAULT,
+                &scene_texture,
+                nullptr);
+        }
+        if (SUCCEEDED(copy_hr) && scene_texture) {
+            copy_hr = scene_texture->GetSurfaceLevel(0, &scene_surface);
+        }
+        if (SUCCEEDED(copy_hr) && scene_surface) {
+            copy_hr = g_d3d_device->StretchRect(current_rt, nullptr, scene_surface, nullptr, D3DTEXF_NONE);
+        }
+
+        if (SUCCEEDED(copy_hr) && scene_texture && inverse_shader) {
+            struct InverseVertex {
+                float x, y, z, rhw;
+                D3DCOLOR color;
+                float u, v;
+            };
+
+            const float tint[] = {
+                static_cast<float>((color >> 16) & 0xFF) / 255.0f,
+                static_cast<float>((color >> 8) & 0xFF) / 255.0f,
+                static_cast<float>(color & 0xFF) / 255.0f,
+                static_cast<float>((color >> 24) & 0xFF) / 255.0f
+            };
+
+            g_d3d_device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+            g_d3d_device->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1);
+            g_d3d_device->SetTexture(0, scene_texture);
+            g_d3d_device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+            g_d3d_device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+            g_d3d_device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+            g_d3d_device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+            g_d3d_device->SetPixelShader(inverse_shader);
+            g_d3d_device->SetPixelShaderConstantF(0, tint, 1);
+
+            InverseVertex fullscreen[] = {
+                { static_cast<float>(vp.X), static_cast<float>(vp.Y), 0.0f, 1.0f, color, 0.0f, 0.0f },
+                { static_cast<float>(vp.X + vp.Width), static_cast<float>(vp.Y), 0.0f, 1.0f, color, 1.0f, 0.0f },
+                { static_cast<float>(vp.X), static_cast<float>(vp.Y + vp.Height), 0.0f, 1.0f, color, 0.0f, 1.0f },
+                { static_cast<float>(vp.X + vp.Width), static_cast<float>(vp.Y + vp.Height), 0.0f, 1.0f, color, 1.0f, 1.0f }
+            };
+            g_d3d_device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, fullscreen, sizeof(InverseVertex));
+            g_d3d_device->SetPixelShader(nullptr);
+            g_d3d_device->SetTexture(0, nullptr);
+        }
+
+        if (scene_surface) scene_surface->Release();
+        if (scene_texture) scene_texture->Release();
+        if (current_rt) current_rt->Release();
+
+        g_d3d_device->SetTransform(D3DTS_WORLD, &old_world);
+        g_d3d_device->SetTransform(D3DTS_VIEW, &old_view);
+        g_d3d_device->SetTransform(D3DTS_PROJECTION, &old_proj);
+
+        state_block->Apply();
+        state_block->Release();
+        return;
+    }
     g_d3d_device->SetRenderState(D3DRS_SCISSORTESTENABLE, true);
 
     if (use_circular_mask) {
@@ -1122,6 +1315,7 @@ void bind_2drenderer(py::module_& m) {
         .def(py::init<>())
         .def("set_primitives", &Py2DRenderer::set_primitives, py::arg("primitives"), py::arg("draw_color") = 0xFFFFFFFF)
 		.def("build_pathing_trapezoid_geometry", &Py2DRenderer::build_pathing_trapezoid_geometry, py::arg("color") = 0xFF00FF00)
+        .def("inverse_rendering", &Py2DRenderer::inverse_rendering, py::arg("enabled"))
         .def("set_world_zoom_x", &Py2DRenderer::set_world_zoom_x, py::arg("zoom"))
         .def("set_world_zoom_y", &Py2DRenderer::set_world_zoom_y, py::arg("zoom"))
         .def("set_world_pan", &Py2DRenderer::set_world_pan, py::arg("x"), py::arg("y"))
