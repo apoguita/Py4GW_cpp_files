@@ -522,7 +522,6 @@ public:
 		GW::UI::ClearUIPayloads();
 	}
 	
-
     // Resolves a frame id from a string label.
     static uint32_t GetFrameIDByLabel(const std::string& label) {
         std::wstring wlabel(label.begin(), label.end()); // Convert to wide string
@@ -648,6 +647,101 @@ public:
     // Returns the Nth tab frame id under a parent.
     static uint32_t GetTabFrameID(uint32_t parent_frame_id, uint32_t index) {
         return GetItemFrameID(parent_frame_id, index);
+    }
+
+    // Traverses the frame tree using the native sibling/child relation walker.
+    // Public relation_kind semantics:
+    //   0 = first child of frame_id
+    //   1 = last child of frame_id
+    //   2 = next sibling of frame_id
+    //   3 = previous sibling of frame_id
+    // start_after: optional frame id to resume enumeration from (0 = start from beginning).
+    static uint32_t GetRelatedFrameID(uint32_t frame_id, uint32_t relation_kind, uint32_t start_after = 0) {
+        GW::UI::Frame* result = GW::UI::GetRelatedFrameById(
+            frame_id,
+            static_cast<GW::UI::FrameChild>(relation_kind),
+            start_after);
+        return result ? result->frame_id : 0;
+    }
+
+    // ── Frame property accessors ──
+
+    // Reads the frame's z-layer value (field10_0x28 in Frame struct).
+    static uint32_t GetFrameLayerByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        return GW::UI::GetFrameLayer(frame);
+    }
+
+    // Sets the frame's z-layer value (field10_0x28 in Frame struct).
+    static bool SetFrameLayerByFrameId(uint32_t frame_id, uint32_t layer) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        return GW::UI::SetFrameLayer(frame, layer);
+    }
+
+    // Checks whether ancestor_id is an ancestor of frame_id by walking the parent chain.
+    static bool IsAncestorOfByFrameId(uint32_t frame_id, uint32_t ancestor_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        GW::UI::Frame* ancestor = GW::UI::GetFrameById(ancestor_id);
+        return GW::UI::IsAncestorOf(ancestor, frame);
+    }
+
+    // Returns the frame's runtime identifier code (same as frame_id).
+    static uint32_t GetFrameCodeByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        return GW::UI::GetFrameCode(frame);
+    }
+
+    // Gets the minimum size the frame controller reports.
+    static py::tuple GetFrameMinSizeByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        float w = 0, h = 0;
+        if (GW::UI::GetFrameMinSize(frame, &w, &h))
+            return py::make_tuple(w, h);
+        return py::make_tuple(0.0f, 0.0f);
+    }
+
+    // Gets the frame's client border inset (left, top, right, bottom).
+    static py::tuple GetFrameClientBorderByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        float l = 0, t = 0, r = 0, b = 0;
+        if (GW::UI::GetFrameClientBorder(frame, &l, &t, &r, &b))
+            return py::make_tuple(l, t, r, b);
+        return py::make_tuple(0.0f, 0.0f, 0.0f, 0.0f);
+    }
+
+    // Gets the frame's clip rectangle (left, top, right, bottom).
+    static py::tuple GetFrameClipRectByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        float l = 0, t = 0, r = 0, b = 0;
+        if (GW::UI::GetFrameClipRect(frame, &l, &t, &r, &b))
+            return py::make_tuple(l, t, r, b);
+        return py::make_tuple(0.0f, 0.0f, 0.0f, 0.0f);
+    }
+
+    // Gets the raw frame position (x, y, width, height, flags) from the native FrApi function.
+    static py::tuple GetFramePositionExByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        float x = 0, y = 0, w = 0, h = 0; uint32_t flags = 0;
+        if (GW::UI::GetFramePositionEx(frame, &x, &y, &w, &h, &flags))
+            return py::make_tuple(x, y, w, h, flags);
+        return py::make_tuple(0.0f, 0.0f, 0.0f, 0.0f, 0u);
+    }
+
+    // Gets the frame's encoded title text (resource caption).
+    static std::wstring GetFrameTitleByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame) return std::wstring();   // guard: null frame (was missing)
+        const wchar_t* title = GW::UI::GetFrameTitle(frame);
+        return title ? std::wstring(title) : std::wstring();
+    }
+
+    // Gets the frame's native/computed outer size.
+    static py::tuple GetFrameNativeSizeByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        float w = 0, h = 0;
+        if (GW::UI::GetFrameNativeSize(frame, &w, &h))
+            return py::make_tuple(w, h);
+        return py::make_tuple(0.0f, 0.0f);
     }
 
     // Returns the hash that Guild Wars derives from a frame label.
@@ -1304,6 +1398,64 @@ public:
         return true;
     }
 
+    // Tests a specific bit in the frame's state word (frame_state at +0x18C).
+    // Useful bits: 0x2=visible, 0x4=created, 0x10=disabled, 0x200=hidden.
+    static bool GetFrameStateBitByFrameId(uint32_t frame_id, uint32_t bit) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        return GW::UI::GetFrameStateBit(frame, bit);
+    }
+
+    // Sets frame opacity (0.0–1.0) with optional fade time.
+    static bool SetFrameOpacityByFrameId(uint32_t frame_id, float opacity, float fade_time = 0.0f) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated())) return false;
+        return GW::UI::SetFrameOpacity(frame, opacity, fade_time);
+    }
+
+    // Shows or hides a frame via the native msg 0xC dispatch.
+    static bool ShowFrameByFrameId(uint32_t frame_id, bool show) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated())) return false;
+        return GW::UI::ShowFrame(frame, show);
+    }
+
+    // Gets the parent frame_id directly (no Frame object needed).
+    static uint32_t GetParentFrameIdDirect(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        return GW::UI::GetParentFrameId(frame);
+    }
+
+    // Gets frame opacity (0.0–1.0) from CContent embedded at Frame+4.
+    static float GetFrameOpacityByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        return GW::UI::GetFrameOpacity(frame);
+    }
+
+    // Gets frame user param pointer (Frame+0x1C4).
+    static uint32_t GetFrameUserParamByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        return GW::UI::GetFrameUserParam(frame);
+    }
+
+    // O(1) hash-table lookup: finds a child of parent by its name hash.
+    // Uses the internal FrRelation hash table (DAT_ram_005a03d4 / EXE 0x00bd0d0c).
+    static uint32_t GetChildFrameIdFromNameHash(uint32_t parent_frame_id, uint32_t name_hash) {
+        GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
+        if (!parent) return 0;
+        GW::UI::Frame* child = GW::UI::GetChildFromNameHash(parent, name_hash);
+        return child ? child->frame_id : 0;
+    }
+
+    // Returns all overlay frame IDs from the global overlay linked list.
+    static std::vector<uint32_t> GetOverlayFrameIDs() {
+        return GW::UI::GetOverlayFrames();
+    }
+
+    // Returns all popup frame IDs from the global popup linked list.
+    static std::vector<uint32_t> GetPopupFrameIDs() {
+        return GW::UI::GetPopupFrames();
+    }
+
     static bool SetFrameTitleByFrameId(uint32_t frame_id, const std::wstring& title)
     {
         using CreateEncodedText_pt = uintptr_t(__cdecl*)(uint32_t, uint32_t, const wchar_t*, uint32_t);
@@ -1350,20 +1502,35 @@ public:
         return true;
     }
 
-    // Reads the label stored in a frame context when available.
-    static std::wstring GetFrameLabelByFrameId(uint32_t frame_id)
+    // Helper: converts null-terminated wchar_t* to UTF-8 std::string.
+    // Returns empty string on failure or empty input.
+    static std::string WCharToUTF8(const wchar_t* wstr) {
+        if (!wstr || !wstr[0])
+            return std::string();
+        int len = WideCharToMultiByte(CP_UTF8, 0,
+                                      wstr, -1, nullptr, 0, nullptr, nullptr);
+        if (len <= 0)
+            return std::string();
+        std::string result(static_cast<size_t>(len), '\0');
+        int written = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+                                          wstr, -1, &result[0], len, nullptr, nullptr);
+        if (written <= 0)
+            return std::string();
+        result.resize(static_cast<size_t>(written - 1));
+        return result;
+    }
+
+    // Returns the frame's decoded title label as a UTF-8 std::string.
+    // Uses GetFrameTitle → safe BinarySearch (no assertion-abort on empty title).
+    static std::string GetFrameLabelByFrameId(uint32_t frame_id)
     {
         GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
         if (!frame)
-            return std::wstring();
-        void* context = reinterpret_cast<void*>(GetFrameContext(frame_id));
-        if (!context)
-            return std::wstring();
-        const uint32_t length = *reinterpret_cast<const uint32_t*>(reinterpret_cast<uintptr_t>(context) + 0x0c);
-        const wchar_t* text = *reinterpret_cast<wchar_t* const*>(reinterpret_cast<uintptr_t>(context) + 0x04);
-        if (!(text && length))
-            return std::wstring();
-        return std::wstring(text, text + length);
+            return std::string();
+        const wchar_t* title = GW::UI::GetFrameTitle(frame);
+        if (!title || !title[0])
+            return std::string();
+        return WCharToUTF8(title);
     }
 
     // Returns the encoded label string currently attached to a text-label frame.

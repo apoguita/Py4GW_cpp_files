@@ -385,8 +385,19 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		.def_static("get_first_child_frame_id", &UIManager::GetFirstChildFrameID, py::arg("parent_frame_id"), "Gets the first child frame ID for a parent frame.")
 		.def_static("get_last_child_frame_id", &UIManager::GetLastChildFrameID, py::arg("parent_frame_id"), "Gets the last child frame ID for a parent frame.")
 		.def_static("get_next_child_frame_id", &UIManager::GetNextChildFrameID, py::arg("frame_id"), "Gets the next sibling child frame ID for a frame.")
-		.def_static("get_prev_child_frame_id", &UIManager::GetPrevChildFrameID, py::arg("frame_id"), "Gets the previous sibling child frame ID for a frame.")
-		.def_static("get_item_frame_id", &UIManager::GetItemFrameID, py::arg("parent_frame_id"), py::arg("index"), "Gets the child frame ID at an ordered index under a parent frame.")
+        .def_static("get_prev_child_frame_id", &UIManager::GetPrevChildFrameID, py::arg("frame_id"), "Gets the previous sibling child frame ID for a frame.")
+        .def_static("get_related_frame_id", &UIManager::GetRelatedFrameID, py::arg("frame_id"), py::arg("relation_kind"), py::arg("start_after") = 0, "Traverses the frame tree by relation kind: 0=first child, 1=last child, 2=next sibling, 3=prev sibling.")
+        .def_static("get_frame_layer_by_frame_id", &UIManager::GetFrameLayerByFrameId, py::arg("frame_id"), "Gets the frame's z-layer value.")
+        .def_static("set_frame_layer_by_frame_id", &UIManager::SetFrameLayerByFrameId, py::arg("frame_id"), py::arg("layer"), "Sets the frame's z-layer value.")
+        .def_static("is_ancestor_of_by_frame_id", &UIManager::IsAncestorOfByFrameId, py::arg("frame_id"), py::arg("ancestor_id"), "Checks if ancestor_id is an ancestor of frame_id.")
+        .def_static("get_frame_code_by_frame_id", &UIManager::GetFrameCodeByFrameId, py::arg("frame_id"), "Gets the frame's runtime identifier code.")
+        .def_static("get_frame_min_size_by_frame_id", &UIManager::GetFrameMinSizeByFrameId, py::arg("frame_id"), "Gets the frame's minimum size as (width, height).")
+        .def_static("get_frame_client_border_by_frame_id", &UIManager::GetFrameClientBorderByFrameId, py::arg("frame_id"), "Gets the frame's client border inset as (left, top, right, bottom).")
+        .def_static("get_frame_clip_rect_by_frame_id", &UIManager::GetFrameClipRectByFrameId, py::arg("frame_id"), "Gets the frame's clip rectangle as (left, top, right, bottom).")
+        .def_static("get_frame_position_ex_by_frame_id", &UIManager::GetFramePositionExByFrameId, py::arg("frame_id"), "Gets the frame's raw position as (x, y, w, h, flags).")
+        .def_static("get_frame_title_by_frame_id", &UIManager::GetFrameTitleByFrameId, py::arg("frame_id"), "Gets the frame's encoded title text (resource caption).")
+        .def_static("get_frame_native_size_by_frame_id", &UIManager::GetFrameNativeSizeByFrameId, py::arg("frame_id"), "Gets the frame's native outer size as (width, height).")
+        .def_static("get_item_frame_id", &UIManager::GetItemFrameID, py::arg("parent_frame_id"), py::arg("index"), "Gets the child frame ID at an ordered index under a parent frame.")
 		.def_static("get_tab_frame_id", &UIManager::GetTabFrameID, py::arg("parent_frame_id"), py::arg("index"), "Gets the tab child frame ID at an ordered index under a parent frame.")
 		.def_static("get_hash_by_label", &UIManager::GetHashByLabel, py::arg("label"), "Gets the hash of a frame label.")
 		.def_static("get_frame_hierarchy", &UIManager::GetFrameHierarchy, "Retrieves the hierarchy of frames as a list of tuples (parent, child, etc.).")
@@ -575,10 +586,45 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("is_visible")
 		)
 		.def_static("set_frame_disabled_by_frame_id",
-			&UIManager::SetFrameDisabledByFrameId,
-			py::arg("frame_id"),
-			py::arg("is_disabled")
-		)
+            &UIManager::SetFrameDisabledByFrameId,
+            py::arg("frame_id"), py::arg("is_disabled")
+        )
+        .def_static("get_frame_state_bit_by_frame_id",
+            &UIManager::GetFrameStateBitByFrameId,
+            py::arg("frame_id"), py::arg("bit")
+        )
+        .def_static("set_frame_opacity_by_frame_id",
+            &UIManager::SetFrameOpacityByFrameId,
+            py::arg("frame_id"), py::arg("opacity"), py::arg("fade_time") = 0.0f
+        )
+        .def_static("show_frame_by_frame_id",
+            &UIManager::ShowFrameByFrameId,
+            py::arg("frame_id"), py::arg("show")
+        )
+        .def_static("get_parent_frame_id_direct",
+            &UIManager::GetParentFrameIdDirect,
+            py::arg("frame_id")
+        )
+        .def_static("get_frame_opacity_by_frame_id",
+            &UIManager::GetFrameOpacityByFrameId,
+            py::arg("frame_id")
+        )
+        .def_static("get_frame_user_param_by_frame_id",
+            &UIManager::GetFrameUserParamByFrameId,
+            py::arg("frame_id")
+        )
+        .def_static("get_child_frame_id_from_name_hash",
+            &UIManager::GetChildFrameIdFromNameHash,
+            py::arg("parent_frame_id"), py::arg("name_hash")
+        )
+        .def_static("get_overlay_frame_ids",
+            &UIManager::GetOverlayFrameIDs,
+            "Returns frame IDs of all overlay frames."
+        )
+        .def_static("get_popup_frame_ids",
+            &UIManager::GetPopupFrameIDs,
+            "Returns frame IDs of all popup frames."
+        )
 		.def_static("set_frame_title_by_frame_id",
 			&UIManager::SetFrameTitleByFrameId,
 			py::arg("frame_id"),

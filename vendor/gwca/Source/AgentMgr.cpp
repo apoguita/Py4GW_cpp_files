@@ -410,9 +410,37 @@ namespace GW {
             return a ? a->GetAsAgentLiving() : nullptr;
         }
 
+        bool CallTarget(const AgentLiving* agent) {
+            if (!agent)
+                return false;
+
+            if (agent->allegiance == GW::Constants::Allegiance::Enemy) {
+                const auto* target = GW::Agents::GetTarget();
+                if (!target)
+                    return false;
+                UI::UIPacket::kSendCallTarget call_packet = UI::UIPacket::kSendCallTarget{
+                    GW::CallTargetType::AttackingOrTargetting,
+                    target->agent_id
+                };
+                return GW::UI::SendUIMessage(GW::UI::UIMessage::kSendCallTarget, &call_packet);
+            }
+            UI::UIPacket::kSendWorldAction packet = { WorldActionId::InteractPlayerOrOther, agent->agent_id, true };
+            return UI::SendUIMessage(UI::UIMessage::kSendWorldAction, &packet);
+        }
+
+        bool CallTarget(uint32_t agent_id) {
+            return CallTarget(GW::Agents::GetAgentLivingByID(agent_id));
+        }
+
         bool InteractAgent(const Agent* agent, bool call_target) {
             if (!agent)
                 return false;
+
+			if (call_target) {
+				auto living = agent->GetAsAgentLiving();
+				CallTarget(living);
+			}
+
             UI::UIPacket::kSendWorldAction packet = { WorldActionId::InteractEnemy, agent->agent_id, call_target };
             if (agent->GetIsItemType()) {
                 packet.action_id = WorldActionId::InteractItem;
@@ -438,27 +466,7 @@ namespace GW {
         }
 
 
-        bool CallTarget(const AgentLiving* agent) {
-            if (!agent)
-                return false;
-
-            if (agent->allegiance == GW::Constants::Allegiance::Enemy) {
-                const auto* target = GW::Agents::GetTarget();
-                if (!target)
-                    return false;
-                UI::UIPacket::kSendCallTarget call_packet = UI::UIPacket::kSendCallTarget{
-                    GW::CallTargetType::AttackingOrTargetting,
-                    target->agent_id
-                };
-                return GW::UI::SendUIMessage(GW::UI::UIMessage::kSendCallTarget, &call_packet);
-            }
-            UI::UIPacket::kSendWorldAction packet = { WorldActionId::InteractPlayerOrOther, agent->agent_id, true };
-            return UI::SendUIMessage(UI::UIMessage::kSendWorldAction, &packet);
-        }
-
-        bool CallTarget(uint32_t agent_id) {
-            return CallTarget(GW::Agents::GetAgentLivingByID(agent_id));
-        }
+        
 
         wchar_t* GetPlayerNameByLoginNumber(uint32_t login_number) {
             return PlayerMgr::GetPlayerName(login_number);

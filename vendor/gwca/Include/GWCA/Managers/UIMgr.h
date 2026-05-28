@@ -1290,6 +1290,29 @@ namespace GW {
         GWCA_API Frame* GetParentFrame(Frame* frame);
         GWCA_API Frame* GetFrameById(uint32_t frame_id); 
         GWCA_API Frame* GetFrameByLabel(const wchar_t* frame_label);
+
+        enum class FrameChild : uint32_t {
+            FirstChild      = 0,
+            LastChild       = 1,
+            NextSibling     = 2,
+            PrevSibling     = 3
+        };
+
+        GWCA_API Frame* GetRelatedFrame(Frame* frame, FrameChild relation_kind, Frame* start_after = nullptr);
+        GWCA_API Frame* GetRelatedFrameById(uint32_t frame_id, FrameChild relation_kind, uint32_t start_after_id = 0);
+        GWCA_API Frame* GetChildFromNameHash(Frame* parent, uint32_t name_hash);
+        GWCA_API std::vector<uint32_t> GetOverlayFrames();
+        GWCA_API std::vector<uint32_t> GetPopupFrames();
+        GWCA_API uint32_t GetFrameLayer(Frame* frame);
+        GWCA_API bool SetFrameLayer(Frame* frame, uint32_t layer);
+        GWCA_API bool IsAncestorOf(Frame* frame, Frame* other);
+        GWCA_API uint32_t GetFrameCode(Frame* frame);
+        GWCA_API bool GetFrameMinSize(Frame* frame, float* width, float* height);
+        GWCA_API bool GetFrameClientBorder(Frame* frame, float* left, float* top, float* right, float* bottom);
+        GWCA_API bool GetFrameClipRect(Frame* frame, float* left, float* top, float* right, float* bottom);
+        GWCA_API bool GetFramePositionEx(Frame* frame, float* x, float* y, float* w, float* h, uint32_t* flags);
+        GWCA_API const wchar_t* GetFrameTitle(Frame* frame);
+        GWCA_API bool GetFrameNativeSize(Frame* frame, float* width, float* height);
         GWCA_API void* GetFrameContext(Frame* frame);
         GWCA_API uint32_t GetFrameIDByLabel(const wchar_t* frame_label);
         GWCA_API uint32_t GetFrameIDByHash(uint32_t hash);
@@ -1364,6 +1387,12 @@ namespace GW {
         GWCA_API bool SetCommandLinePref(const wchar_t* label, uint32_t value);
         GWCA_API bool SetFrameVisible(UI::Frame* frame, bool flag);
         GWCA_API bool SetFrameDisabled(UI::Frame* frame, bool flag);
+        GWCA_API bool SetFrameOpacity(Frame* frame, float opacity, float fade_time = 0.0f);
+        GWCA_API bool ShowFrame(Frame* frame, bool show);
+        GWCA_API uint32_t GetParentFrameId(Frame* frame);
+        GWCA_API float GetFrameOpacity(Frame* frame);
+        GWCA_API uint32_t GetFrameUserParam(Frame* frame);
+        GWCA_API bool GetFrameStateBit(Frame* frame, uint32_t bit);
         GWCA_API bool IsInControllerMode();
         GWCA_API bool IsInControllerCursorMode();
 
@@ -1572,6 +1601,7 @@ extern "C" {
     GWCA_API void* GetFrameContext(void* frame);
     GWCA_API void* GetRootFrame(void);
     GWCA_API void* GetChildFrame(void* parent, uint32_t child_offset);
+    GWCA_API void* GetRelatedFrame(void* frame, uint32_t relation_kind, void* start_after);
     GWCA_API bool SetFrameTitle(void* frame, const wchar_t* title);
     GWCA_API void* GetParentFrame(void* frame);
     GWCA_API void* GetFrameById(uint32_t frame_id);

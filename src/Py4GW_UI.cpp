@@ -3,8 +3,104 @@
 #include <chrono>
 #include <cstring>
 #include <limits>
+#include <mutex>
 
 namespace py = pybind11;
+
+namespace {
+    bool ui_map_test_start(
+        uint32_t map_id,
+        uint32_t alt_map_id,
+        int number,
+        uint32_t count,
+        uint32_t delay_ms,
+        uint32_t timeout_ms,
+        uint32_t message_id)
+    {
+        return GW::Map::MapTestStart(
+            map_id,
+            alt_map_id,
+            number,
+            count,
+            delay_ms,
+            timeout_ms,
+            message_id);
+    }
+
+    void ui_map_test_stop() {
+        GW::Map::MapTestStop();
+    }
+
+    std::string ui_get_map_test_status() {
+        return GW::Map::MapTestGetStatus();
+    }
+
+    bool ui_is_map_test_active() {
+        return GW::Map::MapTestIsActive();
+    }
+
+    uint32_t ui_get_map_test_count() {
+        return GW::Map::MapTestGetCount();
+    }
+
+    bool ui_send_message(uint32_t message_id, const std::vector<uint32_t>& values, bool skip_hooks) {
+        struct UIPayloadPOD {
+            uint32_t words[16];
+        };
+
+        UIPayloadPOD payload{};
+        const size_t value_count = std::min<size_t>(values.size(), 16);
+        for (size_t i = 0; i < value_count; ++i) {
+            payload.words[i] = values[i];
+        }
+
+        return GW::UI::SendUIMessage(
+            static_cast<GW::UI::UIMessage>(message_id),
+            &payload,
+            nullptr,
+            skip_hooks);
+    }
+
+    bool ui_send_message_raw(uint32_t message_id, uint32_t wparam, uint32_t lparam, bool skip_hooks) {
+        return GW::UI::SendUIMessage(
+            static_cast<GW::UI::UIMessage>(message_id),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(wparam)),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(lparam)),
+            skip_hooks);
+    }
+
+    bool ui_send_frame_message(uint32_t frame_id, uint32_t message_id, uint32_t wparam, uint32_t lparam) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame) {
+            return false;
+        }
+        return GW::UI::SendFrameUIMessage(
+            frame,
+            static_cast<GW::UI::UIMessage>(message_id),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(wparam)),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(lparam)));
+    }
+
+    bool ui_send_frame_message_wstring(uint32_t frame_id, uint32_t message_id, const std::wstring& text) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!frame) {
+            return false;
+        }
+        static std::mutex text_payload_mutex;
+        static std::unordered_map<uint32_t, std::wstring> text_payloads;
+        wchar_t* payload = nullptr;
+        if (!text.empty()) {
+            std::lock_guard<std::mutex> lock(text_payload_mutex);
+            text_payloads[frame_id] = text;
+            payload = const_cast<wchar_t*>(text_payloads[frame_id].c_str());
+        }
+        return GW::UI::SendFrameUIMessage(
+            frame,
+            static_cast<GW::UI::UIMessage>(message_id),
+            payload,
+            nullptr);
+    }
+}
 
 class Py4GW_UI {
 private:
@@ -2231,6 +2327,51 @@ void bind_UI(py::module_& ui) {
 
     py::class_<Py4GW_UI>(ui, "UI")
         .def(py::init<>())
+        .def_static(
+            "map_test_start",
+            &ui_map_test_start,
+            py::arg("map_id"),
+            py::arg("alt_map_id"),
+            py::arg("number"),
+            py::arg("count"),
+            py::arg("delay_ms"),
+            py::arg("timeout_ms"),
+            py::arg("message_id"),
+            "Starts the native map test using raw values provided by Python.")
+        .def_static("map_test_stop", &ui_map_test_stop, "Stops the native map test.")
+        .def_static("get_map_test_status", &ui_get_map_test_status, "Gets the native map test status.")
+        .def_static("is_map_test_active", &ui_is_map_test_active, "Returns whether the native map test is active.")
+        .def_static("get_map_test_count", &ui_get_map_test_count, "Gets the native map test count.")
+        .def_static(
+            "send_ui_message",
+            &ui_send_message,
+            py::arg("message_id"),
+            py::arg("values"),
+            py::arg("skip_hooks") = false,
+            "Sends a UI message using raw integer values from Python.")
+        .def_static(
+            "send_ui_message_raw",
+            &ui_send_message_raw,
+            py::arg("message_id"),
+            py::arg("wparam"),
+            py::arg("lparam"),
+            py::arg("skip_hooks") = false,
+            "Sends a UI message using raw integer wparam/lparam values from Python.")
+        .def_static(
+            "send_frame_ui_message",
+            &ui_send_frame_message,
+            py::arg("frame_id"),
+            py::arg("message_id"),
+            py::arg("wparam"),
+            py::arg("lparam") = 0,
+            "Sends a frame UI message using raw integer values from Python.")
+        .def_static(
+            "send_frame_ui_message_wstring",
+            &ui_send_frame_message_wstring,
+            py::arg("frame_id"),
+            py::arg("message_id"),
+            py::arg("text"),
+            "Sends a frame UI message carrying a wide string payload from Python.")
         .def("clear_ui", &Py4GW_UI::clear_ui)
         .def("clear_vars", &Py4GW_UI::clear_vars)
         .def("set_var", &Py4GW_UI::set_var, py::arg("name"), py::arg("value"))

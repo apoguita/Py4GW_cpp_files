@@ -131,6 +131,18 @@ namespace GW {
 
         GWCA_API bool Travel(Constants::MapID map_id, Constants::District district = (Constants::District)0, int district_number = 0);
 
+        GWCA_API bool MapTestStart(
+            uint32_t map_id,
+            uint32_t alt_map_id,
+            int number = 2,
+            uint32_t count = 3,
+            uint32_t delay_ms = 0,
+            uint32_t timeout_ms = 10000,
+            uint32_t message_id = 0x10000098);
+        GWCA_API void MapTestStop();
+        GWCA_API const char* MapTestGetStatus();
+        GWCA_API bool MapTestIsActive();
+        GWCA_API uint32_t MapTestGetCount();
         GWCA_API Constants::ServerRegion RegionFromDistrict(const GW::Constants::District _district);
 
         GWCA_API Constants::Language LanguageFromDistrict(const GW::Constants::District _district);

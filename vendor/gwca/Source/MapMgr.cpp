@@ -23,6 +23,7 @@
 #include <GWCA/Managers/Module.h>
 #include <GWCA/Managers/UIMgr.h>
 #include <GWCA/Managers/MapMgr.h>
+#include <GWCA/Managers/GameThreadMgr.h>
 #include <GWCA/Utilities/MemoryPatcher.h>
 #include <GWCA/Logger/Logger.h>
 
@@ -131,6 +132,183 @@ namespace {
 
 	static uintptr_t instance_info_ptr = 0;
 
+    static constexpr uint32_t kMtIdle = 0;
+    static constexpr uint32_t kMtWait0 = 1;
+    static constexpr uint32_t kMtWait1 = 2;
+    static constexpr uint32_t kMtRun = 3;
+    static constexpr uint32_t kMtWait2 = 4;
+    static constexpr uint32_t kMtDone = 5;
+    static constexpr uint32_t kMtStop = 6;
+
+    struct MapTestState {
+        bool active = false;
+        uint32_t map_id = 0;
+        uint32_t alt_map_id = 0;
+        int number = 2;
+        uint32_t count = 3;
+        uint32_t delay_ms = 0;
+        uint32_t timeout_ms = 10000;
+        uint32_t message_id = 0;
+        uint32_t tries = 0;
+        uint64_t t0 = 0;
+        uint64_t t1 = 0;
+        uint64_t t2 = 0;
+        bool seen = false;
+        uint32_t phase = kMtIdle;
+        std::string status = "idle";
+    } mt_state;
+
+    HookEntry mt_ui_entry;
+    HookEntry mt_tick_entry;
+
+    void mt_set(uint32_t phase, const char* status) {
+        mt_state.phase = phase;
+        mt_state.status = status;
+    }
+
+    bool mt_loading() {
+        return GW::Map::GetInstanceType() == GW::Constants::InstanceType::Loading;
+    }
+
+    bool SendTravelPacket(
+        uint32_t map_id,
+        uint32_t region,
+        int district_number,
+        uint32_t language)
+    {
+        struct MapStruct {
+            uint32_t map_id;
+            uint32_t region;
+            uint32_t language;
+            int district_number;
+        } packet;
+        packet.map_id = map_id;
+        packet.region = region;
+        packet.language = language;
+        packet.district_number = district_number;
+        return GW::UI::SendUIMessage(GW::UI::UIMessage::kTravel, &packet);
+    }
+
+    void mt_step1() {
+        for (uint32_t i = 0; i < mt_state.count; ++i) {
+            SendTravelPacket(
+                mt_state.alt_map_id,
+                0,
+                mt_state.number,
+                0);
+        }
+        mt_state.t1 = GetTickCount64();
+        mt_state.t2 = 0;
+        mt_state.seen = false;
+        mt_set(kMtRun, "run");
+    }
+
+    void mt_step0() {
+        mt_state.tries += 1;
+        mt_state.t0 = 0;
+        mt_state.t1 = 0;
+        mt_state.t2 = 0;
+        mt_state.seen = false;
+        SendTravelPacket(
+            mt_state.map_id,
+            static_cast<uint32_t>(GW::Map::GetRegion()),
+            0,
+            static_cast<uint32_t>(GW::Map::GetLanguage()));
+        mt_set(kMtWait0, "wait0");
+    }
+
+    bool mt_read(uint32_t message_id, void* wparam, uint32_t* out_map_id) {
+        if (!wparam || !out_map_id)
+            return false;
+        if (message_id == static_cast<uint32_t>(GW::UI::UIMessage::kLoadMapContext)) {
+            if (IsBadReadPtr(wparam, 8))
+                return false;
+            *out_map_id = *(uint32_t*)((uint8_t*)wparam + 4);
+            return true;
+        }
+        if (message_id == static_cast<uint32_t>(GW::UI::UIMessage::kStartMapLoad)) {
+            if (IsBadReadPtr(wparam, 4))
+                return false;
+            *out_map_id = *(uint32_t*)wparam;
+            return true;
+        }
+        return false;
+    }
+
+    bool mt_match(uint32_t message_id) {
+        const uint32_t configured = mt_state.message_id;
+        if (message_id == configured)
+            return true;
+        return configured == static_cast<uint32_t>(GW::UI::UIMessage::kStartMapLoad)
+            && message_id == static_cast<uint32_t>(GW::UI::UIMessage::kLoadMapContext);
+    }
+
+    void OnMapTestUIMessage(GW::HookStatus* status, GW::UI::UIMessage message_id, void* wparam, void*) {
+        const uint32_t msg = static_cast<uint32_t>(message_id);
+        if (status->blocked || !mt_state.active)
+            return;
+        if (!mt_match(msg))
+            return;
+        if (mt_state.phase != kMtWait0)
+            return;
+
+        uint32_t anchor_map_id = 0;
+        if (!mt_read(msg, wparam, &anchor_map_id))
+            return;
+        if (anchor_map_id != mt_state.map_id)
+            return;
+
+        mt_state.t0 = GetTickCount64();
+        mt_set(kMtWait1, "wait1");
+    }
+
+    void OnMapTestTick(GW::HookStatus*) {
+        if (!mt_state.active)
+            return;
+
+        const auto now = GetTickCount64();
+        switch (mt_state.phase) {
+        case kMtWait1:
+            if (now - mt_state.t0 < mt_state.delay_ms)
+                return;
+            mt_step1();
+            return;
+        case kMtRun: {
+            const uint32_t current_map = static_cast<uint32_t>(GW::Map::GetMapID());
+            const bool is_loading = mt_loading();
+            if (current_map == mt_state.map_id && !is_loading)
+                mt_state.seen = true;
+            if (current_map != mt_state.map_id && !is_loading) {
+                mt_state.t2 = 0;
+                mt_set(kMtWait2, "wait2");
+                return;
+            }
+            if (now - mt_state.t1 <= mt_state.timeout_ms)
+                return;
+            if (mt_state.seen && current_map == mt_state.map_id && !is_loading) {
+                mt_state.active = false;
+                mt_set(kMtDone, "done");
+                return;
+            }
+            mt_state.t2 = 0;
+            mt_set(kMtWait2, "wait2");
+            return;
+        }
+        case kMtWait2:
+            if (mt_loading())
+                return;
+            if (!mt_state.t2) {
+                mt_state.t2 = now;
+                return;
+            }
+            if (now - mt_state.t2 < 100)
+                return;
+            mt_step0();
+            return;
+        default:
+            return;
+        }
+    }
     void Init() {
 
         //Logger::Instance().LogInfo("############ MapMgrModule initialization started ############");
@@ -220,6 +398,9 @@ namespace {
             Logger::AssertHook("EnterChallengeMission_Func",GW::HookBase::CreateHook((void**)&EnterChallengeMission_Func, OnEnterChallengeMission_Hook, (void**)&EnterChallengeMission_Ret), "Map Module");
             UI::RegisterUIMessageCallback(&EnterChallengeMission_Entry, UI::UIMessage::kSendEnterMission, OnEnterChallengeMission_UIMessage, 0x1);
         }
+        UI::RegisterUIMessageCallback(&mt_ui_entry, UI::UIMessage::kLoadMapContext, OnMapTestUIMessage, 0x1);
+        UI::RegisterUIMessageCallback(&mt_ui_entry, UI::UIMessage::kStartMapLoad, OnMapTestUIMessage, 0x1);
+        GameThread::RegisterGameThreadCallback(&mt_tick_entry, OnMapTestTick, 0x1);
 
         //Logger::Instance().LogInfo("############ MapMgrModule initialization completed ############");
     }
@@ -245,6 +426,9 @@ namespace {
 
     }
     void Exit() {
+        UI::RemoveUIMessageCallback(&mt_ui_entry, UI::UIMessage::kLoadMapContext);
+        UI::RemoveUIMessageCallback(&mt_ui_entry, UI::UIMessage::kStartMapLoad);
+        GameThread::RemoveGameThreadCallback(&mt_tick_entry);
         HookBase::RemoveHook(EnterChallengeMission_Func);
         HookBase::RemoveHook(WorldMap_UICallback_Func);
         bypass_tolerance_patch.Reset();
@@ -355,6 +539,47 @@ namespace GW {
             return Travel(map_id, RegionFromDistrict(district), district_number, LanguageFromDistrict(district));
         }
 
+        bool MapTestStart(
+            uint32_t map_id,
+            uint32_t alt_map_id,
+            int number,
+            uint32_t count,
+            uint32_t delay_ms,
+            uint32_t timeout_ms,
+            uint32_t message_id)
+        {
+            if (!map_id || !alt_map_id)
+                return false;
+            mt_state.active = true;
+            mt_state.map_id = map_id;
+            mt_state.alt_map_id = alt_map_id;
+            mt_state.number = number;
+            mt_state.count = count;
+            mt_state.delay_ms = delay_ms;
+            mt_state.timeout_ms = timeout_ms;
+            mt_state.message_id = message_id;
+            mt_state.tries = 0;
+            mt_set(kMtIdle, "start");
+            mt_step0();
+            return true;
+        }
+
+        void MapTestStop() {
+            mt_state.active = false;
+            mt_set(kMtStop, "stop");
+        }
+
+        const char* MapTestGetStatus() {
+            return mt_state.status.c_str();
+        }
+
+        bool MapTestIsActive() {
+            return mt_state.active;
+        }
+
+        uint32_t MapTestGetCount() {
+            return mt_state.tries;
+        }
         uint32_t GetInstanceTime() {
             auto* a = GetAgentContext();
             return a ? a->instance_timer : 0;
