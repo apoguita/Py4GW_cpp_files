@@ -595,6 +595,38 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("anchor_flags") = 0x6,
 			py::arg("ensure_devtext_source") = true
 		)
+		.def_static("create_titled_window_clone",
+			&UIManager::CreateTitledWindowClone,
+			py::arg("title"),
+			py::arg("x"),
+			py::arg("y"),
+			py::arg("width"),
+			py::arg("height"),
+			py::arg("frame_label") = std::wstring(),
+			py::arg("parent_frame_id") = 9,
+			py::arg("child_index") = 0,
+			py::arg("frame_flags") = 0,
+			py::arg("create_param") = 0,
+			py::arg("frame_callback") = 0,
+			py::arg("anchor_flags") = 0x6,
+			py::arg("ensure_devtext_source") = true
+		)
+		.def_static("create_titled_empty_window",
+			&UIManager::CreateTitledEmptyWindow,
+			py::arg("title"),
+			py::arg("x"),
+			py::arg("y"),
+			py::arg("width"),
+			py::arg("height"),
+			py::arg("frame_label") = L"CustomWindow",
+			py::arg("parent_frame_id") = 9,
+			py::arg("child_index") = 0,
+			py::arg("frame_flags") = 0,
+			py::arg("create_param") = 0,
+			py::arg("frame_callback") = 0,
+			py::arg("anchor_flags") = 0x6,
+			py::arg("ensure_devtext_source") = true
+		)
 		.def_static("set_frame_controller_anchor_margins_by_frame_id_ex",
 			&UIManager::SetFrameControllerAnchorMarginsByFrameIdEx,
 			py::arg("frame_id"),
@@ -775,6 +807,18 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		.def_static("get_last_applied_window_title",
 			&UIManager::GetLastAppliedWindowTitle
 		)
+		.def_static("is_dialog_title_hook_installed",
+			&UIManager::IsDialogTitleHookInstalled,
+			"Returns true if the dialog descriptor table hijack hook is active."
+		)
+		.def_static("create_dialog_with_title",
+			&UIManager::CreateDialogWithTitle,
+			py::arg("parent"),
+			py::arg("title"),
+			"Creates a native floating dialog (entry 7) with the given custom title via the dialog descriptor table hijack approach. "
+			"MUST be called from the game thread (Python wrappers dispatch via Game.enqueue, so this is always satisfied). "
+			"Returns the frame_id of the created dialog, or 0 on failure."
+		)
 		.def_static("destroy_ui_component_by_frame_id",
 			&UIManager::DestroyUIComponentByFrameId,
 			py::arg("frame_id")
@@ -788,6 +832,42 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		.def_static("trigger_frame_redraw_by_frame_id",
 			&UIManager::TriggerFrameRedrawByFrameId,
 			py::arg("frame_id")
+		)
+		.def_static("frame_content_invalidate",
+			&UIManager::FrameContentInvalidate,
+			py::arg("frame_id"),
+			py::arg("flags") = 0xFFFFFFFF,
+			"Invalidates per-frame CContent by element and flags, enqueuing the per-frame dirty list for a full redraw."
+		)
+		.def_static("frame_content_redraw",
+			&UIManager::FrameContentRedraw,
+			py::arg("frame_id"),
+			"Convenience wrapper for FrameContentInvalidate with full invalidation flags (0xFFFFFFFF)."
+		)
+		.def_static("set_frame_title_and_invalidate",
+			&UIManager::SetFrameTitleAndInvalidate,
+			py::arg("frame_id"),
+			py::arg("title"),
+			"Stores title text (Path B) then triggers per-frame CContent invalidation (Path A dirty-list enqueue) — the one-stop fix for title rendering on cold-created windows."
+		)
+		.def_static("resolve_frame_content_invalidate",
+			&UIManager::ResolveFrameContentInvalidate,
+			"Resolves Ui_InvalidateFrameContent (EXE 0x0060d090) via scanner byte pattern. Returns 0 on failure."
+		)
+		.def_static("get_frame_base_address",
+			&UIManager::GetFrameBaseAddress,
+			py::arg("frame_id"),
+			"Returns the raw runtime pointer address of a frame, for direct memory inspection (e.g. reading frame+0x18 paint mask)."
+		)
+		.def_static("get_frame_text_caption_text",
+			&UIManager::GetFrameTextCaptionText,
+			py::arg("frame_id"),
+			"Returns the dynamic text caption for a frame (Path B attached-text table)."
+		)
+		.def_static("get_frame_resource_caption_text",
+			&UIManager::GetFrameResourceCaptionText,
+			py::arg("frame_id"),
+			"Returns the resource caption for a frame (Path B attached-text table)."
 		)
 		.def_static("create_button_frame_by_frame_id",
 			&UIManager::CreateButtonFrameByFrameId,
@@ -1101,7 +1181,32 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		.def_static("is_window_visible", &UIManager::IsWindowVisible, py::arg("window_id"), "Checks if a window is visible.")
 		.def_static("set_window_visible", &UIManager::SetWindowVisible, py::arg("window_id"), py::arg("is_visible"), "Sets the visibility of a window.")
 		.def_static("set_window_position", &UIManager::SetWindowPosition, py::arg("window_id"), py::arg("position"), "Sets the position of a window.")
-		.def_static("is_shift_screenshot", &UIManager::IsShiftScreenShot, "Checks if the Shift key is used for screenshots.");
+		.def_static("is_shift_screenshot", &UIManager::IsShiftScreenShot, "Checks if the Shift key is used for screenshots.")
+
+		// Vector C — Title via Path B text storage + per-frame invalidation
+		.def_static("send_title_msg_5e",
+			&UIManagerCNonclient::SendTitleMsg5E,
+			py::arg("frame_id"),
+			py::arg("title"),
+			"Sends a custom title to a frame's CNonclient subobject. "
+			"Delegates to SetFrameTitleAndInvalidate which uses Path B text storage "
+			"(Ui_SetFrameText writes directly to frame struct memory at +0xCC) "
+			"followed by per-frame CContent invalidation (0xFFFFFFFF). "
+			"Works on cold containers where the CNonclient was never initialized "
+			"by FrameCreate msg 0x09 — bypasses the async TextResolveIssue chain.")
+		.def_static("create_encoded_text",
+			[](int32_t style_id, int32_t layout_profile, const std::wstring& text, int32_t flags) {
+				GW::GameThread::Enqueue([style_id, layout_profile, text, flags]() {
+					UIManagerCNonclient::CreateEncodedText(style_id, layout_profile, text, flags);
+				});
+			},
+			py::arg("style_id"),
+			py::arg("layout_profile"),
+			py::arg("text"),
+			py::arg("flags"),
+			"Enqueues Ui_CreateEncodedText(style_id, layout_profile, text, flags) on the game thread. "
+			"Returns immediately; the encoded text is created asynchronously. "
+			"For the complete title-dispatch path, use send_title_msg_5e which handles encoding + CNonclient dispatch.");
 
 }
 

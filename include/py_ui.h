@@ -2,6 +2,7 @@
 #include "Headers.h"
 #include <MinHook.h>
 #include <intrin.h>
+#include <condition_variable>
 
 namespace py = pybind11;
 
@@ -86,15 +87,8 @@ namespace UIManagerTitleHook {
 
     inline bool ResolveSupportFunctions()
     {
-        if (!UiSetFrameText_Func) {
-            const uintptr_t addr = GW::Scanner::Find(
-                "\x55\x8B\xEC\x53\x56\x57\x8B\x7D\x08\x8B\xF7\xF7\xDE\x1B\xF6\x85",
-                "xxxxxxxxxxxxxxxx");
-            if (!addr)
-                return false;
-            UiSetFrameText_Func = reinterpret_cast<UiSetFrameText_pt>(addr);
-        }
-
+        // Step 1: Resolve Ui_CreateEncodedText via wildcarded pattern.
+        // Matches 2 locations; Scanner::Find returns first (lowest address) = correct.
         if (!UiCreateEncodedText_Func) {
             const uintptr_t addr = GW::Scanner::Find(
                 "\x55\x8B\xEC\x51\x56\x57\xE8\x00\x00\x00\x00\x8B\x48\x18\xE8\x00\x00\x00\x00\x8B\xF8",
@@ -104,48 +98,56 @@ namespace UIManagerTitleHook {
             UiCreateEncodedText_Func = reinterpret_cast<UiCreateEncodedText_pt>(addr);
         }
 
-        if (!UiSetFrameEncodedTextResource_Func) {
-            const uintptr_t addr = GW::Scanner::Find(
-                "\x55\x8B\xEC\x53\x56\x57\x8B\x7D\x08\x8B\xF7\xF7\xDE\x1B\xF6\x85\xFF\x75\x14\x68\xD2\x0B\x00\x00",
-                "xxxxxxxxxxxxxxxxxxxxxxxx");
-            if (!addr)
-                return false;
-            UiSetFrameEncodedTextResource_Func = reinterpret_cast<UiSetFrameEncodedTextResource_pt>(addr);
-        }
-
-        if (!g_devtext_title_create_return || !g_devtext_title_set_return || !g_devtext_title_resource_set_return) {
+        // Step 2: Derive Ui_SetFrameText from DevText's call site.
+        // The Ui_SetFrameText byte pattern matches 16 functions — unusable.
+        // Instead, scan from the "DlgDevText" string: the FIRST CALL after
+        // Ui_CreateEncodedText is Ui_SetFrameText (structurally stable across builds).
+        if (!UiSetFrameText_Func || !g_devtext_title_create_return || !g_devtext_title_set_return) {
             const uintptr_t use_addr = ResolveDevTextStringUse();
             if (!use_addr)
                 return false;
 
-            for (uintptr_t addr = use_addr; addr < use_addr + 0x40; ++addr) {
+            bool found_create = false;
+            for (uintptr_t addr = use_addr; addr < use_addr + 0x60; ++addr) {
                 const uintptr_t target = ResolveRelativeCallTarget(addr);
                 if (!target)
                     continue;
 
-                if (!g_devtext_title_create_return && target == reinterpret_cast<uintptr_t>(UiCreateEncodedText_Func)) {
+                if (!found_create && target == reinterpret_cast<uintptr_t>(UiCreateEncodedText_Func)) {
                     g_devtext_title_create_return = addr + 5;
+                    found_create = true;
                     continue;
                 }
 
-                if (!g_devtext_title_set_return && target == reinterpret_cast<uintptr_t>(UiSetFrameText_Func)) {
+                // The NEXT CALL after Ui_CreateEncodedText is Ui_SetFrameText
+                if (found_create && !UiSetFrameText_Func) {
+                    UiSetFrameText_Func = reinterpret_cast<UiSetFrameText_pt>(target);
                     g_devtext_title_set_return = addr + 5;
-                    continue;
-                }
-
-                if (!g_devtext_title_resource_set_return && target == reinterpret_cast<uintptr_t>(UiSetFrameEncodedTextResource_Func)) {
-                    g_devtext_title_resource_set_return = addr + 5;
-                    continue;
+                    break;
                 }
             }
+
+            if (!UiSetFrameText_Func || !g_devtext_title_create_return || !g_devtext_title_set_return)
+                return false;
         }
+
+        // Step 3: Derive Ui_SetFrameEncodedTextResource from Ui_SetFrameText + 0x70.
+        // Stable offset across Symbols EXE and 05-30-2026 EXE.
+        if (!UiSetFrameEncodedTextResource_Func) {
+            constexpr int ENCODED_TEXT_RESOURCE_OFFSET = 0x70;
+            const uintptr_t candidate = reinterpret_cast<uintptr_t>(UiSetFrameText_Func) + ENCODED_TEXT_RESOURCE_OFFSET;
+            UiSetFrameEncodedTextResource_Func = reinterpret_cast<UiSetFrameEncodedTextResource_pt>(candidate);
+        }
+
+        // g_devtext_title_resource_set_return is NOT required — Ui_SetFrameEncodedTextResource
+        // is not called from DevText's OnCreate. The hook still works without it
+        // (just won't suppress resource captions during clone creation).
 
         return UiSetFrameText_Func &&
             UiSetFrameEncodedTextResource_Func &&
             UiCreateEncodedText_Func &&
             g_devtext_title_create_return != 0 &&
-            g_devtext_title_set_return != 0 &&
-            g_devtext_title_resource_set_return != 0;
+            g_devtext_title_set_return != 0;
     }
 
     inline int FindPendingOverrideIndex(uint32_t parent_frame_id, uint32_t child_index)
@@ -308,6 +310,171 @@ namespace UIManagerTitleHook {
     inline bool IsInstalled()
     {
         std::lock_guard<std::mutex> lock(g_window_title_hook_mutex);
+        return g_hook_installed;
+    }
+}
+
+// === UIManagerDialogTitle — Dialog Descriptor Table Hijack (Vector A) ===
+// Strategy B (Recommended): Hook Ui_CreateEncodedTextFromStringId (18-byte thunk)
+// to intercept the title resource ID lookup during DialogShow creation.
+// When DialogShow reads entry 7 (title ID 0x337), the hook returns custom encoded
+// text instead of the resource-based title. This uses the native Path A title
+// rendering chain: TextEncode → FrameSetTitle → CNonclient::SetTitle →
+// OnTitleResolved → CContent::Invalidate.
+//
+// Dialog descriptor table layout (9 DWORDs = 0x24 per entry):
+//   +0x00: FrameProc pointer
+//   +0x04: Label string
+//   +0x08: Subclass flags
+//   +0x0C: FrameCreate flags
+//   +0x10: Bitflags
+//   +0x14: Title string resource ID  ← hook intercepts this lookup
+//   +0x18: Hotkey key enum
+//   +0x1C: Unknown
+//   +0x20: PrefWindow enum
+//
+// Entry 7 (05-30-2026):
+//   FrameProc = FUN_004FF0E0 (simple container, msg 4 + msg 9 only)
+//   Title ID = 0x337 (valid, renders title bar)
+//   Subclass = 0x159 (titled + closeable + resizable + chrome)
+//   No callers → safe to hijack without conflicts
+namespace UIManagerDialogTitle {
+    using DialogShow_pt = uint32_t(__cdecl*)(uint32_t parent, uint32_t dialog_enum, int32_t create_flag, void* param4);
+    using CreateEncodedTextFromStrId_pt = uintptr_t(__cdecl*)(uint32_t string_id);
+    using CreateEncodedText_pt = uintptr_t(__cdecl*)(uint32_t style_id, uint32_t layout_profile, const wchar_t* wide_text, uint32_t reserved);
+
+    static DialogShow_pt DialogShow_Func = nullptr;
+    static CreateEncodedTextFromStrId_pt CreateEncodedTextFromStrId_Func = nullptr;
+    static CreateEncodedTextFromStrId_pt CreateEncodedTextFromStrId_Ret = nullptr;
+    static CreateEncodedText_pt CreateEncodedText_Func = nullptr;
+
+    // Target dialog: entry 8, title resource ID 0x2C2
+    // Entry 7 (FrameProc FUN_004FF0E0) crashed — msg 4 writes to null param_2[3].
+    // Entry 8 uses standard FrameProc 0x008A1380 with subclass 0x159.
+    static constexpr uint32_t TARGET_DIALOG_ENUM = 8;
+    static constexpr uint32_t TARGET_DIALOG_TITLE_ID = 0x2C2;
+
+    // State — accessed only from the game thread (single-threaded)
+    static std::wstring g_dialog_custom_title;
+    static bool g_dialog_hook_active = false;
+    static bool g_hook_installed = false;
+
+    // Resolves all three function pointers via byte-pattern scanning.
+    // Patterns verified unique (single match) in 05-30-2026 EXE via Ghidra MCP.
+    //
+    // DialogShow:    55 8B EC 53 56 57 8B 7D 0C 8D 34 FF C1 E6 02 83 FF 3A 72 2C
+    //                20 bytes, all exact — uniquely matches 0x004e1210
+    //
+    // CreateEncodedTextFromStrId (thunk):
+    //                55 8B EC 6A 00 FF 75 08 E8 ?? ?? ?? ?? 83 C4 08 5D C3
+    //                18 bytes, wildcarded CALL displacement — uniquely matches 0x007c3bc0
+    //
+    // CreateEncodedText (raw encoder):
+    //                55 8B EC 51 56 57 E8 ?? ?? ?? ?? 8B 48 18 E8 ?? ?? ?? ?? 8B F8
+    //                Wildcarded internal CALL displacements — matches 2 locations, first = correct (0x007c3be0)
+    inline bool ResolveFunctions()
+    {
+        if (!DialogShow_Func) {
+            const uintptr_t addr = GW::Scanner::Find(
+                "\x55\x8B\xEC\x53\x56\x57\x8B\x7D\x0C\x8D\x34\xFF\xC1\xE6\x02\x83\xFF\x3A\x72\x2C",
+                "xxxxxxxxxxxxxxxxxxxx");
+            if (!addr)
+                return false;
+            DialogShow_Func = reinterpret_cast<DialogShow_pt>(addr);
+        }
+
+        if (!CreateEncodedTextFromStrId_Func) {
+            const uintptr_t addr = GW::Scanner::Find(
+                "\x55\x8B\xEC\x6A\x00\xFF\x75\x08\xE8\x00\x00\x00\x00\x83\xC4\x08\x5D\xC3",
+                "xxxxxxxx????xxxxx");
+            if (!addr)
+                return false;
+            CreateEncodedTextFromStrId_Func = reinterpret_cast<CreateEncodedTextFromStrId_pt>(addr);
+        }
+
+        if (!CreateEncodedText_Func) {
+            const uintptr_t addr = GW::Scanner::Find(
+                "\x55\x8B\xEC\x51\x56\x57\xE8\x00\x00\x00\x00\x8B\x48\x18\xE8\x00\x00\x00\x00\x8B\xF8",
+                "xxxxxxx????xxxx????xx");
+            if (!addr)
+                return false;
+            CreateEncodedText_Func = reinterpret_cast<CreateEncodedText_pt>(addr);
+        }
+
+        return DialogShow_Func && CreateEncodedTextFromStrId_Func && CreateEncodedText_Func;
+    }
+
+    // MinHook handler — intercepts Ui_CreateEncodedTextFromStringId(uint32_t string_id).
+    // When the hook is active and string_id matches the target dialog title ID (0x337),
+    // encodes the custom title via Ui_CreateEncodedText(8, 7, title, 0) and returns it.
+    // Otherwise passes through to the original thunk (which calls the raw encoder with
+    // the resource ID).
+    inline uintptr_t __cdecl OnCreateEncodedTextFromStrId(uint32_t string_id)
+    {
+        if (g_dialog_hook_active && string_id == TARGET_DIALOG_TITLE_ID && !g_dialog_custom_title.empty() && CreateEncodedText_Func) {
+            const std::wstring title = g_dialog_custom_title;
+            g_dialog_custom_title.clear();
+            g_dialog_hook_active = false;
+            return CreateEncodedText_Func(8, 7, title.c_str(), 0);
+        }
+        if (CreateEncodedTextFromStrId_Ret)
+            return CreateEncodedTextFromStrId_Ret(string_id);
+        return 0;
+    }
+
+    // Installs the MinHook on Ui_CreateEncodedTextFromStringId if not already installed.
+    // Returns true if the hook is active (or was already active).
+    inline bool EnsureInstalled()
+    {
+        if (g_hook_installed)
+            return true;
+        if (!ResolveFunctions())
+            return false;
+
+        int success = GW::HookBase::CreateHook(
+            reinterpret_cast<void**>(&CreateEncodedTextFromStrId_Func),
+            reinterpret_cast<void*>(OnCreateEncodedTextFromStrId),
+            reinterpret_cast<void**>(&CreateEncodedTextFromStrId_Ret));
+        if (success != MH_OK)
+            return false;
+
+        GW::HookBase::EnableHooks(CreateEncodedTextFromStrId_Func);
+        g_hook_installed = true;
+        return true;
+    }
+
+    // Creates a native floating dialog window with a custom title via the dialog
+    // descriptor table hijack approach.
+    //
+    // MUST be called from the game thread. The hook intercepts the title resource ID
+    // lookup inside DialogShow and substitutes the custom encoded text.
+    //
+    // Parameters:
+    //   parent  — parent frame ID (0 = root, 9 = game root container)
+    //   title   — wide-string custom title text
+    // Returns: frame_id of the created dialog window, or 0 on failure.
+    inline uint32_t CreateDialogWithTitle(uint32_t parent, const std::wstring& title)
+    {
+        if (title.empty())
+            return 0;
+        if (!EnsureInstalled())
+            return 0;
+
+        g_dialog_custom_title = title;
+        g_dialog_hook_active = true;
+
+        const uint32_t frame_id = DialogShow_Func(parent, TARGET_DIALOG_ENUM, 1, nullptr);
+
+        // Clean up in case the hook didn't fire (dialog creation may have failed)
+        g_dialog_hook_active = false;
+        g_dialog_custom_title.clear();
+
+        return frame_id;
+    }
+
+    // Reports whether the hook has been installed successfully.
+    inline bool IsInstalled()
+    {
         return g_hook_installed;
     }
 }
@@ -1222,6 +1389,35 @@ public:
         return cached_proc;
     }
 
+    // Resolves Ui_InvalidateFrameContent (WASM: FrameContentInvalidate) via byte-pattern scan.
+    // Pattern: 8D 48 04 53 6A 04 E8 (at +0x57 from function start).
+    // Offset -0x57 applied to locate the function prologue.
+    // Returns function pointer: void(__cdecl*)(uint32_t frameId, uint32_t flags)
+    static uint32_t ResolveFrameContentInvalidate()
+    {
+        static uint32_t cached_proc = 0;
+        if (cached_proc)
+            return cached_proc;
+
+        // Byte pattern: LEA ECX, [EAX+0x4] ; PUSH EBX ; PUSH 0x4 ; CALL ...
+        // This is unique in the EXE and anchors at +0x57 from the function prologue.
+        uintptr_t proc_addr = GW::Scanner::Find(
+            "\x8D\x48\x04\x53\x6A\x04\xE8",
+            "xxxxxxx");
+        if (!proc_addr) {
+            GWCA_ERR("[SCAN] ResolveFrameContentInvalidate — byte pattern not found");
+            return 0;
+        }
+        const uintptr_t fn_start = GW::Scanner::ToFunctionStart(proc_addr, 0x80);
+        if (!fn_start) {
+            GWCA_ERR("[SCAN] ResolveFrameContentInvalidate — ToFunctionStart failed");
+            return 0;
+        }
+        cached_proc = static_cast<uint32_t>(fn_start);
+        Logger::AssertAddress("Ui_InvalidateFrameContent", cached_proc, "UIModule");
+        return cached_proc;
+    }
+
     // NOTE: Returns true based on GameThread::Enqueue success, NOT on lambda execution
     // success. The lambda silently fails if any resolved function pointer is null, or if
     // the frame is destroyed between enqueue and execution. This is acceptable for POC
@@ -1415,6 +1611,9 @@ public:
     }
 
     // Clears all descendant children of a frame by calling the native recursive helper.
+    // CRITICAL: The frame validity check must happen inside the enqueued lambda, not
+    // before enqueuing. Frame state can change between enqueue and execution ticks.
+    // A destroyed frame passed to the native clear function causes a crash.
     static bool ClearFrameChildrenRecursiveByFrameId(uint32_t frame_id)
     {
         using ClearFrameChildrenRecursive_pt = void(__cdecl*)(uint32_t);
@@ -1429,19 +1628,30 @@ public:
             fn = reinterpret_cast<ClearFrameChildrenRecursive_pt>(func_addr);
         }
 
+        // Validate frame exists at enqueue time to fail early for obviously
+        // invalid IDs, but the real guard is inside the lambda.
         GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
         if (!(frame && frame->IsCreated()))
             return false;
 
         const auto clear_fn = fn;
         GW::GameThread::Enqueue([frame_id, clear_fn]() {
-            if (clear_fn)
-                clear_fn(frame_id);
+            if (!clear_fn)
+                return;
+            // Re-validate at execution time — frame may have been destroyed
+            // between the enqueue and this tick.
+            GW::UI::Frame* f = GW::UI::GetFrameById(frame_id);
+            if (!(f && f->IsCreated()))
+                return;
+            clear_fn(frame_id);
         });
         return true;
     }
 
     // Clears the content host of a cloned window and redraws the root.
+    // The redraw is chained inside the enqueued lambda so it runs AFTER the
+    // recursive clear completes, avoiding race conditions where the render
+    // pipeline draws children that are about to be destroyed.
     static bool ClearWindowContentsByFrameId(uint32_t root_frame_id)
     {
         const uint32_t host_frame_id = ResolveObservedContentHostByFrameId(root_frame_id);
@@ -1449,7 +1659,14 @@ public:
             return false;
         if (!ClearFrameChildrenRecursiveByFrameId(host_frame_id))
             return false;
-        TriggerFrameRedrawByFrameId(root_frame_id);
+
+        // Chain the redraw after the clear so it executes on the same tick
+        // as the recursive destruction, not before it.
+        GW::GameThread::Enqueue([root_frame_id]() {
+            GW::UI::Frame* f = GW::UI::GetFrameById(root_frame_id);
+            if (f && f->IsCreated())
+                GW::UI::TriggerFrameRedraw(f);
+        });
         return true;
     }
 
@@ -1544,8 +1761,99 @@ public:
         if (!frame_id)
             return 0;
 
+        // ClearWindowContentsByFrameId now enqueues both the recursive clear AND the
+        // follow-up redraw inside the same lambda, eliminating the race between
+        // synchronous redraw (old content) and asynchronous clear (destroys children).
         ClearWindowContentsByFrameId(frame_id);
-        TriggerFrameRedrawByFrameId(frame_id);
+        return frame_id;
+    }
+
+    // Creates a DevText-backed composite window with a custom title via clone-title override.
+    // This is the PATH A approach: the title is substituted during FrameCreate so that
+    // FrameSetTitle → CNonclient::SetTitle → OnTitleResolved → CContent::Invalidate fires,
+    // giving proper per-frame invalidation and title-bar rendering.
+    // After creation, DevText's body content is cleared, leaving an empty window with a working title.
+    static uint32_t CreateTitledWindowClone(
+        const std::wstring& title,
+        float x,
+        float y,
+        float width,
+        float height,
+        const std::wstring& frame_label = L"",
+        uint32_t parent_frame_id = 9,
+        uint32_t child_index = 0,
+        uint32_t frame_flags = 0,
+        uintptr_t create_param = 0,
+        uintptr_t frame_callback = 0,
+        uint32_t anchor_flags = 0x6,
+        bool ensure_devtext_source = true)
+    {
+        if (title.empty())
+            return 0;
+
+        if (!UIManagerTitleHook::SetNextCreatedWindowTitle(title)) {
+            GWCA_ERR("[UI] CreateTitledWindowClone — SetNextCreatedWindowTitle failed");
+            return 0;
+        }
+
+        const uint32_t frame_id = CreateWindowClone(
+            x, y, width, height,
+            frame_label,
+            parent_frame_id, child_index,
+            frame_flags, create_param,
+            frame_callback, anchor_flags,
+            ensure_devtext_source);
+
+        if (!frame_id) {
+            UIManagerTitleHook::ClearNextCreatedWindowTitle();
+            GWCA_ERR("[UI] CreateTitledWindowClone — CreateWindowClone failed");
+            return 0;
+        }
+
+        ClearWindowContentsByFrameId(frame_id);
+        return frame_id;  // redraw is enqueued inside ClearWindowContentsByFrameId
+    }
+
+    // Creates a titled empty composite window via CreateEmptyWindowClone with title override.
+    // Same Path A title rendering as CreateTitledWindowClone but uses the simpler
+    // CreateEmptyWindowClone path which clears content immediately as part of creation.
+    static uint32_t CreateTitledEmptyWindow(
+        const std::wstring& title,
+        float x,
+        float y,
+        float width,
+        float height,
+        const std::wstring& frame_label = L"CustomWindow",
+        uint32_t parent_frame_id = 9,
+        uint32_t child_index = 0,
+        uint32_t frame_flags = 0,
+        uintptr_t create_param = 0,
+        uintptr_t frame_callback = 0,
+        uint32_t anchor_flags = 0x6,
+        bool ensure_devtext_source = true)
+    {
+        if (title.empty())
+            return 0;
+
+        if (!UIManagerTitleHook::SetNextCreatedWindowTitle(title)) {
+            GWCA_ERR("[UI] CreateTitledEmptyWindow — SetNextCreatedWindowTitle failed");
+            return 0;
+        }
+
+        const uint32_t frame_id = CreateEmptyWindowClone(
+            x, y, width, height,
+            frame_label,
+            parent_frame_id, child_index,
+            frame_flags, create_param,
+            frame_callback, anchor_flags,
+            ensure_devtext_source);
+
+        if (!frame_id) {
+            UIManagerTitleHook::ClearNextCreatedWindowTitle();
+            GWCA_ERR("[UI] CreateTitledEmptyWindow — CreateEmptyWindowClone failed");
+            return 0;
+        }
+
         return frame_id;
     }
 
@@ -1827,12 +2135,12 @@ public:
         using CreateEncodedText_pt = uintptr_t(__cdecl*)(uint32_t, uint32_t, const wchar_t*, uint32_t);
         using SetFrameText_pt = void(__cdecl*)(uint32_t, uintptr_t);
 
-        // This setter only replaces the dynamic text-caption channel. Composite
-        // windows can also keep a resource-caption channel, which is why clone
-        // creation uses the hook path above when a full title override is needed.
         static CreateEncodedText_pt create_text_fn = nullptr;
         static SetFrameText_pt set_frame_text_fn = nullptr;
+
         if (!create_text_fn) {
+            // Wildcarded CALL displacements — matches 2 locations; first (lowest
+            // address) is the correct Ui_CreateEncodedText.
             const auto addr = GW::Scanner::Find(
                 "\x55\x8B\xEC\x51\x56\x57\xE8\x00\x00\x00\x00\x8B\x48\x18\xE8\x00\x00\x00\x00\x8B\xF8",
                 "xxxxxxx????xxxx????xx");
@@ -1840,13 +2148,34 @@ public:
                 return false;
             create_text_fn = reinterpret_cast<CreateEncodedText_pt>(addr);
         }
+
         if (!set_frame_text_fn) {
-            const auto addr = GW::Scanner::Find(
-                "\x55\x8B\xEC\x53\x56\x57\x8B\x7D\x08\x8B\xF7\xF7\xDE\x1B\xF6\x85",
-                "xxxxxxxxxxxxxxxx");
-            if (!addr)
+            // Derive Ui_SetFrameText from DevText's call site.
+            // The byte pattern matches 16 functions — unusable.
+            // Instead, find the "DlgDevText" string use, then the first CALL is
+            // Ui_CreateEncodedText, the next CALL is Ui_SetFrameText.
+            const uintptr_t use_addr = UIManagerTitleHook::ResolveDevTextStringUse();
+            if (!use_addr)
                 return false;
-            set_frame_text_fn = reinterpret_cast<SetFrameText_pt>(addr);
+
+            bool found_ct = false;
+            for (uintptr_t a = use_addr; a < use_addr + 0x60; ++a) {
+                const auto opcode = *reinterpret_cast<const uint8_t*>(a);
+                if (opcode != 0xE8) continue;
+                const int32_t rel = *reinterpret_cast<const int32_t*>(a + 1);
+                const uintptr_t target = a + 5 + rel;
+
+                if (!found_ct && target == reinterpret_cast<uintptr_t>(create_text_fn)) {
+                    found_ct = true;
+                    continue;
+                }
+                if (found_ct) {
+                    set_frame_text_fn = reinterpret_cast<SetFrameText_pt>(target);
+                    break;
+                }
+            }
+            if (!set_frame_text_fn)
+                return false;
         }
 
         GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
@@ -1866,6 +2195,51 @@ public:
             set_fn(target_frame_id, payload);
         });
         return true;
+    }
+
+    // Invalidates per-frame CContent by element id and flags, causing a full redraw.
+    // This is the missing per-frame dirty-list enqueue (Path A equivalent). Default
+    // flags=0xFFFFFFFF for full invalidation. Combine with SetFrameTitleByFrameId
+    // to achieve Path A title rendering (FrameSetTitle → CContent::Invalidate).
+    static bool FrameContentInvalidate(uint32_t frame_id, uint32_t flags = 0xFFFFFFFF)
+    {
+        using InvalidateFrameContent_pt = void(__cdecl*)(uint32_t, uint32_t);
+
+        static InvalidateFrameContent_pt fn = nullptr;
+        if (!fn) {
+            const auto addr = ResolveFrameContentInvalidate();
+            if (!addr)
+                return false;
+            fn = reinterpret_cast<InvalidateFrameContent_pt>(addr);
+        }
+
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+
+        const auto invalidate_fn = fn;
+        GW::GameThread::Enqueue([frame_id, flags, invalidate_fn]() {
+            if (invalidate_fn)
+                invalidate_fn(frame_id, flags);
+        });
+        return true;
+    }
+
+    // Convenience wrapper that performs a full content redraw on a frame.
+    static bool FrameContentRedraw(uint32_t frame_id)
+    {
+        return FrameContentInvalidate(frame_id, 0xFFFFFFFF);
+    }
+
+    // One-stop fix for title rendering: stores the title text (Path B text storage)
+    // then triggers per-frame CContent invalidation (Path A dirty-list enqueue).
+    // This combined approach gives cold-created windows visible titles without
+    // needing the (currently unknown) EXE address of FrameSetTitle.
+    static bool SetFrameTitleAndInvalidate(uint32_t frame_id, const std::wstring& title)
+    {
+        if (!SetFrameTitleByFrameId(frame_id, title))
+            return false;
+        return FrameContentInvalidate(frame_id, 0xFFFFFFFF);
     }
 
     // Helper: converts null-terminated wchar_t* to UTF-8 std::string.
@@ -1933,6 +2307,71 @@ public:
         if (!frame)
             return std::wstring();
         const wchar_t* text = frame->GetDecodedLabel();
+        return text ? std::wstring(text) : std::wstring();
+    }
+
+    // ── DEBUG HELPERS: Title diagnostics (Option A + Option B verification) ──────────
+
+    // Returns the raw runtime pointer address of a frame, for direct memory inspection.
+    // Python can use this with ctypes to read frame+0x18 (paint mask) etc.
+    static uintptr_t GetFrameBaseAddress(uint32_t frame_id)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        return reinterpret_cast<uintptr_t>(frame);
+    }
+
+    // Resolves Ui_GetFrameTextCaptionText @ EXE 0x0060e850 → wchar_t*(frame_id).
+    // Returns the dynamic text caption (Path B attached-text table).
+    // Scanner: FindAssertion("FrApi.cpp", "frameId", 0x608, 0) or byte pattern.
+    static uint32_t ResolveGetFrameTextCaptionText()
+    {
+        static uint32_t cached = 0;
+        if (cached) return cached;
+        // Byte pattern: function prologue + unique call sequence
+        uint32_t addr = GW::Scanner::Find("\x55\x8B\xEC\x56\x8B\x75\x08\x85\xF6\x74\x1C\x8B\x06"
+                                           "\x85\xC0\x74\x16\x8B\x50\x08\x8B\x42\x04", 
+                                           "xxxxxxxxxxxxxxxxxxxxxxxxx", 0);
+        if (addr) {
+            cached = GW::Scanner::ToFunctionStart(addr, 0x40);
+            Logger::AssertAddress("Ui_GetFrameTextCaptionText", cached);
+        }
+        return cached;
+    }
+
+    // Queries the dynamic text caption for a frame (Path B table).
+    static std::wstring GetFrameTextCaptionText(uint32_t frame_id)
+    {
+        uint32_t addr = ResolveGetFrameTextCaptionText();
+        if (!addr) return std::wstring();
+        typedef const wchar_t*(__cdecl *FuncT)(uint32_t);
+        auto fn = reinterpret_cast<FuncT>(addr);
+        const wchar_t* text = fn(frame_id);
+        return text ? std::wstring(text) : std::wstring();
+    }
+
+    // Resolves Ui_GetFrameResourceCaptionText @ EXE 0x0060e810 → wchar_t*(frame_id).
+    static uint32_t ResolveGetFrameResourceCaptionText()
+    {
+        static uint32_t cached = 0;
+        if (cached) return cached;
+        uint32_t addr = GW::Scanner::Find("\x55\x8B\xEC\x56\x8B\x75\x08\x85\xF6\x74\x0D"
+                                           "\x8B\x06\x8B\x48\x08\x85\xC9", 
+                                           "xxxxxxxxxxxxxxxxxxx", 0);
+        if (addr) {
+            cached = GW::Scanner::ToFunctionStart(addr, 0x40);
+            Logger::AssertAddress("Ui_GetFrameResourceCaptionText", cached);
+        }
+        return cached;
+    }
+
+    // Queries the resource caption for a frame (Path B table).
+    static std::wstring GetFrameResourceCaptionText(uint32_t frame_id)
+    {
+        uint32_t addr = ResolveGetFrameResourceCaptionText();
+        if (!addr) return std::wstring();
+        typedef const wchar_t*(__cdecl *FuncT)(uint32_t);
+        auto fn = reinterpret_cast<FuncT>(addr);
+        const wchar_t* text = fn(frame_id);
         return text ? std::wstring(text) : std::wstring();
     }
 
@@ -2098,6 +2537,37 @@ public:
     static std::wstring GetLastAppliedWindowTitle()
     {
         return UIManagerTitleHook::GetLastAppliedTitle();
+    }
+
+    // Reports whether the dialog descriptor table hijack hook is active.
+    static bool IsDialogTitleHookInstalled()
+    {
+        return UIManagerDialogTitle::IsInstalled();
+    }
+
+    // Creates a native floating dialog (entry 7) with a custom title via the
+    // dialog descriptor table hijack approach (Vector A).
+    //
+    // MUST be called from the game thread (the Python wrapper dispatches via
+    // Game.enqueue, so this is always the case). The hook intercepts
+    // Ui_CreateEncodedTextFromStringId during dialog creation, substituting
+    // the custom title for resource ID 0x337.
+    //
+    // NOTE: This wrapper previously used GW::GameThread::Enqueue + cv.wait,
+    // which caused a deadlock when called from the game thread (the thread
+    // would block waiting for itself to process its own queue). Fixed by
+    // calling UIManagerDialogTitle::CreateDialogWithTitle directly since we
+    // are already on the game thread.
+    //
+    // Parameters:
+    //   parent — parent frame ID (0 = root, 9 = game root container)
+    //   title  — wide-string custom title text
+    // Returns: frame_id of the created dialog window, or 0 on failure.
+    static uint32_t CreateDialogWithTitle(uint32_t parent, const std::wstring& title)
+    {
+        if (title.empty())
+            return 0;
+        return UIManagerDialogTitle::CreateDialogWithTitle(parent, title);
     }
 
 
@@ -3062,7 +3532,107 @@ public:
 
 };
 
+// Vector C — msg 0x5E Title Dispatch via CNonclient proc.
+// Instead of hooking the title-creation path (Vector B) or manipulating the
+// ExtraData array directly, this namespace sends a frame message 0x5E to the
+// CNonclient subobject at frame+0xCC. The native handler stores the encoded
+// text, calls TextResolveIssue for async decode, and OnTitleResolved triggers
+// CContent::Invalidate — the complete native title chain fires automatically.
+//
+// 05-30-2026 addresses (resolved via byte patterns):
+//   CNonclientProc:     FUN_00617df0 — void(FrameMsg*, void* data, int* result)
+//   CreateEncodedText:  FUN_007c3be0 — wchar_t*(int cls, int type, wchar_t* str, int flags)
+//
+// FrameMsg layout for msg 0x5E:
+//   +0x00 = frame_ptr (native GW::UI::Frame*)
+//   +0x04 = msg_id (0x5E)
+//   +0x08 = pointer to CNonclient subobject at frame+0xCC
+namespace UIManagerCNonclient {
+    using CreateEncodedText_pt = uint32_t(__cdecl*)(int32_t, int32_t, const wchar_t*, int32_t);
+    using CNonclientProc_pt = void(__cdecl*)(void*, void*, int32_t*);
 
+    inline CreateEncodedText_pt CreateEncodedText_Func = nullptr;
+    inline CNonclientProc_pt CNonclientProc_Func = nullptr;
+    // TextResolveIssue — void(uint frame_id, wchar_t* encoded_text, uint context)
+    // Starts async text decoding. OnTitleResolved dispatches msg 0x3A to the
+    // CNonclient proc which copies decoded text and invalidates the frame.
+    // 05-30-2026 address: 0x00632d90
+    using TextResolveIssue_pt = void(__cdecl*)(uint32_t, const wchar_t*, uint32_t);
+    inline TextResolveIssue_pt TextResolveIssue_Func = nullptr;
 
+    inline bool ResolveFunctions()
+    {
+        if (!CreateEncodedText_Func) {
+            // Wildcarded pattern — matches 2 locations in both EXE builds;
+            // the first match (lowest address) is the correct function.
+            const uintptr_t addr = GW::Scanner::Find(
+                "\x55\x8B\xEC\x51\x56\x57\xE8\x00\x00\x00\x00\x8B\x48\x18\xE8\x00\x00\x00\x00\x8B\xF8",
+                "xxxxxxx????xxxx????xx");
+            if (addr)
+                CreateEncodedText_Func = reinterpret_cast<CreateEncodedText_pt>(addr);
+        }
 
+        if (!CNonclientProc_Func) {
+            // Unique pattern from the message dispatch inside the CNonclient proc:
+            //   ADD  EAX, -0x4      ; adjust msg_id to zero-based index
+            //   MOV  [EBP-0x58], ESI
+            //   CMP  EAX, 0x5E      ; max handled message id
+            //   JA   ...            ; jump if above (unhandled)
+            // Verified: 1 match in Symbols EXE, 1 match in 05-30-2026 EXE.
+            const uintptr_t addr = GW::Scanner::Find(
+                "\x83\xC0\xFC\x89\x75\xA8\x83\xF8\x5E\x0F\x87",
+                "xxxxxxxxxxx");
+            if (addr) {
+                CNonclientProc_Func = reinterpret_cast<CNonclientProc_pt>(
+                    GW::Scanner::ToFunctionStart(addr, 0x200));
+            }
+        }
+
+        if (!TextResolveIssue_Func) {
+            // TextResolveIssue — void(uint frame_id, wchar_t* text, uint context)
+            //   Pushes assertion line 0x3B0 (text null check), unique in FrText.cpp.
+            //   05-30-2026 address: 0x00632d90
+            //   Pattern matches at +3 from function start (after PUSH EBP; MOV EBP,ESP).
+            const uintptr_t addr = GW::Scanner::Find(
+                "\x83\x7D\x0C\x00\x75\x16\x68\xB0\x03\x00\x00",
+                "xxxxxxxxxxx");
+            if (addr) {
+                TextResolveIssue_Func = reinterpret_cast<TextResolveIssue_pt>(addr - 3);
+            }
+        }
+
+        return CreateEncodedText_Func && TextResolveIssue_Func;
+    }
+
+    // Sets a custom title on a frame via Path B text storage + per-frame invalidation.
+    //
+    // Delegates to UIManager::SetFrameTitleAndInvalidate which uses:
+    //   1. Ui_CreateEncodedText(8, 7, title, 0) → encoded wchar_t payload
+    //   2. Ui_SetFrameText(frame_id, payload) → stores text directly in frame
+    //      struct memory (CNonclient at frame+0xCC). Works on cold containers
+    //      where the CNonclient subobject was never initialized by FrameCreate.
+    //   3. PerFrameInvalidate(frame_id, 0xFFFFFFFF) → triggers full paint.
+    //
+    // This bypasses the async TextResolveIssue → msg 0x3A chain which silently
+    // fails for cold containers (CNonclient not set up during FrameCreate, so
+    // msg 0x3A dispatch to the CNonclient proc is ignored).
+    inline bool SendTitleMsg5E(uint32_t frame_id, const std::wstring& title)
+    {
+        if (title.empty() || !frame_id)
+            return false;
+
+        return UIManager::SetFrameTitleAndInvalidate(frame_id, title);
+    }
+
+    // Exposes CreateEncodedText to Python for diagnostic / manual dispatch.
+    // Returns the encoded-text pointer (pass to ctypes for raw inspection).
+    // Must be called from the game thread.
+    inline uint32_t CreateEncodedText(int32_t style_id, int32_t layout_profile,
+                                      const std::wstring& text, int32_t flags)
+    {
+        if (!ResolveFunctions())
+            return 0;
+        return CreateEncodedText_Func(style_id, layout_profile, text.c_str(), flags);
+    }
+}
 
