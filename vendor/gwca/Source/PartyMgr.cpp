@@ -11,6 +11,7 @@
 #include <GWCA/GameEntities/Attribute.h>
 #include <GWCA/GameEntities/Player.h>
 #include <GWCA/GameEntities/Hero.h>
+#include <GWCA/GameEntities/Skill.h>
 
 #include <GWCA/Context/PartyContext.h>
 #include <GWCA/Context/WorldContext.h>
@@ -23,6 +24,8 @@
 #include <GWCA/Managers/PlayerMgr.h>
 #include <GWCA/Managers/ChatMgr.h>
 #include <GWCA/Managers/MapMgr.h>
+#include <GWCA/Managers/GameThreadMgr.h>
+#include <GWCA/Managers/SkillbarMgr.h>
 #include <GWCA/Logger/Logger.h>
 
 namespace {
@@ -55,6 +58,8 @@ namespace {
     SetHeroBehavior_pt SetHeroBehavior_Func = 0;
     typedef bool(__cdecl* LockPetTarget_pt)(uint32_t pet_agent_id, uint32_t target_id);
     LockPetTarget_pt LockPetTarget_Func = 0;
+    typedef void(__cdecl* CommandHotKeyDisableAi_pt)(uint32_t hero_agent_id, uint32_t zero_based_skill_slot);
+    CommandHotKeyDisableAi_pt CommandHotKeyDisableAi_Func = 0;
 
     bool tick_work_as_toggle = false;
 
@@ -167,6 +172,12 @@ namespace {
         Logger::AssertAddress("SetHeroBehavior_Func", (uintptr_t)SetHeroBehavior_Func, "Party Module");
         Logger::AssertAddress("LockPetTarget_Func", (uintptr_t)LockPetTarget_Func, "Party Module");
 
+        address = Scanner::Find("\x50\x6A\x0C\xC7\x45\xF0\x19\x00\x00\x00", "xxxxxxxxxx", 0);
+        Logger::AssertAddress("CommandHotKeyDisableAi address", (uintptr_t)address, "Party Module");
+        if (Scanner::IsValidPtr(address, ScannerSection::Section_TEXT))
+            CommandHotKeyDisableAi_Func = (CommandHotKeyDisableAi_pt)Scanner::ToFunctionStart(address);
+        Logger::AssertAddress("CommandHotKeyDisableAi_Func", (uintptr_t)CommandHotKeyDisableAi_Func, "Party Module");
+
         address = Scanner::Find("\x6a\x00\x68\x00\x02\x02\x00\xff\x77\x04", "xxxxxxxxxx");
         if (Scanner::IsValidPtr(address, ScannerSection::Section_TEXT)) {
             //PartyRejectInvite_Func = (DoAction_pt)Scanner::FunctionFromNearCall(address + 0xb6);
@@ -181,6 +192,7 @@ namespace {
         GWCA_INFO("[SCAN] FlagAll_Func = %p", FlagAll_Func);
         GWCA_INFO("[SCAN] SetHeroBehavior_Func = %p", SetHeroBehavior_Func);
         GWCA_INFO("[SCAN] LockPetTarget_Func = %p", LockPetTarget_Func);
+        GWCA_INFO("[SCAN] CommandHotKeyDisableAi_Func = %p", CommandHotKeyDisableAi_Func);
         GWCA_INFO("[SCAN] PartyWindowButtonCallback_Func = %p", PartyWindowButtonCallback_Func);
         GWCA_INFO("[SCAN] PartySearchButtonCallback_Func = %p", PartySearchButtonCallback_Func);
 
@@ -193,6 +205,7 @@ namespace {
         GWCA_ASSERT(FlagAll_Func);
         GWCA_ASSERT(SetHeroBehavior_Func);
         GWCA_ASSERT(LockPetTarget_Func);
+        GWCA_ASSERT(CommandHotKeyDisableAi_Func);
 #endif
         //std::ostringstream ss;
         //ss << "PartyWindowButtonCallback_Func = " << (void*)PartyWindowButtonCallback_Func;
@@ -570,6 +583,35 @@ namespace GW {
                 }
             }
             return false;
+        }
+        bool SetHeroSkillAIEnabled(uint32_t hero_agent_id, uint32_t skill_slot, bool enabled) {
+            if (!CommandHotKeyDisableAi_Func || !hero_agent_id || skill_slot < 1 || skill_slot > 8)
+                return false;
+
+            SkillbarArray* skillbars = SkillbarMgr::GetSkillbarArray();
+            if (!skillbars)
+                return false;
+
+            const uint32_t zero_based_slot = skill_slot - 1;
+            const uint32_t disabled_bit = 1u << zero_based_slot;
+            Skillbar* hero_skillbar = nullptr;
+            for (Skillbar& skillbar : *skillbars) {
+                if (skillbar.agent_id == hero_agent_id) {
+                    hero_skillbar = &skillbar;
+                    break;
+                }
+            }
+            if (!hero_skillbar)
+                return false;
+
+            const bool is_disabled = (hero_skillbar->disabled & disabled_bit) != 0;
+            if (is_disabled == !enabled)
+                return true;
+
+            GameThread::Enqueue([hero_agent_id, zero_based_slot] {
+                CommandHotKeyDisableAi_Func(hero_agent_id, zero_based_slot);
+            });
+            return true;
         }
         bool SetPetBehavior(HeroBehavior behavior, uint32_t lock_target_id) {
             auto w = GetWorldContext();

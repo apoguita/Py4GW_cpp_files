@@ -197,7 +197,6 @@ namespace GW {
 
 
     typedef void(__stdcall* UseHeroSkillInstant_t)(uint32_t hero_agent_id, uint32_t skill_slot, uint32_t target_id);
-    typedef void(__cdecl* CommandHotKeyDisableAi_t)(uint32_t hero_agent_id, uint32_t zero_based_skill_slot);
 
     static UseHeroSkillInstant_t UseHeroSkillInstant_Func = nullptr;
 
