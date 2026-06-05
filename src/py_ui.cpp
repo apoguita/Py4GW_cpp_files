@@ -1139,6 +1139,57 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 		.def_static("set_window_position", &UIManager::SetWindowPosition, py::arg("window_id"), py::arg("position"), "Sets the position of a window.")
 		.def_static("is_shift_screenshot", &UIManager::IsShiftScreenShot, "Checks if the Shift key is used for screenshots.")
 
+		// =====================================================================
+		// Window Contents — Frame List Item Management (2026-06-04)
+		// =====================================================================
+		.def_static("ctl_frame_list_create_item_by_frame_id",
+			&UIManager::CtlFrameListCreateItemByFrameId,
+			py::arg("parent_frame_list_id"),
+			py::arg("flags"),
+			py::arg("insert_index"),
+			py::arg("item_proc"),
+			py::arg("encoded_text"),
+			"Creates an item child in a frame list via msg 0x57. "
+			"Returns the new item's frame ID."
+		)
+		.def_static("frame_new_subclass_by_frame_id",
+			&UIManager::FrameNewSubclassByFrameId,
+			py::arg("frame_id"),
+			py::arg("subclass_proc"),
+			py::arg("msg_id"),
+			"Registers a subclass proc on a frame for a given msg ID. "
+			"Returns the subclass handle."
+		)
+		.def_static("create_scrollable_content_by_frame_id",
+			&UIManager::CreateScrollableContentByFrameId,
+			py::arg("window_id"),
+			py::arg("child_index") = 0,
+			py::arg("component_flags") = 0x20000,
+			py::arg("component_label") = std::wstring(),
+			"Creates a scrollable frame list as a child of the window. "
+			"Returns the scrollable frame's ID."
+		)
+		.def_static("add_text_item_to_frame_list_by_frame_id",
+			&UIManager::AddTextItemToFrameListByFrameId,
+			py::arg("frame_list_id"),
+			py::arg("plain_text"),
+			py::arg("insert_index") = 0,
+			py::arg("item_flags") = 0,
+			"Adds a text label item to a frame list. Encodes plain text and "
+			"calls CtlFrameListCreateItem. Returns the item's frame ID."
+		)
+		.def_static("create_scrollable_text_window",
+			&UIManager::CreateScrollableTextWindow,
+			py::arg("x"),
+			py::arg("y"),
+			py::arg("width"),
+			py::arg("height"),
+			py::arg("title"),
+			py::arg("items"),
+			"One-step: creates a titled container window with scrollable text items. "
+			"Returns the window frame ID."
+		)
+
 		// Vector C — Title via Path B text storage + per-frame invalidation
 		.def_static("send_title_msg_5e",
 			&UIManagerCNonclient::SendTitleMsg5E,

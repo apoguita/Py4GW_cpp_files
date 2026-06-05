@@ -129,6 +129,82 @@ inline bool ResolveSetFrameText(SetFrameTextResolved& out)
     return out.set_frame_text_fn != nullptr;
 }
 
+// ============================================================================
+// Window Contents — Shared Resolvers (2026-06-04)
+// ============================================================================
+// CtlFrameListCreateItem  @ EXE 0x00612900 — sends msg 0x57 to frame list
+// FrameNewSubclass         @ EXE 0x0062f150 — registers subclass proc on frame
+// TextLabelFrameCallback   @ EXE 0x00610c40 — CtlTextProc (GWCA assertion)
+//
+// Patterns verified against Gw.exe build 05-30-2026:
+//   CtlFrameListCreateItem: pattern "C7 45 0C 00 00 00 00 50 6A 57 FF 75 08"
+//                           → unique match at 0x00612925, offset -0x25 to entry
+//   FrameNewSubclass:       pattern "8D B8 A8 00 00 00 8B CF"
+//                           → unique match at 0x0062f17d, offset -0x2D to entry
+//   TextLabelFrameCallback: assertion "CtlText.cpp" / "FrameTestStyles(...)"
+//                           → ToFunctionStart(0xFFF)
+
+using CtlFrameListCreateItem_pt = uint32_t(__cdecl*)(uint32_t, uint32_t, uint32_t, void*, void*);
+using FrameNewSubclass_pt = uint32_t(__cdecl*)(uint32_t, void*, uint32_t);
+using TextLabelFrameCallback_pt = void*(__cdecl*)(uint32_t, uint32_t, void*, void*);
+
+inline CtlFrameListCreateItem_pt ResolveCtlFrameListCreateItem()
+{
+    static CtlFrameListCreateItem_pt cached = nullptr;
+    if (cached)
+        return cached;
+
+    const uintptr_t addr = GW::Scanner::Find(
+        "\xC7\x45\x0C\x00\x00\x00\x00\x50\x6A\x57\xFF\x75\x08",
+        "xxxxxxxxxxxx", -0x25);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveCtlFrameListCreateItem — pattern not found");
+        return nullptr;
+    }
+    cached = reinterpret_cast<CtlFrameListCreateItem_pt>(addr);
+    return cached;
+}
+
+inline FrameNewSubclass_pt ResolveFrameNewSubclass()
+{
+    static FrameNewSubclass_pt cached = nullptr;
+    if (cached)
+        return cached;
+
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x8D\xB8\xA8\x00\x00\x00\x8B\xCF",
+        "xxxxxxxx", -0x2D);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveFrameNewSubclass — pattern not found");
+        return nullptr;
+    }
+    cached = reinterpret_cast<FrameNewSubclass_pt>(addr);
+    return cached;
+}
+
+inline TextLabelFrameCallback_pt ResolveTextLabelFrameCallback()
+{
+    static TextLabelFrameCallback_pt cached = nullptr;
+    if (cached)
+        return cached;
+
+    const uintptr_t addr = GW::Scanner::FindAssertion(
+        "CtlText.cpp",
+        "FrameTestStyles(hdr.frameId, CTLTEXT_STYLE_MODEL)",
+        0, 0);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveTextLabelFrameCallback — assertion not found");
+        return nullptr;
+    }
+    const uintptr_t func_start = GW::Scanner::ToFunctionStart(addr, 0xFFF);
+    if (!func_start) {
+        GWCA_ERR("[SCAN] ResolveTextLabelFrameCallback — ToFunctionStart failed");
+        return nullptr;
+    }
+    cached = reinterpret_cast<TextLabelFrameCallback_pt>(func_start);
+    return cached;
+}
+
 // Clone-time title overrides need to intercept the same native title path that
 // DevText uses when Guild Wars builds a composite window. The game can attach:
 // 1. a dynamic encoded text payload via Ui_SetFrameText, and
@@ -3821,6 +3897,147 @@ public:
 	static bool IsShiftScreenShot() {
 		return GW::UI::GetIsShiftScreenShot();
 	}
+
+    // =========================================================================
+    // Window Contents — Frame List Item Management (2026-06-04)
+    // =========================================================================
+    // These methods enable filling a CContainerFrame window with scrollable
+    // text content via the CtlFrameListCreateItem pipeline.
+    //
+    // Architecture: CContainerFrame → FrameList (child 0, type 0xAEA) → TextLabels
+    //
+    // CtlFrameListCreateItem sends msg 0x57 to the frame list, which creates a
+    // child frame via FrameCreate with flags|0x300 and the given item proc.
+    //
+    // FrameNewSubclass registers a subclass proc on a frame for a given msg ID.
+    // Used for scrollbar chrome (msg 0x59) on frame lists.
+
+    // Calls the native CtlFrameListCreateItem (EXE 0x00612900) to add an item
+    // to a frame list. The itemProc is resolved from GWCA's TextLabelFrame_Callback.
+    // The userData must be an encoded text payload (see BuildStandaloneLiteralEncodedTextPayload).
+    //
+    // Returns the new item's frame ID, or 0 on failure.
+    static uint32_t CtlFrameListCreateItemByFrameId(
+        uint32_t parent_frame_list_id,
+        uint32_t flags,
+        uint32_t insert_index,
+        uint32_t item_proc,
+        const std::wstring& encoded_text)
+    {
+        const auto fn = ResolveCtlFrameListCreateItem();
+        if (!fn) {
+            GWCA_ERR("[UI] CtlFrameListCreateItemByFrameId — CtlFrameListCreateItem not resolved");
+            return 0;
+        }
+        if (!parent_frame_list_id) {
+            GWCA_ERR("[UI] CtlFrameListCreateItemByFrameId — invalid parent_frame_list_id");
+            return 0;
+        }
+        if (!item_proc) {
+            // Default: resolve TextLabelFrame_Callback
+            const auto cb = ResolveTextLabelFrameCallback();
+            if (!cb) {
+                GWCA_ERR("[UI] CtlFrameListCreateItemByFrameId — TextLabelFrame_Callback not resolved");
+                return 0;
+            }
+            item_proc = reinterpret_cast<uint32_t>(cb);
+        }
+        const void* user_data = encoded_text.empty() ? nullptr : encoded_text.c_str();
+        return fn(parent_frame_list_id, flags, insert_index,
+                  reinterpret_cast<void*>(static_cast<uintptr_t>(item_proc)),
+                  const_cast<void*>(user_data));
+    }
+
+    // Calls the native FrameNewSubclass (EXE 0x0062f150) to register a subclass
+    // proc on a frame. The subclass proc will be called for messages matching msg_id
+    // before the frame's own proc.
+    //
+    // Returns the subclass handle, or 0 on failure.
+    static uint32_t FrameNewSubclassByFrameId(
+        uint32_t frame_id,
+        uint32_t subclass_proc,
+        uint32_t msg_id)
+    {
+        const auto fn = ::ResolveFrameNewSubclass();
+        if (!fn) {
+            GWCA_ERR("[UI] FrameNewSubclassByFrameId — FrameNewSubclass not resolved");
+            return 0;
+        }
+        if (!frame_id || !subclass_proc) {
+            GWCA_ERR("[UI] FrameNewSubclassByFrameId — invalid arguments");
+            return 0;
+        }
+        return fn(frame_id,
+                  reinterpret_cast<void*>(static_cast<uintptr_t>(subclass_proc)),
+                  msg_id);
+    }
+
+    // Convenience: create a scrollable frame list as a child of the given window,
+    // using GWCA's CreateScrollableFrame (which wraps the frame list in a
+    // CtlViewProc scrollable container with automatic scrollbars).
+    //
+    // Returns the scrollable frame's ID, or 0 on failure.
+    static uint32_t CreateScrollableContentByFrameId(
+        uint32_t window_id,
+        uint32_t child_index = 0,
+        uint32_t component_flags = 0x20000,
+        const std::wstring& component_label = L"")
+    {
+        return CreateScrollableFrameByFrameId(window_id, component_flags, child_index,
+                                             0, component_label);
+    }
+
+    // Convenience: add a text label item to a frame list. Encodes the plain text
+    // into GW's literal encoded format and calls CtlFrameListCreateItem.
+    //
+    // Returns the new text label item's frame ID, or 0 on failure.
+    static uint32_t AddTextItemToFrameListByFrameId(
+        uint32_t frame_list_id,
+        const std::wstring& plain_text,
+        uint32_t insert_index = 0,
+        uint32_t item_flags = 0)
+    {
+        if (plain_text.empty()) {
+            GWCA_ERR("[UI] AddTextItemToFrameListByFrameId — empty text");
+            return 0;
+        }
+        std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(plain_text);
+        return CtlFrameListCreateItemByFrameId(frame_list_id, item_flags,
+                                               insert_index, 0, encoded);
+    }
+
+    // Convenience: create a titled container window with scrollable text content.
+    // One-step: creates window, creates scrollable frame list as child 0,
+    // and adds all text items.
+    //
+    // Returns the window frame ID, or 0 on failure.
+    // (Item IDs can be queried via the frame list after creation.)
+    static uint32_t CreateScrollableTextWindow(
+        float x, float y, float width, float height,
+        const std::wstring& title,
+        const std::vector<std::wstring>& items)
+    {
+        // Step 1: Create container window
+        const uint32_t window_id = CreateNativeWindow(x, y, width, height, title);
+        if (!window_id) {
+            GWCA_ERR("[UI] CreateScrollableTextWindow — window creation failed");
+            return 0;
+        }
+
+        // Step 2: Create scrollable frame list as child 0
+        const uint32_t frame_list_id = CreateScrollableContentByFrameId(window_id, 0);
+        if (!frame_list_id) {
+            GWCA_ERR("[UI] CreateScrollableTextWindow — scrollable content creation failed");
+            return 0;
+        }
+
+        // Step 3: Add text items
+        for (const auto& item : items) {
+            AddTextItemToFrameListByFrameId(frame_list_id, item);
+        }
+
+        return window_id;
+    }
 
 };
 
