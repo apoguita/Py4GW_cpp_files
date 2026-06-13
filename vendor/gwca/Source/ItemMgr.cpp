@@ -282,8 +282,12 @@ namespace {
         IdentifyItem_Func = (IdentifyItem_pt)Scanner::ToFunctionStart(Scanner::FindAssertion("ItCliApi.cpp", "context->itemTable.Get(srcItemId)", 0, 0));
 		Logger::AssertAddress("IdentifyItem_Func", (uintptr_t)IdentifyItem_Func, "Item Module");
 
-        address = Scanner::Find("\x83\xc4\x40\x6a\x00\x6a\x19", "xxxxxxx", -0x4e);
-        DropItem_Func = (DropItem_pt)Scanner::FunctionFromNearCall(address);
+        // CharMsgSendOrderDrop(item_id, quantity): builds CtoS drop packet {0x2C, item_id, quantity}.
+        // Old pattern "\x83\xc4\x40\x6a\x00\x6a\x19" -0x4e rotted to 2 matches;
+        address = Scanner::Find(
+            "\x8B\x45\x08\x89\x45\xF4\x8B\x45\x0C\x89\x45\xF8\x8D\x45\xF0\x50\x6A\x0C\xC7\x45\xF0\x2C\x00\x00\x00",
+            "xxxxxxxxxxxxxxxxxxxxxxxxx");
+        DropItem_Func = (DropItem_pt)Scanner::ToFunctionStart(address);
 
 		//commented address is from exe 28-nov-2025
         //address = Scanner::Find("\x83\x78\x08\x0a\x75\x10", "xxxxxx", 0xe);
