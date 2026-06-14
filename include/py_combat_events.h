@@ -66,22 +66,53 @@ namespace py = pybind11;
  *
  * Field meanings vary by event_type:
  * - Skill events: agent_id=caster, value=skill_id, target_id=target
- * - Damage events: agent_id=target, target_id=source, float_value=damage
+ * - Damage events: agent_id=target, target_id=source, float_value=damage%
  * - Effect events: agent_id=affected agent, value=effect_id
- * - Knockdown: agent_id=knocked agent, float_value=duration
+ * - Knockdown: agent_id=knocked agent, float_value=duration_sec
+ * - CURRENT_HEALTH/CURRENT_ENERGY: agent_id=agent,
+ *   float_value = current value as fraction of max (0.0-1.0)
+ * - Regen change: agent_id=agent, float_value=pips/sec signed (+gain/-degen)
+ * - REACHED_MAXHP: agent_id=agent, value=0 (signal: HP returned to full)
+ *
+ * agent_max_hp / agent_max_energy / target_max_hp / target_max_energy carry
+ * the snapshotted max stats for the involved agent(s) so Python can convert
+ * damage% or HP% to absolute values without re-reading the agent table.
  */
 
 struct RawCombatEvent {
-    uint32_t timestamp;     // GetTickCount() when event occurred
+    uint32_t timestamp;     // Frame-aligned tick (frame_clock::GetFrameTimestamp) when event occurred
     uint32_t event_type;    // GenericValueID or custom event type
     uint32_t agent_id;      // Primary agent (caster/attacker/target depending on event)
     uint32_t value;         // Skill ID, effect ID, or other uint value
     uint32_t target_id;     // Secondary agent (target of skill/attack)
     float float_value;      // Duration, damage amount, energy, etc.
 
-    RawCombatEvent() : timestamp(0), event_type(0), agent_id(0), value(0), target_id(0), float_value(0.0f) {}
+    // Enqueue-time max-HP / max-energy snapshots taken inside the packet
+    // handler while the agent is provably alive on the game thread. Lets
+    // Python convert fractions to absolute values without ever calling
+    // Agent.GetMaxHealth(id) on a possibly-freed agent. Default to 0 when
+    // lookup fails or no target.
+    uint32_t agent_max_hp;
+    uint32_t agent_max_energy;
+    uint32_t target_max_hp;
+    uint32_t target_max_energy;
+
+    RawCombatEvent()
+        : timestamp(0), event_type(0), agent_id(0), value(0), target_id(0), float_value(0.0f),
+          agent_max_hp(0), agent_max_energy(0),
+          target_max_hp(0), target_max_energy(0) {}
     RawCombatEvent(uint32_t ts, uint32_t type, uint32_t agent, uint32_t val, uint32_t target, float fval)
-        : timestamp(ts), event_type(type), agent_id(agent), value(val), target_id(target), float_value(fval) {}
+        : timestamp(ts), event_type(type), agent_id(agent), value(val), target_id(target), float_value(fval),
+          agent_max_hp(0), agent_max_energy(0),
+          target_max_hp(0), target_max_energy(0) {}
+};
+
+// Snapshot of stable agent fields read inside a packet handler.
+struct AgentSnapshot {
+    uint32_t max_hp;
+    uint32_t max_energy;
+
+    AgentSnapshot() : max_hp(0), max_energy(0) {}
 };
 
 // ============================================================================
@@ -168,6 +199,28 @@ enum class CombatEventType : uint32_t {
     HEALING = 33,                 // Healing or positive armor-ignoring gain
                                   // agent_id=target, target_id=source, float_value=heal%
 
+    // ---- Agent Stat Events ----
+    // HP/energy fractions, regen-rate changes, and the REACHED_MAXHP signal.
+    // CURRENT_HEALTH/CURRENT_ENERGY/REGEN arrive via GenericFloat.
+    // REACHED_MAXHP arrives via GenericValue.
+
+    CURRENT_HEALTH = 34,           // Agent's current HP as fraction of max (GWCA: health)
+                                  // agent_id=agent, float_value=hp_fraction (0.0-1.0)
+                                  // Fires on visibility/engagement resync.
+
+    CURRENT_ENERGY = 35,           // Agent's current energy as fraction of max (value_id=33)
+                                  // agent_id=agent, float_value=energy_fraction (0.0-1.0)
+                                  // Fires on visibility/engagement resync.
+
+    HEALTH_REGEN_CHANGE = 36,     // HP regen rate change (GWCA: change_health_regen)
+                                  // float_value = pips/sec, signed (+gain, -degen)
+
+    ENERGY_REGEN_CHANGE = 37,     // Energy regen rate change (no GWCA label; value_id=43)
+                                  // float_value = pips/sec, signed (+gain, -drain)
+
+    REACHED_MAXHP = 38,           // Fires when agent HP returns to full (GWCA: max_hp_reached)
+                                  // agent_id=agent, value=0 - signal event
+
     // ---- Effect Events (from GenericValue/GenericValueTarget) ----
 
     EFFECT_APPLIED = 40,          // Visual effect applied (internal effect_id, not skill_id!)
@@ -210,8 +263,21 @@ enum class CombatEventType : uint32_t {
     SKILL_RECHARGE = 80,          // Skill went on cooldown
                                   // agent_id=agent, value=skill_id, float_value=recharge time in ms
 
-    SKILL_RECHARGED = 81          // Skill came off cooldown
+    SKILL_RECHARGED = 81,         // Skill came off cooldown
                                   // agent_id=agent, value=skill_id
+
+    // ---- Agent Presence Events (from AgentAdd / AgentRemove packets) ----
+    // Fire when an agent enters or leaves the client's tracking range.
+    // AgentRemove can also signal death or disconnect when AgentState.dead bit
+    // doesn't arrive separately - treat as "agent no longer tracked".
+
+    AGENT_ADDED = 90,             // Agent became visible / entered tracking range
+                                  // agent_id=agent, value=agent_type (bitmask:
+                                  //   0x30000000=Player, 0x20000000=NPC, 0x00000000=Signpost)
+                                  // target_id=allegiance_bits, float_value=speed
+
+    AGENT_REMOVED = 91            // Agent left tracking range (out-of-range, died, or DC'd)
+                                  // agent_id=agent
 };
 
 // Helper function to convert enum to uint32_t for backwards compatibility
@@ -305,6 +371,8 @@ private:
     GW::HookEntry skill_activate_entry;       // SkillActivate packets (early skill notification)
     GW::HookEntry skill_recharge_entry;       // SkillRecharge packets (skill went on cooldown)
     GW::HookEntry skill_recharged_entry;      // SkillRecharged packets (skill came off cooldown)
+    GW::HookEntry agent_add_entry;            // AgentAdd packets (agent entered tracking range)
+    GW::HookEntry agent_remove_entry;         // AgentRemove packets (agent left tracking range)
 
     // Thread-safe event queue
     mutable std::mutex queue_mutex;
@@ -322,6 +390,8 @@ private:
     void OnGenericModifier(GW::Packet::StoC::GenericModifier* packet);
     void OnSkillRecharge(GW::Packet::StoC::SkillRecharge* packet);
     void OnSkillRecharged(GW::Packet::StoC::SkillRecharged* packet);
+    void OnAgentAdd(GW::Packet::StoC::AgentAdd* packet);
+    void OnAgentRemove(GW::Packet::StoC::AgentRemove* packet);
 
     /**
      * @brief Add event to queue (thread-safe).

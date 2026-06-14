@@ -4,6 +4,7 @@
 
 #include "Py4GW.h"
 #include "Headers.h"
+#include "CrashHandler.h"
 #include "WinUser.h"
 #include "hidusage.h"
 #include <WindowsX.h>
@@ -68,6 +69,9 @@ bool DLLMain::Initialize() {
 		Logger::Instance().LogError("[DLLMain] Failed to initialize GWCA");
 		return false;
 	}
+
+	// Install the crash handler now that GWCA is live (Paths B/C need it). Idempotent.
+	CrashHandler::Instance().Initialize();
     
     // Get Guild Wars window handle
     if (!initialized) Logger::Instance().LogInfo("[DLLMain] Attempting to get GW window handle...");
@@ -128,6 +132,7 @@ void DLLMain::Terminate() {
 	GW::GameThread::RemoveGameThreadCallback(&Update_Entry);
     dat_texture_update_attached = false;
     Logger::Instance().LogInfo("Terminating DLL...");
+    CrashHandler::Instance().Terminate();
     Py4GW::Instance().Terminate();
 
     // Clean up ImGui
@@ -490,6 +495,9 @@ LRESULT CALLBACK DLLMain::SafeWndProc(const HWND hWnd, const UINT Message, const
         return WndProc(hWnd, Message, wParam, lParam);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
+        // Routine swallow (NOT a crash sink): GW's WndProc raises survivable software
+        // exceptions; dumping them produced useless code-0 dumps. Real crashes are caught by
+        // Path A (SetUnhandledExceptionFilter). Left as the original silent fallback.
         return CallWindowProc(OldWndProc, hWnd, Message, wParam, lParam);
     }
 }

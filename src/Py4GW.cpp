@@ -1,7 +1,11 @@
 #include "Py4GW.h"
 
 #include "Headers.h"
+#include "FrameClock.h"
 #include "py_dialog.h"
+#include "name_obfuscation.h"
+#include "CrashHandler.h"
+#include "Breadcrumbs.h"
 #include <iostream>
 
 //HeroAI* Py4GW::heroAI = nullptr;
@@ -326,7 +330,7 @@ public:
 };
 
 static profiler py4gw_profiler;
-static uint64_t frame_id_timestamp;
+namespace frame_clock { uint64_t g_frame_id_timestamp; }
 
 static std::vector<std::string> GetProfilerMetricNames() {
 	return profiler::GetMetricNames();
@@ -654,7 +658,7 @@ bool ChangeWorkingDirectory(const std::string& new_directory) {
 }
 
 static uint64_t Get_Tick_Count64() {
-    return frame_id_timestamp ? frame_id_timestamp : GetTickCount64();
+    return frame_clock::GetFrameTimestamp();
 }
 HWND Py4GW::get_gw_window_handle() {
     return GW::MemoryMgr::GetGWWindowHandle();
@@ -923,7 +927,7 @@ void ExecutePythonScript_Update()
     if (update_function && !update_function.is_none()) {
 		py4gw_profiler.start("Update.Console.Update");
         CallPythonFunctionSafe(update_function, "update()", script_state);
-		py4gw_profiler.end(frame_id_timestamp, "Update.Console.Update");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Update.Console.Update");
         //return;
     }
 
@@ -937,7 +941,7 @@ void ExecutePythonScript_Draw()
     if (draw_function && !draw_function.is_none()) {
 		py4gw_profiler.start("Draw.Console.Draw");
         CallPythonFunctionSafe(draw_function, "draw()", script_state);
-		py4gw_profiler.end(frame_id_timestamp, "Draw.Console.Draw");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Draw.Console.Draw");
         //return;
     }
 
@@ -945,7 +949,7 @@ void ExecutePythonScript_Draw()
     if (main_function && !main_function.is_none()) {
 		py4gw_profiler.start("Draw.Console.Main");
         CallPythonFunctionSafe(main_function, "main()", script_state);
-		py4gw_profiler.end(frame_id_timestamp, "Draw.Console.Main");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Draw.Console.Main");
     }
 }
 
@@ -954,7 +958,7 @@ void ExecutePythonScript2_Update()
     if (update_function2 && !update_function2.is_none()) {
 		py4gw_profiler.start("Update.WidgetManager.Update");
         CallPythonFunctionSafe(update_function2, "update2()", script_state2);
-		py4gw_profiler.end(frame_id_timestamp, "Update.WidgetManager.Update");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Update.WidgetManager.Update");
     }
 }
 
@@ -963,14 +967,14 @@ void ExecutePythonScript2_Draw()
     if (draw_function2 && !draw_function2.is_none()) {
         py4gw_profiler.start("Draw.WidgetManager.Draw");
         CallPythonFunctionSafe(draw_function2, "draw2()", script_state2);
-		py4gw_profiler.end(frame_id_timestamp, "Draw.WidgetManager.Draw");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Draw.WidgetManager.Draw");
         //return;
     }
 
     if (main_function2 && !main_function2.is_none()) {
         py4gw_profiler.start("Draw.WidgetManager.Main");
         CallPythonFunctionSafe(main_function2, "main2()", script_state2);
-		py4gw_profiler.end(frame_id_timestamp, "Draw.WidgetManager.Main");
+		py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Draw.WidgetManager.Main");
     }
 }
 
@@ -1360,7 +1364,7 @@ public:
             }
 
             // ---- PROFILING STOP ----
-            py4gw_profiler.end(frame_id_timestamp, full_prof_name.c_str());
+            py4gw_profiler.end(frame_clock::g_frame_id_timestamp, full_prof_name.c_str());
         }
     }
 
@@ -1891,6 +1895,7 @@ bool Py4GW::Initialize() {
     py::initialize_interpreter();
     InitializeMerchantCallbacks();
     Dialog::Initialize();
+    NameObfuscation::Instance().Init();
 
     if (!g_runtime_shared_memory.IsValid()) {
         g_runtime_shared_memory.CreateRuntimeRegion(GetRuntimeSharedMemoryNameW());
@@ -1904,6 +1909,7 @@ bool Py4GW::Initialize() {
 
 void Py4GW::Terminate() {
     Dialog::Terminate();
+    NameObfuscation::Instance().Shutdown();
     g_runtime_shared_memory.Destroy();
     GW::DisableHooks();
     GW::Terminate();
@@ -1951,18 +1957,18 @@ void Py4GW::Update()
     if (script_state == ScriptState::Running && !script_content.empty()) {
         py4gw_profiler.start("Update.Console");
         ExecutePythonScript_Update();
-        py4gw_profiler.end(frame_id_timestamp, "Update.Console");
+        py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Update.Console");
     }
 
     if (script_state2 == ScriptState::Running && !script_content2.empty()) {
         py4gw_profiler.start("Update.WidgetManager");
         ExecutePythonScript2_Update();
-        py4gw_profiler.end(frame_id_timestamp, "Update.WidgetManager");
+        py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Update.WidgetManager");
     }
 }
 
 void Py4GW::Draw(IDirect3DDevice9* device) {
-	frame_id_timestamp = GetTickCount64();
+	frame_clock::g_frame_id_timestamp = GetTickCount64();
 
 
     if (g_runtime_shared_memory.IsValid()) {
@@ -2015,7 +2021,6 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
             if ((GW::Map::GetMapInfo()->flags & 0x40001) != 0)
                 return;
         }
-
     }
 
     if (show_console || is_map_loading) {
@@ -2177,7 +2182,7 @@ void Py4GW::Draw(IDirect3DDevice9* device) {
                 mixed_deferred.action();
             }
 
-            py4gw_profiler.end(frame_id_timestamp, "Draw.Deferred.Draw");
+            py4gw_profiler.end(frame_clock::g_frame_id_timestamp, "Draw.Deferred.Draw");
 
             mixed_deferred.active = false;
         }
@@ -2351,6 +2356,44 @@ void bind_Ping(py::module_& m)
 }
 
 
+// crashlog submodule: breadcrumb bridge used by py4gwcorelib_src/CrashLog.py.
+static void bind_CrashLog(py::module_& m)
+{
+    // Snapshot the last Python frame into per-thread TLS (GIL held by the caller).
+    m.def("set_last_frame",
+        [](const std::string& file, int line, const std::string& func) {
+            bc::set_last_py_frame(file.c_str(), line, func.c_str());
+        },
+        "Record the last Python frame for the native crash handler",
+        py::arg("file"), py::arg("line"), py::arg("func"));
+
+    // Coarse one-line breadcrumb into the lock-free ring.
+    m.def("breadcrumb",
+        [](const std::string& text) { bc::breadcrumb(text.c_str()); },
+        "Append a coarse breadcrumb to the crash ring",
+        py::arg("text"));
+
+    // Native crash dir (<dllDir>/crashes) so CrashLog.py writes *-pytrace.txt beside the .dmp/.json.
+    m.def("get_crash_dir",
+        []() { return CrashHandler::Instance().CrashDirUtf8(); },
+        "Return the native crash directory (UTF-8)");
+}
+
+// Optional debug submodule: deliberate fault to test Path A. Gated to debug builds.
+static void bind_Debug(py::module_& m)
+{
+#ifdef PY4GW_DEBUG_BUILD
+    m.def("crash",
+        []() {
+            volatile int* p = nullptr;
+            *p = 1;   // intentional access violation -> Path A writes a dump
+        },
+        "TEST ONLY: trigger a native access violation to exercise the crash handler");
+#else
+    (void)m;
+#endif
+}
+
 PYBIND11_EMBEDDED_MODULE(Py4GW, m)
 {
     m.doc() = "Py4GW, Python Enabler Library for GuildWars"; // Optional module docstring
@@ -2358,7 +2401,7 @@ PYBIND11_EMBEDDED_MODULE(Py4GW, m)
     py::module_ console = m.def_submodule("Console", "Submodule for console logging");
 	py::module_ game = m.def_submodule("Game", "Submodule for game functions");
     py::module_ ui = m.def_submodule("UI", "Submodule for schema-driven UI");
-    
+
     bind_Game(game);
 	bind_Console(console);
     bind_UI(ui);
@@ -2367,6 +2410,11 @@ PYBIND11_EMBEDDED_MODULE(Py4GW, m)
 	bind_ScriptControl(console);
 	bind_Profiler(console);
 	bind_Ping(m);
+
+	py::module_ crashlog = m.def_submodule("crashlog", "Crash breadcrumb bridge");
+	bind_CrashLog(crashlog);
+	py::module_ debug = m.def_submodule("debug", "Debug / crash testing");
+	bind_Debug(debug);
 }
 
 
