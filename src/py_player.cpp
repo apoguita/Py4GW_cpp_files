@@ -5,6 +5,22 @@ namespace py = pybind11;
 PyPlayer::PyPlayer() {
     GetContext();
 }
+
+uint32_t PyPlayer::GetPlayerStatus() {
+    return static_cast<uint32_t>(GW::FriendListMgr::GetMyStatus());
+}
+
+bool PyPlayer::SetPlayerStatus(uint32_t status) {
+    constexpr auto max_status = static_cast<uint32_t>(GW::FriendStatus::Away);
+    if (status > max_status) return false;
+
+    const auto friend_status = static_cast<GW::FriendStatus>(status);
+    GW::GameThread::Enqueue([friend_status] {
+        GW::FriendListMgr::SetFriendListStatus(friend_status);
+    });
+    return true;
+}
+
 void PyPlayer::ResetContext() {
 	id = 0;
 	agent = 0;
@@ -490,9 +506,17 @@ void BindPyPlayer(py::module_& m) {
         .def("SendWhisper", &PyPlayer::SendWhisper, py::arg("name"), py::arg("msg"))  // Bind the SendWhisper method
         .def("SendFakeChat", &PyPlayer::SendFakeChat, py::arg("channel"), py::arg("message"))  // Bind the SendFakeChat method
         .def("SendFakeChatColored", &PyPlayer::SendFakeChatColored, py::arg("channel"), py::arg("message"), py::arg("r"), py::arg("g"), py::arg("b"))  // Bind the SendFakeChatColored method
+        .def("GetPlayerStatus", &PyPlayer::GetPlayerStatus)
+        .def("SetPlayerStatus", &PyPlayer::SetPlayerStatus, py::arg("status"))
 
 		
 		;
+
+    py::enum_<GW::FriendStatus>(m, "PlayerStatus")
+        .value("Offline", GW::FriendStatus::Offline)
+        .value("Online", GW::FriendStatus::Online)
+        .value("DND", GW::FriendStatus::DND)
+        .value("Away", GW::FriendStatus::Away);
         
 }
 

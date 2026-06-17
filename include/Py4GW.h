@@ -17,6 +17,7 @@ public:
     void Update();
 	void set_gw_window_handle(HWND handle) { if (!gw_window_handle) gw_window_handle = handle; }
     static HWND get_gw_window_handle();
+    static uint64_t Get_Tick_Count64();
 
     void DebugMessage(const wchar_t* message) { GW::Chat::WriteChat(GW::Chat::CHANNEL_GWCA1, message, L"Py4GW"); }
 

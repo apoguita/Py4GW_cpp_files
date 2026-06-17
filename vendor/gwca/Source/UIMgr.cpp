@@ -1374,6 +1374,7 @@ namespace GW {
 
         namespace {
             UIInteractionCallback ButtonFrame_Callback = nullptr;
+            UIInteractionCallback TextButtonFrame_Callback = nullptr;
             UIInteractionCallback ScrollableFrame_Callback = nullptr;
             UIInteractionCallback TextLabelFrame_Callback = nullptr;
             UIInteractionCallback FrameList_Callback = nullptr;
@@ -1405,6 +1406,13 @@ namespace GW {
                     0, 0);
                 if (addr)
                     ButtonFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFF));
+
+                // CtlTextBtnProc — engine-level text button (no IUi:: wrapper, no image list dependency)
+                // Pattern: jump table dispatch with max message 0x5C (vs 0x5F for IUi::UiCtlBtnProc)
+                // Verified unique in 06-14 EXE at FUN_00616c00+0x12
+                addr = Scanner::Find("\x83\xC0\xFC\x83\xF8\x5C\x0F\x87", "xxxxxxxx");
+                if (addr)
+                    TextButtonFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0x20));
 
                 addr = Scanner::FindAssertion(
                     "CtlText.cpp",
@@ -1927,6 +1935,24 @@ namespace GW {
         }
         Frame* CreateButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
             return parent ? CreateButtonFrame(parent->frame_id, component_flags, child_index, name_enc, component_label) : nullptr;
+        }
+        Frame* CreateTextButtonFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
+            InitializeTypedComponentCallbacks();
+            if (!TextButtonFrame_Callback)
+                return nullptr;
+            auto* parent = GetFrameById(parent_frame_id);
+            if (!parent)
+                return nullptr;
+            auto existing = GetChildFrame(parent, child_index);
+            while (existing) {
+                child_index += 1;
+                existing = GetChildFrame(parent, child_index);
+            }
+            const auto frame_id = CreateUIComponent(parent_frame_id, component_flags, child_index, TextButtonFrame_Callback, name_enc, component_label);
+            return frame_id ? GetFrameById(frame_id) : nullptr;
+        }
+        Frame* CreateTextButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
+            return parent ? CreateTextButtonFrame(parent->frame_id, component_flags, child_index, name_enc, component_label) : nullptr;
         }
         Frame* CreateCheckboxFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
             auto* button = CreateButtonFrame(parent_frame_id, component_flags | 0x8000, child_index, name_enc, component_label);

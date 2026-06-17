@@ -1,4 +1,4 @@
-﻿#include "Py4GW_UI.h"
+#include "Py4GW_UI.h"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -42,7 +42,6 @@ namespace {
     uint32_t ui_get_map_test_count() {
         return GW::Map::MapTestGetCount();
     }
-
     bool ui_send_message(uint32_t message_id, const std::vector<uint32_t>& values, bool skip_hooks) {
         struct UIPayloadPOD {
             uint32_t words[16];
@@ -2501,3 +2500,5 @@ void bind_UI(py::module_& ui) {
 
 
 }
+
+

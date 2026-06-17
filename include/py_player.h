@@ -72,6 +72,8 @@ public:
     void SendFakeChat(int channel, std::string message);
     void SendFakeChatColored(int channel, std::string message, int r, int g, int b);
 	std::string FormatChatMessage(const std::string message, int r, int g, int b);
+    uint32_t GetPlayerStatus();
+    bool SetPlayerStatus(uint32_t status);
     bool ChangeTarget(uint32_t target_id);
     bool Move(float x, float y, int zplane);
     bool Move(float x, float y);

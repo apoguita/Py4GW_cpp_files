@@ -833,6 +833,14 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("name_enc") = std::wstring(),
 			py::arg("component_label") = std::wstring()
 		)
+		.def_static("create_text_button_frame_by_frame_id",
+			&UIManager::CreateTextButtonFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags"),
+			py::arg("child_index") = 0,
+			py::arg("caption") = std::wstring(),
+			py::arg("component_label") = std::wstring()
+		)
 		.def_static("create_checkbox_frame_by_frame_id",
 			&UIManager::CreateCheckboxFrameByFrameId,
 			py::arg("parent_frame_id"),
@@ -908,6 +916,9 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			&UIManager::ButtonMouseActionByFrameId,
 			py::arg("frame_id"),
 			py::arg("action"))
+		.def_static("is_button_pushed_by_frame_id",
+			&UIManager::IsButtonPushedByFrameId,
+			py::arg("frame_id"))
 		.def_static("add_tab_by_frame_id",
 			&UIManager::AddTabByFrameId,
 			py::arg("tabs_frame_id"),

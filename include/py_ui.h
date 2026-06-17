@@ -3017,6 +3017,26 @@ public:
         return frame ? frame->frame_id : 0;
     }
 
+    // Creates a native text button frame using CtlTextBtnProc (engine-level, no IUi:: wrapper).
+    // Unlike IUi::UiCtlBtnProc, this FrameProc has no image list dependency and handles its
+    // own creation cleanly. Caption is set from name_enc during creation (msg 0x09 case 9).
+    // Uses msg 0x5F for SetText, msg 0x5B for color, msg 0x5D for hover color.
+    static uint32_t CreateTextButtonFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags,
+        uint32_t child_index = 0,
+        const std::wstring& caption = L"",
+        const std::wstring& component_label = L"")
+    {
+        auto* frame = GW::UI::CreateTextButtonFrame(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            caption.empty() ? nullptr : const_cast<wchar_t*>(caption.c_str()),
+            component_label.empty() ? nullptr : const_cast<wchar_t*>(component_label.c_str()));
+        return frame ? frame->frame_id : 0;
+    }
+
     // Creates a native checkbox frame.
     static uint32_t CreateCheckboxFrameByFrameId(
         uint32_t parent_frame_id,
@@ -3167,6 +3187,22 @@ public:
     static bool ButtonMouseActionByFrameId(uint32_t frame_id, uint32_t action) {
         auto* frame = reinterpret_cast<GW::ButtonFrame*>(GW::UI::GetFrameById(frame_id));
         return frame && frame->MouseAction(static_cast<GW::UI::UIPacket::ActionState>(action));
+    }
+
+    // Queries whether a button frame is currently in the pushed (pressed) state.
+    // Sends FrameMsg 0x59 (CtlBtnIsPushed) to the button's FrameProc.
+    // Returns true if the button is currently pushed down, false otherwise.
+    static bool IsButtonPushedByFrameId(uint32_t frame_id) {
+        auto* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+        uint32_t result = 0;
+        GW::UI::SendFrameUIMessage(
+            frame,
+            GW::UI::UIMessage(static_cast<uint32_t>(0x59)),
+            nullptr,
+            &result);
+        return result != 0;
     }
 
     static uint32_t AddTabByFrameId(uint32_t tabs_frame_id, const std::wstring& tab_name_enc, uint32_t flags, uint32_t child_index, uintptr_t callback = 0, uintptr_t wparam = 0) {
