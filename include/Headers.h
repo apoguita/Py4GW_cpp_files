@@ -75,6 +75,8 @@
 #include <GWCA/Managers/TradeMgr.h>
 
 #include <GWCA/GameEntities/Player.h>
+#include <GWCA/GameEntities/Friendslist.h>
+#include <GWCA/Managers/FriendListMgr.h>
 
 #include <GWCA/GameEntities/Party.h>
 #include <GWCA/Managers/PartyMgr.h>
