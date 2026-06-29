@@ -748,8 +748,10 @@ namespace {
 
         //CreateUIComponent_Func = (CreateUIComponent_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x33\xd2\x89\x45\x08\xb9\xac\x01\x00\x00", "xxxxxxxxxx"));
         CreateUIComponent_Func = (CreateUIComponent_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x33\xd2\x89\x45\x08\xb9\xc8\x01\x00\x00", "xxxxxxxxxx"));
+        // FrApi.cpp lives under \Code\Engine\Frame (not \Code\Gw\Ui\Frame); the old path
+        // never matched, so this scan was silently null. Resolves to FrApi::DestroyFrame.
         DestroyUIComponent_Func = (DestroyUIComponent_pt)Scanner::ToFunctionStart(
-            Scanner::FindAssertion("\\Code\\Gw\\Ui\\Frame\\FrApi.cpp", "frame->state.Test(FRAME_STATE_CREATED)", 0, 0));
+            Scanner::FindAssertion("\\Code\\Engine\\Frame\\FrApi.cpp", "frame->state.Test(FRAME_STATE_CREATED)", 0, 0));
 
 
         // Graphics renderer related
