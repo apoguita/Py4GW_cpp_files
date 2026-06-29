@@ -389,6 +389,8 @@ namespace {
 
 		Logger::AssertAddress("EnterChallengeMission_Func", (uintptr_t)EnterChallengeMission_Func, "Map Module");
 		Logger::AssertAddress("CancelEnterChallengeMission_Func", (uintptr_t)CancelEnterChallengeMission_Func, "Map Module");
+		Logger::AssertAddress("SkipCinematic_Func", (uintptr_t)SkipCinematic_Func, "Map Module");
+		Logger::AssertAddress("instance_info_ptr", (uintptr_t)instance_info_ptr, "Map Module");
 
 
         if (WorldMap_UICallback_Func)

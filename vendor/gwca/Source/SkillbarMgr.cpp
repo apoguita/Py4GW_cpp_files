@@ -182,12 +182,14 @@ namespace {
         address = Scanner::FindAssertion("TemplatesHelpers.cpp", "targetPrimaryProf == templateData.profPrimary",0,0);
         if (address) {
             ChangeSecondary_Func = (ChangeSecondary_pt)Scanner::FunctionFromNearCall(address + 0x20);
-            Logger::AssertAddress("ChangeSecondary_Func", (uintptr_t)ChangeSecondary_Func, "Skillbar Module");
             LoadAttributes_Func = (LoadAttributes_pt)Scanner::FunctionFromNearCall(address + 0x34);
-            Logger::AssertAddress("LoadAttributes_Func", (uintptr_t)LoadAttributes_Func, "Skillbar Module");
             LoadSkills_Func = (LoadSkills_pt)Scanner::FunctionFromNearCall(address + 0x40);
-            Logger::AssertAddress("LoadSkills_Func", (uintptr_t)LoadSkills_Func, "Skillbar Module");
         }
+        // Assert unconditionally (outside the if): if the TemplatesHelpers.cpp scan
+        // breaks after a GW update, these stay null and would otherwise fail silently.
+        Logger::AssertAddress("ChangeSecondary_Func", (uintptr_t)ChangeSecondary_Func, "Skillbar Module");
+        Logger::AssertAddress("LoadAttributes_Func", (uintptr_t)LoadAttributes_Func, "Skillbar Module");
+        Logger::AssertAddress("LoadSkills_Func", (uintptr_t)LoadSkills_Func, "Skillbar Module");
 
         GWCA_INFO("[SCAN] SkillArray = %p", skill_array_addr);
         GWCA_INFO("[SCAN] AttributeArray = %p", attribute_array_addr);

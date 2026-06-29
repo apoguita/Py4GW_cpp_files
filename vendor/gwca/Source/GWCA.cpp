@@ -156,6 +156,44 @@ namespace GW
             if (module->init_module)
                 module->init_module();
         }
+
+        // ===== Scan health summary =====
+        // A GW client update can silently break a pattern scan: the resolved
+        // address simply comes back null and the affected feature dies quietly.
+        // Every scan that registered itself via Logger::AssertAddress (and every
+        // hook via Logger::AssertHook) is collected in a central registry; here we
+        // re-emit a single, easy-to-grep block listing every NULL scan / FAILED
+        // hook so a broken signature is obvious in Py4GW_injection_log.txt.
+        {
+            const auto& scan_results = Logger::GetScanResults();
+            const auto& hook_results = Logger::GetHookResults();
+            size_t scan_null = 0;
+            for (const auto& [name, addr] : scan_results)
+                if (!addr) ++scan_null;
+            size_t hook_failed = 0;
+            for (const auto& [name, status] : hook_results)
+                if (status != 0) ++hook_failed;
+
+            {
+                std::ostringstream oss;
+                oss << "[SCAN-HEALTH] " << (scan_results.size() - scan_null) << "/"
+                    << scan_results.size() << " scans resolved, " << scan_null
+                    << " NULL | " << (hook_results.size() - hook_failed) << "/"
+                    << hook_results.size() << " hooks ok, " << hook_failed << " FAILED";
+                Logger::Instance().LogInfo(oss.str());
+            }
+            for (const auto& [name, addr] : scan_results)
+                if (!addr)
+                    Logger::Instance().LogError("[SCAN-HEALTH] NULL scan: " + name);
+            for (const auto& [name, status] : hook_results)
+                if (status != 0) {
+                    std::ostringstream oss;
+                    oss << "[SCAN-HEALTH] FAILED hook: " << name << " (MH_STATUS=" << status << ")";
+                    Logger::Instance().LogError(oss.str());
+                }
+        }
+        // ===== end scan health summary =====
+
         _initialized = true;
 
 		//Logger::Instance().LogInfo("Enabling hooks");

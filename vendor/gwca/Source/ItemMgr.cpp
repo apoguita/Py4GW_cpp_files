@@ -377,6 +377,10 @@ namespace {
 		Logger::AssertAddress("unlocked_pvp_item_upgrade_array.m_size", (uintptr_t)unlocked_pvp_item_upgrade_array.m_size, "Item Module");
 		Logger::AssertAddress("GetPvPItemUpgradeInfoName_Func", (uintptr_t)GetPvPItemUpgradeInfoName_Func, "Item Module");
 		Logger::AssertAddress("DestroyItem_Func", (uintptr_t)DestroyItem_Func, "Item Module");
+		Logger::AssertAddress("pvp_item_array.m_buffer", (uintptr_t)pvp_item_array.m_buffer, "Item Module");
+		Logger::AssertAddress("pvp_item_array.m_size", (uintptr_t)pvp_item_array.m_size, "Item Module");
+		Logger::AssertAddress("composite_model_info_array", (uintptr_t)composite_model_info_array, "Item Module");
+		Logger::AssertAddress("item_formula_count", (uintptr_t)item_formula_count, "Item Module");
 
 
         //HookBase::CreateHook((void**)&ItemClick_Func, OnItemClick, (void**)&RetItemClick);

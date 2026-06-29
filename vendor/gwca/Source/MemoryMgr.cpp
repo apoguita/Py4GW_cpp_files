@@ -9,6 +9,8 @@
 
 #include <GWCA/Managers/MemoryMgr.h>
 
+#include <GWCA/Logger/Logger.h>
+
 // Used to get precise skill recharge times.
 DWORD* GW::MemoryMgr::SkillTimerPtr = NULL;
 
@@ -77,6 +79,14 @@ bool GW::MemoryMgr::Scan() {
     GWCA_INFO("[SCAN] MemAllocHelper_Func = %p", MemAllocHelper_Func);
     GWCA_INFO("[SCAN] MemReallocHelper_Func = %p", MemReallocHelper_Func);
     GWCA_INFO("[SCAN] MemFree_Func = %p", MemFree_Func);
+
+    Logger::AssertAddress("SkillTimerPtr", (uintptr_t)SkillTimerPtr, "MemoryModule");
+    Logger::AssertAddress("WinHandlePtr", (uintptr_t)WinHandlePtr, "MemoryModule");
+    Logger::AssertAddress("GetPersonalDirPtr", (uintptr_t)GetPersonalDirPtr, "MemoryModule");
+    Logger::AssertAddress("GetGWVersion_Func", (uintptr_t)GetGWVersion_Func, "MemoryModule");
+    Logger::AssertAddress("MemAllocHelper_Func", (uintptr_t)MemAllocHelper_Func, "MemoryModule");
+    Logger::AssertAddress("MemReallocHelper_Func", (uintptr_t)MemReallocHelper_Func, "MemoryModule");
+    Logger::AssertAddress("MemFree_Func", (uintptr_t)MemFree_Func, "MemoryModule");
 
 #ifdef _DEBUG
     GWCA_ASSERT(SkillTimerPtr);

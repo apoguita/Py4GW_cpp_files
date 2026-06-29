@@ -221,6 +221,7 @@ namespace {
 		Logger::AssertAddress("SendAgentDialog_Func", (uintptr_t)SendAgentDialog_Func, "Agent Module");
 		Logger::AssertAddress("SendGadgetDialog_Func", (uintptr_t)SendGadgetDialog_Func, "Agent Module");
 		Logger::AssertAddress("CallTarget_Func", (uintptr_t)CallTarget_Func, "Agent Module");
+		Logger::AssertAddress("DoWorldActon_Func", (uintptr_t)DoWorldActon_Func, "Agent Module");
 
         //Logger::Instance().LogInfo("############ AgentMgr initialization complete ############");
 

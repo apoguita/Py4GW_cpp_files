@@ -748,8 +748,10 @@ namespace {
 
         //CreateUIComponent_Func = (CreateUIComponent_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x33\xd2\x89\x45\x08\xb9\xac\x01\x00\x00", "xxxxxxxxxx"));
         CreateUIComponent_Func = (CreateUIComponent_pt)Scanner::ToFunctionStart(GW::Scanner::Find("\x33\xd2\x89\x45\x08\xb9\xc8\x01\x00\x00", "xxxxxxxxxx"));
+        // FrApi.cpp lives under \Code\Engine\Frame (not \Code\Gw\Ui\Frame); the old path
+        // never matched, so this scan was silently null. Resolves to FrApi::DestroyFrame.
         DestroyUIComponent_Func = (DestroyUIComponent_pt)Scanner::ToFunctionStart(
-            Scanner::FindAssertion("\\Code\\Gw\\Ui\\Frame\\FrApi.cpp", "frame->state.Test(FRAME_STATE_CREATED)", 0, 0));
+            Scanner::FindAssertion("\\Code\\Engine\\Frame\\FrApi.cpp", "frame->state.Test(FRAME_STATE_CREATED)", 0, 0));
 
 
         // Graphics renderer related
@@ -880,6 +882,7 @@ namespace {
         Logger::AssertAddress("SetMasterVolume_Func", (uintptr_t)SetMasterVolume_Func, "UIModule");
         Logger::AssertAddress("DrawOnCompass_Func", (uintptr_t)DrawOnCompass_Func, "UIModule");
         Logger::AssertAddress("CreateUIComponent_Func", (uintptr_t)CreateUIComponent_Func, "UIModule");
+        Logger::AssertAddress("DestroyUIComponent_Func", (uintptr_t)DestroyUIComponent_Func, "UIModule");
         Logger::AssertAddress("EnumPreferenceOptions_Addr", (uintptr_t)EnumPreferenceOptions_Addr, "UIModule");
         Logger::AssertAddress("NumberPreferenceOptions_Addr", (uintptr_t)NumberPreferenceOptions_Addr, "UIModule");
         Logger::AssertAddress("SetInGameStaticPreference_Func", (uintptr_t)SetInGameStaticPreference_Func, "UIModule");
@@ -890,6 +893,7 @@ namespace {
         Logger::AssertAddress("GetGraphicsRendererValue_Func", (uintptr_t)GetGraphicsRendererValue_Func, "UIModule");
         Logger::AssertAddress("SetGraphicsRendererValue_Func", (uintptr_t)SetGraphicsRendererValue_Func, "UIModule");
         Logger::AssertAddress("SetGameRendererMode_Func", (uintptr_t)SetGameRendererMode_Func, "UIModule");
+        Logger::AssertAddress("GetGameRendererMode_Func", (uintptr_t)GetGameRendererMode_Func, "UIModule");
         Logger::AssertAddress("GetGameRendererMetric_Func", (uintptr_t)GetGameRendererMetric_Func, "UIModule");
         Logger::AssertAddress("FindRelatedFrame_Func", (uintptr_t)FindRelatedFrame_Func, "UIModule");
         Logger::AssertAddress("GetTitle_Func", (uintptr_t)GetTitle_Func, "UIModule");
@@ -1508,6 +1512,20 @@ namespace GW {
                         HookBase::EnableHooks(reinterpret_cast<void*>(TypedComponentPassthroughHook_Func));
                     }
                 }
+
+                Logger::AssertAddress("ButtonFrame_Callback", (uintptr_t)ButtonFrame_Callback, "UIModule");
+                Logger::AssertAddress("TextButtonFrame_Callback", (uintptr_t)TextButtonFrame_Callback, "UIModule");
+                Logger::AssertAddress("TextLabelFrame_Callback", (uintptr_t)TextLabelFrame_Callback, "UIModule");
+                Logger::AssertAddress("ScrollableFrame_Callback", (uintptr_t)ScrollableFrame_Callback, "UIModule");
+                Logger::AssertAddress("FrameList_Callback", (uintptr_t)FrameList_Callback, "UIModule");
+                Logger::AssertAddress("DropdownFrame_Callback", (uintptr_t)DropdownFrame_Callback, "UIModule");
+                Logger::AssertAddress("SliderFrame_Callback", (uintptr_t)SliderFrame_Callback, "UIModule");
+                Logger::AssertAddress("SliderFrame_WrapperCallback", (uintptr_t)SliderFrame_WrapperCallback, "UIModule");
+                Logger::AssertAddress("EditableTextFrame_Callback", (uintptr_t)EditableTextFrame_Callback, "UIModule");
+                Logger::AssertAddress("ProgressBar_Callback", (uintptr_t)ProgressBar_Callback, "UIModule");
+                Logger::AssertAddress("TabsFrame_Callback", (uintptr_t)TabsFrame_Callback, "UIModule");
+                Logger::AssertAddress("FrameNewSubclass_Func", (uintptr_t)FrameNewSubclass_Func, "UIModule");
+                Logger::AssertAddress("TypedComponentPassthroughHook_Func", (uintptr_t)TypedComponentPassthroughHook_Func, "UIModule");
             }
 
             uint32_t FindAvailableChildIndex(Frame* parent, uint32_t child_index) {

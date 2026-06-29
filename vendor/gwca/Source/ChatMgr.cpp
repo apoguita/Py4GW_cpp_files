@@ -377,6 +377,7 @@ namespace {
 		if (!block_chat_timestamps.IsValid()) {
 			Logger::Instance().LogError("Failed to patch chat timestamps, address not found.");
 		}
+		Logger::AssertAddress("block_chat_timestamps", (uintptr_t)block_chat_timestamps.GetAddress(), "Chat Module");
 		Logger::AssertAddress("GetSenderColor_Func", (uintptr_t)GetSenderColor_Func, "Chat Module");
 		Logger::AssertAddress("GetMessageColor_Func", (uintptr_t)GetMessageColor_Func, "Chat Module");
 		Logger::AssertAddress("SendChat_Func", (uintptr_t)SendChat_Func, "Chat Module");

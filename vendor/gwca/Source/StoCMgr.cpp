@@ -146,7 +146,8 @@ namespace {
                 game_server_handlers = &(*addr)->gs_codec->handlers;
             }
             Logger::AssertAddress("StoCHandler_Addr", StoCHandler_Addr, "StoC Module");
-            
+            Logger::AssertAddress("game_server_handlers", (uintptr_t)game_server_handlers, "StoC Module");
+
         }
 
         stoc_handler_count = game_server_handlers->size();
