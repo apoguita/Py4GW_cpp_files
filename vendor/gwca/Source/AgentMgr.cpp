@@ -110,6 +110,20 @@ namespace {
         UI::UIMessage::kChangeTarget,
         UI::UIMessage::kSendWorldAction
     };
+    // Mirrors the game's ManagerFindAgent (AvSelect.cpp): an agent id is only
+    // "findable" when it is within the agent table bounds and the slot pointer is
+    // non-null. SetSelections/CallTarget assert (and crash on assertion-enabled
+    // builds) when a non-zero id is not findable at the moment the action runs.
+    // The agent table read here (m_buffer/m_size) is the exact same table the
+    // game indexes, so this check is equivalent to ManagerFindAgent(id) != 0.
+    // Agent id 0 is always allowed (it clears the selection and is not asserted).
+    bool ManagerCanFindAgent(uint32_t agent_id) {
+        if (agent_id == 0)
+            return true;
+        AgentArray* agents = GW::Agents::GetAgentArray();
+        return agents && agent_id < agents->size() && agents->at(agent_id) != nullptr;
+    }
+
     void OnUIMessage(GW::HookStatus* status, UI::UIMessage message_id, void* wparam, void*) {
         if (status->blocked)
             return;
@@ -126,7 +140,13 @@ namespace {
         case UI::UIMessage::kSendChangeTarget: {
             if (ChangeTarget_Ret) {
                 const auto packet = static_cast<UI::UIPacket::kSendChangeTarget*>(wparam);
-                ChangeTarget_Ret(packet->target_id, packet->auto_target_id);
+                // Last-moment guard, synchronous with the real SetSelections call:
+                // skip if either id would trip AvSelect.cpp:780/781
+                // (!(id && !ManagerFindAgent(id))) instead of letting the client crash.
+                if (ManagerCanFindAgent(packet->target_id) &&
+                    ManagerCanFindAgent(packet->auto_target_id)) {
+                    ChangeTarget_Ret(packet->target_id, packet->auto_target_id);
+                }
             }
         } break;
         case UI::UIMessage::kSendGadgetDialog: {
@@ -141,7 +161,11 @@ namespace {
         case UI::UIMessage::kSendCallTarget: {
             if (CallTarget_Ret) {
                 const auto packet = static_cast<UI::UIPacket::kSendCallTarget*>(wparam);
-                CallTarget_Ret(packet->call_type, packet->agent_id);
+                // Skip calling a target the game can no longer find, same rationale
+                // as kSendChangeTarget above.
+                if (ManagerCanFindAgent(packet->agent_id)) {
+                    CallTarget_Ret(packet->call_type, packet->agent_id);
+                }
             }
         } break;
         case UI::UIMessage::kSendWorldAction: {
@@ -415,12 +439,12 @@ namespace GW {
                 return false;
 
             if (agent->allegiance == GW::Constants::Allegiance::Enemy) {
-                const auto* target = GW::Agents::GetTarget();
-                if (!target)
+                const uint32_t target_id = agent->agent_id;
+                if (!target_id || !GW::Agents::GetAgentLivingByID(target_id))
                     return false;
                 UI::UIPacket::kSendCallTarget call_packet = UI::UIPacket::kSendCallTarget{
                     GW::CallTargetType::AttackingOrTargetting,
-                    target->agent_id
+                    target_id
                 };
                 return GW::UI::SendUIMessage(GW::UI::UIMessage::kSendCallTarget, &call_packet);
             }
