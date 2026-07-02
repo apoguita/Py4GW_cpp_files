@@ -1,5 +1,6 @@
 #include "Py4GW.h"
 #include "py_name_obfuscator.h"
+#include "py_agent_tag_color.h"
 
 #include "Headers.h"
 #include "py_dialog.h"
@@ -1892,6 +1893,7 @@ void DrawCompactConsole(bool* new_p_open = nullptr) {
 bool Py4GW::Initialize() {
     py::initialize_interpreter();
     NameObfuscator::Instance().Initialize();
+    AgentTagColor::Instance().Initialize();
     InitializeMerchantCallbacks();
     Dialog::Initialize();
 
@@ -1907,6 +1909,7 @@ bool Py4GW::Initialize() {
 
 void Py4GW::Terminate() {
     NameObfuscator::Instance().Terminate();
+    AgentTagColor::Instance().Terminate();
     Dialog::Terminate();
     g_runtime_shared_memory.Destroy();
     GW::DisableHooks();

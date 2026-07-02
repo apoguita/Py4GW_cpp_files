@@ -205,6 +205,256 @@ inline TextLabelFrameCallback_pt ResolveTextLabelFrameCallback()
     return cached;
 }
 
+// CtlTextBtnProc @ EXE 0x00616c00 — engine TEXT BUTTON FrameProc. Self-renders its
+// caption via FrameContentAddText, self-sizes (msg 0x38), handles hover/click, and
+// has NO image-list/store dependency (unlike the styled UiCtlBtnProc). It is the
+// button analogue of TextLabelFrame_Callback (CtlTextProc).
+//
+// Resolution: the jump-table prologue "ADD EAX,-4; CMP EAX,0x5C; JA"
+// ("\x83\xC0\xFC\x83\xF8\x5C\x0F\x87") is unique; walk back to the function entry.
+// Verified unique at match 0x00616c12 → entry 0x00616c00 in Gw.exe build 06-14-2026.
+inline uintptr_t ResolveCtlTextButtonProc()
+{
+    static uintptr_t cached = 0;
+    if (cached)
+        return cached;
+
+    const uintptr_t hit = GW::Scanner::Find(
+        "\x83\xC0\xFC\x83\xF8\x5C\x0F\x87",
+        "xxxxxxxx", 0);
+    if (!hit) {
+        GWCA_ERR("[SCAN] ResolveCtlTextButtonProc — pattern not found");
+        return 0;
+    }
+    const uintptr_t func_start = GW::Scanner::ToFunctionStart(hit, 0x20);
+    if (!func_start) {
+        GWCA_ERR("[SCAN] ResolveCtlTextButtonProc — ToFunctionStart failed");
+        return 0;
+    }
+    cached = func_start;
+    return cached;
+}
+
+// CCtlTextSelectable::FrameProc @ EXE 0x00617df0 — the SELECTABLE text-row proc the engine's own
+// selectable list constructor (FUN_00619b70) uses for clickable rows. UNLIKE CtlTextBtnProc
+// (0x00616c00), its highlight/getter path is NULL-safe: when the selectable list highlights a row it
+// sends child msg 0x57 with a NULL out-ptr; CtlTextBtnProc case 0x57 WRITES through that null
+// (*param_2 = colour) → access-violation on hover/select, whereas this proc's case 0x57 only sets a
+// bit (no wparam deref). Using it is the fix for the hyperlink hover crash.
+// Anchor: standard security-cookie prologue (SUB ESP,0x68; load cookie) + the distinctive param load
+// MOV EBX,[EBP+8]; PUSH ESI; MOV ESI,[EBP+0x10]. The 4 cookie-global bytes are masked so the pattern
+// survives a rebased build; the remainder is unique in Gw.exe 06-14 (verified). Match IS the entry.
+inline uintptr_t ResolveCtlTextSelectableProc()
+{
+    static uintptr_t cached = 0;
+    if (cached)
+        return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x83\xEC\x68\xA1\x00\x00\x00\x00\x33\xC5\x89\x45\xFC\x53\x8B\x5D\x08\x56\x8B\x75\x10",
+        "xxxxxxx????xxxxxxxxxxxxx", 0);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveCtlTextSelectableProc — pattern not found");
+        return 0;
+    }
+    cached = addr;
+    return cached;
+}
+
+// CUiCtlPage::FrameProc (styled tabbed-page proc) @ EXE 0x00885590 — the TEXTURED page proc the game
+// uses for real tab widgets. GW::TabsFrame::Create installs only the BASE CtlPageProc (0x0061a950),
+// whose msg-0x5e config table has zero button/body subclass slots, so tab buttons stay flat
+// CtlBtnProc = the "generic element" (no GW tab texture). Layering this styled proc makes OnCtlAddItem
+// subclass each tab button with FUN_00885340 (case 8 = FrameContentAddImageTemplate → real tab
+// texture). Its case 4 re-installs the base proc as sub-handler so switching/body/AddTab still work.
+// Anchor: prologue MOV EDX,[EBP+8]; SUB ESP,0x10; MOV ECX,[EBP+0xC]; MOV EAX,[EDX+4]; CMP EAX,4; JZ;
+// CMP EAX,0x15 — addressless/stable, unique in Gw.exe 06-14. Match IS the entry.
+inline uintptr_t ResolveUiCtlPageProc()
+{
+    static uintptr_t cached = 0;
+    if (cached)
+        return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x8B\x55\x08\x83\xEC\x10\x8B\x4D\x0C\x8B\x42\x04\x83\xF8\x04\x74\x56\x83\xF8\x15",
+        "xxxxxxxxxxxxxxxxxxxxxxx", 0);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveUiCtlPageProc — pattern not found");
+        return 0;
+    }
+    cached = addr;
+    return cached;
+}
+
+// UiCtlSliderProc (styled slider WRAPPER) @ EXE 0x0087f440 — the textured bar+thumb proc. Must be the
+// PRIMARY create proc (its case 4 installs base CtlSliderProc 0x00615fe0 as sub-handler). Creating base-
+// as-primary + FrameNewSubclass(wrapper) — GWCA's SliderFrame::Create path — is WRONG: the wrapper never
+// gets msg 4, and FrameNewSubclass re-fires msg 9/0xb, freeing then re-alloc'ing the instance with garbage
+// range read from the proc-pointer bytes → paint/measure on half-init state → crash on create (this was
+// the "slider immediate crash"). Anchor: prologue MOV EAX,[EBX+4]; DEC EAX; CMP EAX,0x58 — addressless,
+// unique in Gw.exe 06-14. Match IS the entry.
+inline uintptr_t ResolveUiCtlSliderProc()
+{
+    static uintptr_t cached = 0;
+    if (cached)
+        return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x83\xEC\x18\x53\x8B\x5D\x08\x56\x57\x8B\x43\x04\x48\x83\xF8\x58",
+        "xxxxxxxxxxxxxxxxxxx", 0);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveUiCtlSliderProc — pattern not found");
+        return 0;
+    }
+    cached = addr;
+    return cached;
+}
+
+// Hover-target setter FUN_00630cd0(frame, subitem) — the SOLE writer of the hovered-frame global
+// DAT_00c0ad54 (verified by xref). Call FUN_00630cd0(0,-1) to CLEAR the hover BEFORE destroying a
+// window: otherwise a control that is the current hover target is freed while DAT_00c0ad54 still points
+// at it, and the next mouse move dereferences freed memory — THE "crash on closing the window" use-
+// after-free (foundational RE 2026-07-01). __cdecl(int,int). Prologue cmp [hover-enable],0 (addr masked)
+// + MOV EAX,[EBP+8]; unique in Gw.exe 06-14.
+inline uintptr_t ResolveSetHoverTarget()
+{
+    static uintptr_t cached = 0;
+    if (cached) return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x83\xEC\x08\x83\x3D\x00\x00\x00\x00\x00\x74\x68\x8B\x45\x08\x56\x85\xC0\x74\x05\x8B\x75\x0C",
+        "xxxxxxxx????xxxxxxxxxxxxxx", 0);
+    if (!addr) { GWCA_ERR("[SCAN] ResolveSetHoverTarget — pattern not found"); return 0; }
+    cached = addr; return cached;
+}
+
+// Focus/tooltip-frame clear FUN_0064e920(frame). Call FUN_0064e920(0) to drop the keyboard-focus /
+// tooltip frame global DAT_00c0ba10 before destroying a window (edits hold focus). __cdecl(int); unique.
+inline uintptr_t ResolveClearFocusFrame()
+{
+    static uintptr_t cached = 0;
+    if (cached) return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x57\x8B\x7D\x08\x3B\x3D\x00\x00\x00\x00\x0F\x84\xA0\x00\x00\x00\x56",
+        "xxxxxxxxx????xxxxxxx", 0);
+    if (!addr) { GWCA_ERR("[SCAN] ResolveClearFocusFrame — pattern not found"); return 0; }
+    cached = addr; return cached;
+}
+
+// Plain content-container proc FUN_0051d8e0 (GmChat's control host). Pure pass-through: on child-notify
+// (msg 0x31) forwards notify 7 to its parent, ignores everything else — no instance, no paint, no
+// teardown to go wrong. This is the "owned content frame" the game hosts interactive controls under
+// (NEVER on the CtlDlg chrome root). Anchor: prologue MOV EAX,[EBP+8]; CMP [EAX+4],0x31; JNE; push
+// 0/param/7/frame — addressless up to the trailing relative call; unique in Gw.exe 06-14. Match IS entry.
+inline uintptr_t ResolvePlainContainerProc()
+{
+    static uintptr_t cached = 0;
+    if (cached) return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x8B\x45\x08\x83\x78\x04\x31\x75\x11\x6A\x00\xFF\x75\x0C\x6A\x07\xFF\x30",
+        "xxxxxxxxxxxxxxxxxxxxx", 0);
+    if (!addr) { GWCA_ERR("[SCAN] ResolvePlainContainerProc — pattern not found"); return 0; }
+    cached = addr; return cached;
+}
+
+// CCtlFrameListSelectable::FrameProc @ EXE 0x00613850 — the SELECTABLE frame-list proc.
+// When a child item notifies the list with notifyId 8 (a button-item click) it calls
+// SetSelection → highlights the row (msg 0x57) AND stores the selection; the selection is
+// readable via msg 0x67 (see ResolveCtlFrameListSelectableGetSelection). Register this as
+// the inner-list proc (page-context field_4) to make list items act as clickable rows.
+// Prologue jump-table on max msg 0x66; the match IS the entry. Verified unique 06-14-2026.
+inline uintptr_t ResolveCtlFrameListSelectableProc()
+{
+    static uintptr_t cached = 0;
+    if (cached)
+        return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x56\x8B\x75\x08\x57\x8B\x7D\x0C\x8B\x46\x04\x83\xC0\xFC\x83\xF8\x66\x0F\x87",
+        "xxxxxxxxxxxxxxxxxxxxxx", 0);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveCtlFrameListSelectableProc — pattern not found");
+        return 0;
+    }
+    cached = addr;
+    return cached;
+}
+
+// CtlFrameListSelectableGetSelection @ EXE 0x00612b40 —
+//   uint32_t __cdecl(uint32_t frameListId, uint32_t* out_item_code)
+//   → nonzero if a row is selected; out_item_code = the selected item's child code (msg 0x67).
+// The match IS the entry. Verified unique 06-14-2026.
+inline uintptr_t ResolveCtlFrameListSelectableGetSelection()
+{
+    static uintptr_t cached = 0;
+    if (cached)
+        return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x83\xEC\x08\x56\x8B\x75\x0C\x85\xF6\x75\x14\x68",
+        "xxxxxxxxxxxxxxx", 0);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveCtlFrameListSelectableGetSelection — pattern not found");
+        return 0;
+    }
+    cached = addr;
+    return cached;
+}
+
+// CtlBtnProc @ EXE 0x0060f4f0 (WASM ram:80dbe9be) — the flat ENGINE button. Paints a
+// solid rectangle (msg 0x01 -> GrBuildSolidMaterial), NON-hyperlink look, single
+// self-contained proc (no multi-layer base delegation), and NO s_btnCheckImageList
+// dependency (that global is UiCtlBtnProc-only). Its pushed/checked state is readable
+// via msg 0x59 (UIManager::IsButtonPushedByFrameId). Give item_flags bit 0x10000 for a
+// persistent toggle or 0x80000 for a momentary button.
+//
+// The FULL 25-byte prologue below is the function ENTRY (verified unique @ 0x0060f4f0 in
+// Gw.exe 06-14) — so match offset 0, NO ToFunctionStart needed. (The existing UIMgr.cpp
+// CtlBtnProc_Callback uses a shorter MID-function pattern without ToFunctionStart and is
+// therefore unsafe to pass as an item proc; this resolver avoids that.)
+inline uintptr_t ResolveCtlBtnProc()
+{
+    static uintptr_t cached = 0;
+    if (cached)
+        return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x83\xEC\x30\x53\x8B\x5D\x08\x56\x57\x8B\x7D\x0C\x8B\x43\x04\x8B\x53\x08\x48\x83\xF8\x5E",
+        "xxxxxxxxxxxxxxxxxxxxxxxxx", 0);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveCtlBtnProc — pattern not found");
+        return 0;
+    }
+    cached = addr;
+    return cached;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// INSTANCED-DIALOG DISPATCHER (2026-07-01) — Py4GW-authored native FrameProc, the "owner" every native
+// control-hosting window has and Py4GW never did (7-window comparison, docs/RE/native_dialog_layout_process.md).
+// The engine calls a FrameProc as `void __cdecl(InteractionMessage* msg, void* w, void* l)` where
+// msg[0]=frameId, msg[1]=msgId, msg[5]=proc-chain index. IUi_FrameMsgCallBase (EXE 0x00647170) walks the
+// chain and invokes the next proc — we forward the SAME msg pointer to it. PHASE 1: forward-only (validate
+// we can chain an authored C++ proc without crashing). Later phases add: own a CCtlLayout instance, run the
+// size pass on msg 0x38/0x37, handle child notifies, and free on msg 0xb.
+using FrameMsgCallBase_pt = void(__cdecl*)(uint32_t*, void*, void*);
+inline FrameMsgCallBase_pt g_frameMsgCallBase = nullptr;
+
+// IUi_FrameMsgCallBase @ EXE 0x00647170. Prologue is unique (push ebp; mov ebp,esp; sub esp,0x1c; push esi;
+// mov esi,[ebp+8]; mov ecx,[esi]; test ecx,ecx; je +0x191). 20-byte match, offset 0 = entry.
+inline uintptr_t ResolveFrameMsgCallBase()
+{
+    static uintptr_t cached = 0;
+    if (cached) return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x83\xEC\x1C\x56\x8B\x75\x08\x8B\x0E\x85\xC9\x0F\x84\x91\x01\x00\x00",
+        "xxxxxxxxxxxxxxxxxxxx", 0);
+    if (!addr) { GWCA_ERR("[SCAN] ResolveFrameMsgCallBase — pattern not found"); return 0; }
+    cached = addr;
+    return cached;
+}
+
+// The authored dispatcher. PHASE 1: pass every message straight to the base chain (a no-op owner that
+// proves the calling convention works). Must be __cdecl and file-scope so its address is a plain proc ptr.
+inline void __cdecl Py4GW_InstancedDialogProc(uint32_t* msg, void* wparam, void* lparam)
+{
+    if (g_frameMsgCallBase)
+        g_frameMsgCallBase(msg, wparam, lparam);
+}
+
 // Clone-time title overrides need to intercept the same native title path that
 // DevText uses when Guild Wars builds a composite window. The game can attach:
 // 1. a dynamic encoded text payload via Ui_SetFrameText, and
@@ -726,6 +976,95 @@ struct Coord2f {
     float x;
     float y;
 };
+
+// ============================================================================
+// CtlFrameList "no-stretch" — install native size + size-query handler callbacks so the
+// list stops stretching item widths to the list width. (Ghidra-verified on Gw.exe 06-14.)
+//
+// Dispatcher FUN_00612c80. 06-14 slot/message layout (DIFFERS from the WASM build!):
+//   msg 0x62 -> ctx+0x04 size handler        (OnFrameMsgSize,      case 0x37)
+//   msg 0x64 -> ctx+0x10 size-query handler  (OnFrameMsgSizeQuery, case 0x38)
+// Both invoked __cdecl as handler(TArray<uint>* items, msg*); wparam IS the fn ptr.
+// (msg 0x63/0x65 are fn+context variants — NOT what we want.)
+// ============================================================================
+
+// GWCA GW::Array<uint32_t>: buffer @0x00, count(m_size) @0x08 (NOT 0x04), capacity @0x0C.
+struct CtlFrameListItemArray { uint32_t* buffer; uint32_t unk_04; uint32_t count; uint32_t capacity; };
+struct FrameMsgSize { float width; float height; };                  // list width; height = top-anchor start
+struct FrameMsgSizeQuery { float width; float unk_04; Coord2f* out_size; }; // handler writes out_size->{x,y}
+
+// FrameSetPosition(frameId, Coord2f const& pos, Coord2f const& size) @ EXE 0x0062F770 (anchor forced 6).
+using FrameSetPositionPosSize_pt = void(__cdecl*)(uint32_t, const Coord2f*, const Coord2f*);
+// FrameGetNativeSize @ EXE 0x0062D2A0. sret: returns 'out' in EAX.
+using FrameGetNativeSize_pt = Coord2f*(__cdecl*)(Coord2f* out, uint32_t frame_id, const Coord2f* constraint);
+
+inline FrameSetPositionPosSize_pt g_noStretch_FrameSetPositionPosSize = nullptr;
+inline FrameGetNativeSize_pt      g_noStretch_FrameGetNativeSize       = nullptr;
+
+// FrameSetPosition(pos,size) — prologue incl. PUSH 0x840 (assert line). Unique @ 0x0062F770.
+inline uintptr_t ResolveFrameSetPositionPosSize()
+{
+    static uintptr_t cached = 0;
+    if (cached) return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x8B\x45\x08\x85\xC0\x75\x16\x68\x40\x08\x00\x00", "xxxxxxxxxxxxxxx", 0);
+    if (!addr) { GWCA_ERR("[SCAN] ResolveFrameSetPositionPosSize — pattern not found"); return 0; }
+    cached = addr; return cached;
+}
+
+// FrameGetNativeSize — prologue incl. PUSH 0x7FD (assert line). Unique @ 0x0062D2A0.
+inline uintptr_t ResolveFrameGetNativeSize()
+{
+    static uintptr_t cached = 0;
+    if (cached) return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x8B\x45\x0C\x85\xC0\x75\x20\x68\xFD\x07\x00\x00", "xxxxxxxxxxxxxxx", 0);
+    if (!addr) { GWCA_ERR("[SCAN] ResolveFrameGetNativeSize — pattern not found"); return 0; }
+    cached = addr; return cached;
+}
+
+// Size handler (msg 0x62). Reproduces the engine's OnFrameMsgSize layout (top-anchored,
+// running-Y decreasing from list height, per-item native height) — ONLY change: size.x =
+// item's OWN native width instead of the list width.
+inline void __cdecl NoStretchSizeHandler(void* arr_ptr, void* msg_ptr)
+{
+    if (!g_noStretch_FrameGetNativeSize || !g_noStretch_FrameSetPositionPosSize) return;
+    const CtlFrameListItemArray* arr = reinterpret_cast<const CtlFrameListItemArray*>(arr_ptr);
+    const FrameMsgSize* msg = reinterpret_cast<const FrameMsgSize*>(msg_ptr);
+    const uint32_t* items = arr->buffer; const uint32_t count = arr->count;
+    if (!items) return;
+    const Coord2f constraint = { msg->width, 0.0f };
+    float running_y = msg->height;
+    for (uint32_t i = 0; i < count; ++i) {
+        Coord2f native = { 0.0f, 0.0f };
+        g_noStretch_FrameGetNativeSize(&native, items[i], &constraint);
+        running_y -= native.y;
+        const Coord2f pos = { 0.0f, running_y };
+        const Coord2f size = { native.x, native.y };
+        g_noStretch_FrameSetPositionPosSize(items[i], &pos, &size);
+    }
+}
+
+// Size-query handler (msg 0x64). Reports {max native width, sum native height}, omitting the
+// engine's "if !style 0x4000: out.x = list width" override.
+inline void __cdecl NoStretchSizeQueryHandler(void* arr_ptr, void* msg_ptr)
+{
+    if (!g_noStretch_FrameGetNativeSize) return;
+    const CtlFrameListItemArray* arr = reinterpret_cast<const CtlFrameListItemArray*>(arr_ptr);
+    FrameMsgSizeQuery* msg = reinterpret_cast<FrameMsgSizeQuery*>(msg_ptr);
+    Coord2f* out = msg->out_size;
+    if (!out) return;
+    out->x = 0.0f; out->y = 0.0f;
+    const uint32_t* items = arr->buffer; const uint32_t count = arr->count;
+    const Coord2f constraint = { msg->width, 0.0f };
+    for (uint32_t i = 0; i < count && items; ++i) {
+        Coord2f native = { 0.0f, 0.0f };
+        g_noStretch_FrameGetNativeSize(&native, items[i], &constraint);
+        if (native.x > out->x) out->x = native.x;
+        out->y += native.y;
+    }
+}
+
 
 struct Rect4f {
     float top;
@@ -1394,6 +1733,20 @@ public:
 
     // Creates a minimal container window using CContainerFrame::FrameProc.
     // anchor_flags=0x6 = horizontal (0x2) + vertical (0x4) anchor.
+    // IUi::UiCtlDlgMsgProc (EXE 0x00876610, WASM 0x80e586ff) — the DIALOG BASE proc used at CREATE time
+    // by IUi::CompositeDlgBuilder case 1. Its msg 4 installs the dialog frame vtable (table idx 0xae9);
+    // Py4GW's normal window instead uses ResolveContainerFrameProc and never installs that vtable, so its
+    // frame lacks the dialog context every higher layer (content page / controls) depends on. Resolved a
+    // fixed 0x270 below the chrome proc IUi::UiCtlDlgProc (0x00876880) in the Gw.exe 06-14 build.
+    static uintptr_t ResolveUiCtlDlgMsgProc() {
+        static uintptr_t cached = 0;
+        if (cached) return cached;
+        const uintptr_t dlg = ResolveCompositeRootControlProc();  // IUi::UiCtlDlgProc 0x00876880
+        if (!dlg) { GWCA_ERR("[UI] ResolveUiCtlDlgMsgProc — composite root proc unresolved"); return 0; }
+        cached = dlg - 0x270;                                      // IUi::UiCtlDlgMsgProc 0x00876610
+        return cached;
+    }
+
     static uint32_t _create_container_window(
         float x, float y, float width, float height,
         const std::wstring& frame_label = L"",
@@ -1401,9 +1754,12 @@ public:
         uint32_t child_index = 0,
         uint32_t frame_flags = 0,
         uintptr_t create_param = 0,
-        uint32_t anchor_flags = 0x6)
+        uint32_t anchor_flags = 0x6,
+        uintptr_t proc_override = 0)   // 0 = default container proc; nonzero = use this create-time proc
     {
-        const uint32_t callback = ResolveContainerFrameProc();
+        const uint32_t callback = proc_override
+            ? static_cast<uint32_t>(proc_override)
+            : ResolveContainerFrameProc();
         if (!callback) {
             GWCA_ERR("[UI] _create_container_window — proc resolution failed");
             return 0;
@@ -1910,6 +2266,49 @@ public:
         return true;
     }
 
+    // Reserved child-id band for a composite window's CONTENT frame(s). (WASM-first RE, symbols mapped to
+    // Gw.exe 06-14, 2026-07-01) A native composite dialog is a 3-level tree: WINDOW (chrome IUi::UiCtlDlgProc,
+    // EXE 0x00876880) → CONTENT frame at a childId in 0x2710..0x2718 (10000..10008) → CONTROLS nested inside
+    // it. The native title-bar [X] runs IUi::PopCloser (EXE 0x008766e0), which walks the window's band
+    // children via FrameGetChild from 0x2718 down to 0x2710 and FrameDestroy()s each — recursively freeing
+    // the whole control subtree in ONE native pass. Controls parented directly on the chrome frame (childIds
+    // 1,2,3…, OUTSIDE the band) are NOT on PopCloser's path, so on [X] they are left dangling in the hover
+    // hot-item (DAT_00c0ad54) and the next chrome paint dereferences freed backing → the "crash on closing
+    // the window". Nesting controls under a band content frame is the NATIVE fix (no scrub/bypass needed).
+    static constexpr uint32_t kContentFrameChildId  = 0x2710;   // 10000 — the sole content host we create
+    static constexpr uint32_t kContentFrameBandEnd  = 0x2718;   // 10008 — end of the reserved band
+
+    // Resolve (creating on first use) the window's native CONTENT frame — the band member that
+    // interactive controls must parent to so the native [X] frees them with the content subtree.
+    // Scans the reserved band on the window; if no member exists yet it creates the sole content host
+    // SYNCHRONOUSLY (every control-create helper already runs on the game thread, so this is safe and
+    // race-free — unlike creating it in a deferred enqueue, which let the first control be made before the
+    // host existed and fall back to the crash-prone direct-child path). Returns window_id only if the
+    // window is invalid or creation fails.
+    static uint32_t EnsureContentFrameForWindow(uint32_t window_id) {
+        // DISABLED (2026-07-01): nesting controls under a plain pass-through container (FUN_0051d8e0) at
+        // band 0x2710 — even created synchronously — hides/breaks the controls (confirms the handover's
+        // "plain container regressed everything"). A plain container is NOT a viable content host: it does
+        // not run the native content-frame paint/size/show cascade (msg 8/9/0x2e) that IUi::UiCtlDlgProc's
+        // real content frame (proc FUN_00876740, style 0x80) does, so children never lay out or render.
+        // Returning window_id restores the working direct-child behavior (controls render + interact; the
+        // native [X] still crashes — a SEPARATE problem). Re-enable only with the real content proc, and
+        // only with in-client verification. Band scan/create scaffolding retained below for that work.
+        return window_id;
+#if 0
+        GW::UI::Frame* win = GW::UI::GetFrameById(window_id);
+        if (!(win && win->IsCreated()))
+            return window_id;
+        for (uint32_t id = kContentFrameChildId; id <= kContentFrameBandEnd; ++id) {
+            GW::UI::Frame* c = GW::UI::GetChildFrame(win, id);
+            if (c && c->IsCreated())
+                return c->frame_id;
+        }
+        const uint32_t content = CreateContentPanelByFrameId(window_id, 0.0f, 0.0f, kContentFrameChildId);
+        return content ? content : window_id;
+#endif
+    }
+
     // Creates a standalone native window from content-space coordinates.
     // Inputs are pixel-space content bounds with a top-left origin, matching overlay/UI usage.
     // The binding expands the bounds to include native chrome, converts them into the game's
@@ -1969,6 +2368,56 @@ public:
                     GW::UI::DestroyUIComponent(f);
                 }
             });
+            return 0;
+        }
+        // The native CONTENT frame (band member 0x2710) is created lazily+synchronously by
+        // EnsureContentFrameForWindow the first time a control is added, so there is no create-order race.
+        return frame_id;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────
+    // ISOLATED (2026-07-01): a window that mimics IUi::CompositeDlgBuilder case 1 EXACTLY — created with
+    // the DIALOG BASE proc IUi::UiCtlDlgMsgProc (so msg 4 installs the dialog frame vtable idx 0xae9),
+    // style 0x254000, childId 0xd, then the interactive chrome IUi::UiCtlDlgProc chained on top (via
+    // AttachCompositeRootToFrame). This is the create-time dialog context Py4GW's normal window omits.
+    // Separate from CreateNativeWindow so testing it cannot regress the working controls. Returns the
+    // window frame id, or 0.
+    static uint32_t CreateNativeDialogWindow(
+        float content_x, float content_y, float content_width, float content_height,
+        const std::wstring& title = L"")
+    {
+        constexpr float kLeftBorder = 32.0f, kTopTitle = 20.0f, kRightBorder = 32.0f, kBottomBorder = 32.0f;
+        constexpr uint32_t kAnchorFlags = 0x6;
+        constexpr uint32_t kSubclassFlags = DEFAULT_SUBCLASS_FLAGS_COMPOSITE_ROOT;
+        constexpr uint32_t kParentFrameId = 9;
+        constexpr uint32_t kDialogChildId = 0xd;        // reference window childId
+        constexpr uint32_t kDialogStyle   = 0x254000;   // reference window style
+        static int next_layer = 1000;                   // separate layer band from CreateNativeWindow
+
+        const uintptr_t base_proc = ResolveUiCtlDlgMsgProc();
+        if (!base_proc) return 0;
+
+        GW::UI::Frame* root = GW::UI::GetRootFrame();
+        if (!root) { GWCA_ERR("[UI] CreateNativeDialogWindow — root unavailable"); return 0; }
+
+        const auto viewport_scale = root->position.GetViewportScale(root);
+        const float scale_x = viewport_scale.x != 0.0f ? viewport_scale.x : 1.0f;
+        const float scale_y = viewport_scale.y != 0.0f ? viewport_scale.y : 1.0f;
+        const float pixel_height = root->position.viewport_height * scale_y;
+
+        const float engine_x = (content_x - kLeftBorder) / scale_x;
+        const float engine_y = (pixel_height - content_y - content_height - kBottomBorder) / scale_y;
+        const float engine_w = (content_width + kLeftBorder + kRightBorder) / scale_x;
+        const float engine_h = (content_height + kTopTitle + kBottomBorder) / scale_y;
+        const int layer = next_layer++;
+
+        const uint32_t frame_id = _create_container_window(
+            engine_x, engine_y, engine_w, engine_h, title,
+            kParentFrameId, kDialogChildId, kDialogStyle, 0, kAnchorFlags, base_proc);
+        if (!frame_id) { GWCA_ERR("[UI] CreateNativeDialogWindow — create failed"); return 0; }
+
+        if (!AttachCompositeRootToFrame(frame_id, title, kSubclassFlags, engine_x, engine_y, layer)) {
+            GWCA_ERR("[UI] CreateNativeDialogWindow — chrome attach failed, frame_id=%u", frame_id);
             return 0;
         }
         return frame_id;
@@ -2970,11 +3419,201 @@ public:
 
 
     // Destroys a live UI component by frame id.
+    // (Ghidra-verified, "/Gw.exe (06-14)") GWCA's GW::UI::DestroyUIComponent NO-OPS on this build:
+    // its DestroyUIComponent_Func never resolves because GWCA's resolver scans for the file path
+    // "\\Code\\Gw\\Ui\\Frame\\FrApi.cpp", but this build renamed it to "\\Code\\Engine\\Frame\\FrApi.cpp"
+    // → FindAssertion returns 0 → the func pointer stays NULL → the wrapper's `&& DestroyUIComponent_Func`
+    // guard makes it silently return false and the frame persists. That is the reported "Destroy All
+    // never works" (silent no-op, no crash). Call the PUBLIC id-based native destroyer FUN_0062c550
+    // (__cdecl(uint32_t frame_id) BY VALUE) directly: it validates the id, tears down the child tree,
+    // and frees; it silently no-ops if the id isn't live.
     static bool DestroyUIComponentByFrameId(uint32_t frame_id) {
-        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        using DestroyById_pt = void(__cdecl*)(uint32_t);
+        static DestroyById_pt destroy_by_id = nullptr;
+        if (!destroy_by_id) {
+            // Prologue anchor: PUSH EBP; MOV EBP,ESP; PUSH ECX; PUSH ESI; MOV ESI,[EBP+8];
+            // TEST ESI,ESI; JNZ +0x19; PUSH 0x413 (the id==0 → assert-line-0x413 path). All bytes are
+            // addressless/stable; unique in Gw.exe 06-14. The match IS the function entry.
+            const uintptr_t addr = GW::Scanner::Find(
+                "\x55\x8B\xEC\x51\x56\x8B\x75\x08\x85\xF6\x75\x19\x68\x13\x04\x00\x00",
+                "xxxxxxxxxxxxxxxxx", 0);
+            if (!addr) {
+                GWCA_ERR("[UI] DestroyUIComponentByFrameId — native destroyer (FUN_0062c550) not resolved");
+                return false;
+            }
+            destroy_by_id = reinterpret_cast<DestroyById_pt>(addr);
+        }
+        if (frame_id == 0)   // FUN_0062c550 asserts (NO-RETURN) on id==0
+            return false;
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);  // ensure the id is live (avoids the 0x15f assert)
         if (!frame)
             return false;
-        return GW::UI::DestroyUIComponent(frame);
+        destroy_by_id(frame_id);
+        return true;
+    }
+
+    // Scrub the input-target globals so no freed frame can be left as the current hover/focus target.
+    // (Foundational RE 2026-07-01) The recursive frame free (FUN_0062ab40) does NOT clear the hover
+    // global DAT_00c0ad54 or the focus/tooltip global DAT_00c0ba10. If a control is the hover/focus
+    // target when its window is destroyed, those globals dangle at freed memory and the next mouse move
+    // / paint dereferences them → the "crash on closing the window" use-after-free. Call this BEFORE
+    // destroying any window that hosts interactive controls (and it's harmless to call anytime).
+    static void ClearUiInputTargets() {
+        using SetHover_pt = void(__cdecl*)(int, int);
+        using ClearFocus_pt = void(__cdecl*)(int);
+        static SetHover_pt set_hover = nullptr;
+        static ClearFocus_pt clear_focus = nullptr;
+        if (!set_hover) { const uintptr_t a = ResolveSetHoverTarget();  if (a) set_hover = reinterpret_cast<SetHover_pt>(a); }
+        if (!clear_focus) { const uintptr_t a = ResolveClearFocusFrame(); if (a) clear_focus = reinterpret_cast<ClearFocus_pt>(a); }
+        if (set_hover)  set_hover(0, -1);   // DAT_00c0ad54 = 0, DAT_00c0ad58 = -1 (no hover)
+        if (clear_focus) clear_focus(0);    // DAT_00c0ba10 = 0 (no focus/tooltip)
+    }
+
+    // Destroy a window (and its whole owned child subtree) SAFELY: scrub the hover/focus globals first,
+    // then run the single native id-based teardown. Use this instead of a bare
+    // destroy_ui_component_by_frame_id for any window that hosts interactive controls.
+    static bool DestroyWindowSafelyByFrameId(uint32_t window_id) {
+        ClearUiInputTargets();
+        return DestroyUIComponentByFrameId(window_id);
+    }
+
+    // True if a frame with this id currently exists in the registry (created + live). Use to GUARD any
+    // per-frame poll/get/set: if the hosting window was closed (e.g. via the native [X]), the control
+    // frame is freed and dispatching a message to its stale id reads freed memory and crashes. Callers
+    // should stop polling a control once its window fails this check. GW::UI::GetFrameById is the
+    // standard validated registry lookup (returns null for freed/unknown ids).
+    static bool FrameExistsByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* f = GW::UI::GetFrameById(frame_id);
+        return f && f->IsCreated();
+    }
+
+    // Create an owned CONTENT PANEL (plain pass-through container, proc FUN_0051d8e0) as a child of a
+    // window. (Foundational RE 2026-07-01) The game NEVER parents interactive controls to the CtlDlg
+    // chrome root — they live under an owned content frame like this. Parent your controls to the
+    // RETURNED panel id (not the window). The panel has no visual and nothing to free, so it tears down
+    // cleanly with the window. Returns the panel frame id, or 0.
+    static uint32_t CreateContentPanelByFrameId(
+        uint32_t window_id, float width = 0.0f, float height = 0.0f, uint32_t child_index = 0)
+    {
+        const uintptr_t proc = ResolvePlainContainerProc();
+        if (!proc) {
+            GWCA_ERR("[UI] CreateContentPanelByFrameId — plain container proc not resolved");
+            return 0;
+        }
+        const uint32_t id = CreateUIComponentByFrameId(
+            window_id, 0, child_index, proc, std::wstring(), std::wstring());
+        if (!id)
+            return 0;
+        if (width > 0.0f && height > 0.0f)
+            FrameSetSizeByFrameId(id, width, height);
+        return id;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────
+    // NATIVE-LAYOUT PATH (additive / isolated — 2026-07-01). Separate from every existing control helper
+    // so iterating on it CANNOT regress the working controls (button/progress/group). Full RE spec:
+    // docs/RE/native_dialog_layout_process.md. The native dialog nests controls under a real CONTENT-PAGE
+    // frame (proc IUi::UiCtlContentPageProc @ EXE 0x00876740) in the reserved band 0x2710, made the
+    // interactive top layer via FrameMouseEnable(page,1,0). Parenting controls to THIS page (not the
+    // window chrome) is what makes the native [X]/IUi::PopCloser tear them down cleanly (no dangling
+    // hot-item) and puts them on the correct paint/hit layer. Prior attempts used the plain container
+    // (FUN_0051d8e0) — the wrong proc — and crashed; this uses the real content-page proc.
+
+    // Resolve IUi::UiCtlContentPageProc (EXE 0x00876740). It sits a fixed 0x140 below the composite-root
+    // chrome proc IUi::UiCtlDlgProc (0x00876880) in the Gw.exe 06-14 build; derive it from that
+    // pattern-resolved address rather than hardcoding. (Refine to its own byte pattern if the build shifts.)
+    static uintptr_t ResolveUiCtlContentPageProc() {
+        static uintptr_t cached = 0;
+        if (cached) return cached;
+        const uintptr_t dlg = ResolveCompositeRootControlProc();  // IUi::UiCtlDlgProc 0x00876880
+        if (!dlg) { GWCA_ERR("[UI] ResolveUiCtlContentPageProc — composite root proc unresolved"); return 0; }
+        cached = dlg - 0x140;                                     // IUi::UiCtlContentPageProc 0x00876740
+        return cached;
+    }
+
+    // Create (or return the existing) native CONTENT PAGE for a CreateNativeWindow window: a band-0x2710
+    // child using the real content-page proc, made interactive with FrameMouseEnable(page,1,0). Parent
+    // controls to the RETURNED page id. Returns 0 on failure (caller can fall back to the window id).
+    static uint32_t CreateContentPageByFrameId(uint32_t window_id) {
+        GW::UI::Frame* win = GW::UI::GetFrameById(window_id);
+        if (!(win && win->IsCreated())) {
+            GWCA_ERR("[UI] CreateContentPageByFrameId — window %u not created", window_id);
+            return 0;
+        }
+        for (uint32_t id = 0x2710; id <= 0x2718; ++id) {
+            GW::UI::Frame* c = GW::UI::GetChildFrame(win, id);
+            if (c && c->IsCreated()) return c->frame_id;   // reuse existing page
+        }
+        const uintptr_t proc = ResolveUiCtlContentPageProc();
+        if (!proc) return 0;
+        // userdata = the window frame pointer (native content page routes its value/invalidate to the window).
+        const uintptr_t userdata = reinterpret_cast<uintptr_t>(win);
+        const uint32_t page = CreateUIComponentRawByFrameId(window_id, 0x80, 0x2710, proc, userdata);
+        if (!page) {
+            GWCA_ERR("[UI] CreateContentPageByFrameId — content page create failed");
+            return 0;
+        }
+        // Make the new page the interactive top layer (native msg-9 does FrameMouseEnable(page,1,0)).
+        using FrameMouseEnable_pt = void(__cdecl*)(uint32_t, uint32_t, uint32_t);
+        static FrameMouseEnable_pt me_fn = nullptr;
+        if (!me_fn) {
+            const auto a = ResolveFrameMouseEnable();
+            if (a) me_fn = reinterpret_cast<FrameMouseEnable_pt>(a);
+        }
+        if (me_fn) me_fn(page, 1, 0);
+        return page;
+    }
+
+    // PHASE 2 (teardown fix): create an OWNED BAND-MEMBER content frame — a plain-container child at the
+    // reserved band childId 0x2710 (so the native [X] closer IUi::PopCloser tears it down and re-arms the
+    // hover hot-item, avoiding the dangling-pointer crash) with our authored dispatcher chained on as the
+    // owner. Parent controls to the RETURNED frame id. Reuses an existing band member if present.
+    // Returns 0 on failure (caller can fall back to the window id).
+    static uint32_t CreateOwnedBandFrameByFrameId(uint32_t window_id, float width = 0.0f, float height = 0.0f) {
+        GW::UI::Frame* win = GW::UI::GetFrameById(window_id);
+        if (!(win && win->IsCreated())) {
+            GWCA_ERR("[UI] CreateOwnedBandFrameByFrameId — window %u not created", window_id);
+            return 0;
+        }
+        for (uint32_t id = 0x2710; id <= 0x2718; ++id) {
+            GW::UI::Frame* c = GW::UI::GetChildFrame(win, id);
+            if (c && c->IsCreated()) return c->frame_id;
+        }
+        const uint32_t content = CreateContentPanelByFrameId(window_id, width, height, 0x2710);
+        if (!content) {
+            GWCA_ERR("[UI] CreateOwnedBandFrameByFrameId — band frame create failed");
+            return 0;
+        }
+        AttachInstancedDispatcherByFrameId(content);  // chain the owner dispatcher
+        return content;
+    }
+
+    // PHASE 1 test: chain the Py4GW-authored instanced-dialog dispatcher (Py4GW_InstancedDialogProc) onto a
+    // frame via FrameNewSubclass. Validates that the engine can call an authored C++ FrameProc without
+    // crashing (the foundational capability for the native control host). Returns true on success.
+    static bool AttachInstancedDispatcherByFrameId(uint32_t frame_id) {
+        using FrameNewSubclass_pt = void*(__cdecl*)(uint32_t, void*, void*);
+        static FrameNewSubclass_pt subclass_fn = nullptr;
+        if (!subclass_fn) {
+            const auto a = ResolveFrameNewSubclass();
+            if (a) subclass_fn = reinterpret_cast<FrameNewSubclass_pt>(a);
+        }
+        if (!g_frameMsgCallBase) {
+            const auto a = ResolveFrameMsgCallBase();
+            if (a) g_frameMsgCallBase = reinterpret_cast<FrameMsgCallBase_pt>(a);
+        }
+        if (!subclass_fn || !g_frameMsgCallBase) {
+            GWCA_ERR("[UI] AttachInstancedDispatcherByFrameId — resolvers failed (subclass=%p base=%p)",
+                (void*)subclass_fn, (void*)g_frameMsgCallBase);
+            return false;
+        }
+        GW::UI::Frame* f = GW::UI::GetFrameById(frame_id);
+        if (!(f && f->IsCreated())) {
+            GWCA_ERR("[UI] AttachInstancedDispatcherByFrameId — frame %u not created", frame_id);
+            return false;
+        }
+        subclass_fn(frame_id, reinterpret_cast<void*>(&Py4GW_InstancedDialogProc), reinterpret_cast<void*>(0));
+        return true;
     }
 
     // Adds a frame interaction callback to an existing frame.
@@ -3037,6 +3676,145 @@ public:
         return frame ? frame->frame_id : 0;
     }
 
+    // Creates a native CtlBtn button using the engine-level CtlBtnProc.
+    // Unlike CreateButtonFrameByFrameId (which uses IUi::UiCtlBtnProc and crashes),
+    // CtlBtnProc has ZERO external dependencies — no s_btnCheckImageList, no image
+    // templates. Paints flat-color rectangles. Text set after creation via msg 0x5E.
+    // This is the same path IME candidate window uses (prev/next page buttons).
+    static uint32_t CreateCtlButtonFrameByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags,
+        uint32_t child_index = 0,
+        const std::wstring& caption = L"",
+        const std::wstring& component_label = L"")
+    {
+        printf("[GWCA-DEBUG] CreateCtlButtonFrameByFrameId: ENTRY parent=%u flags=0x%X child=%u caption='%ls' label='%ls'\n",
+            parent_frame_id, component_flags, child_index,
+            caption.c_str(), component_label.c_str());
+        fflush(stdout);
+
+        auto* frame = GW::UI::CreateCtlButtonFrame(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            caption.empty() ? nullptr : const_cast<wchar_t*>(caption.c_str()),
+            component_label.empty() ? nullptr : const_cast<wchar_t*>(component_label.c_str()));
+
+        uint32_t result = frame ? frame->frame_id : 0;
+        printf("[GWCA-DEBUG] CreateCtlButtonFrameByFrameId: RESULT frame_id=%u\n", result);
+        fflush(stdout);
+        return result;
+    }
+
+    // ── Path B: Flat Engine Button with Click Support ──────────────────
+    // Creates a flat button (CtlBtnProc) with proper dimensions and optional
+    // click support via FrameNewSubclass on the parent window.
+    //
+    // Full pipeline:
+    //   1. [Optional] FrameNewSubclass(parent, dialogSubclassType, 0) — OnFrameNotify
+    //   2. FrameCreate(parent, flags, childIdx, CtlBtnProc, userData, label)
+    //   3. FrameSetSize(buttonId, width, height)          ← fixes thin strip
+    //   4. CtlBtnSetTextLiteral(buttonId, caption)        ← sets text
+    //   5. FrameSetPosition(buttonId, x, y)
+    //   6. FrameMouseEnable(buttonId, 1, 0)
+    //
+    // Click support requires DIALOG_SUBCLASS_TYPE_ADDR (currently 0 = disabled).
+    // When resolved, click notifications (notifyId 7=pushed, 8=clicked) will
+    // dispatch through the parent's OnFrameNotify handler.
+    static uint32_t CreateFlatButtonWithClickByFrameId(
+        uint32_t parent_frame_id,
+        uint32_t component_flags = 0x40000,
+        uint32_t child_index = 0,
+        const std::wstring& label_text = L"",
+        float width = 100.0f,
+        float height = 24.0f,
+        float pos_x = 10.0f,
+        float pos_y = 10.0f,
+        bool enable_click = false)
+    {
+        printf("[GWCA-DEBUG] CreateFlatButtonWithClickByFrameId: ENTRY parent=%u flags=0x%X child=%u label='%ls' size=(%.1f,%.1f) pos=(%.1f,%.1f) enable_click=%d\n",
+            parent_frame_id, component_flags, child_index,
+            label_text.c_str(), width, height, pos_x, pos_y, (int)enable_click);
+        fflush(stdout);
+
+        // Step 1: Create the button via GWCA's CreateFlatButtonWithClick
+        //  (which handles FrameNewSubclass on parent if enable_click is set)
+        auto* frame = GW::UI::CreateFlatButtonWithClick(
+            parent_frame_id,
+            component_flags,
+            child_index,
+            label_text.empty() ? nullptr : const_cast<wchar_t*>(label_text.c_str()),
+            enable_click);
+        if (!frame) {
+            printf("[GWCA-DEBUG] CreateFlatButtonWithClickByFrameId: FAILED — CreateFlatButtonWithClick returned null\n");
+            fflush(stdout);
+            return 0;
+        }
+
+        const uint32_t button_id = frame->frame_id;
+        printf("[GWCA-DEBUG] CreateFlatButtonWithClickByFrameId: button created, frame_id=%u\n", button_id);
+        fflush(stdout);
+
+        // Step 2: Fix thin strip — set dimensions via FrameSetSize
+        if (width > 0 && height > 0) {
+            printf("[GWCA-DEBUG] CreateFlatButtonWithClickByFrameId: FrameSetSize(frame=%u, w=%.1f, h=%.1f)\n",
+                button_id, width, height);
+            fflush(stdout);
+            FrameSetSizeByFrameId(button_id, width, height);
+        }
+
+        // Step 3: Set caption text via CtlBtnSetTextLiteral (msg 0x5E)
+        if (!label_text.empty()) {
+            printf("[GWCA-DEBUG] CreateFlatButtonWithClickByFrameId: CtlBtnSetTextLiteral(frame=%u, text='%ls')\n",
+                button_id, label_text.c_str());
+            fflush(stdout);
+            GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x5E),
+                const_cast<wchar_t*>(label_text.c_str()), nullptr);
+        }
+
+        // Step 4: Set position
+        {
+            using FrameSetPos_pt = void(__cdecl*)(uint32_t, Coord2f*);
+            static FrameSetPos_pt pos_fn = nullptr;
+            if (!pos_fn) {
+                const auto addr = ResolveFrameSetPositionCoord2f();
+                if (addr) pos_fn = reinterpret_cast<FrameSetPos_pt>(addr);
+            }
+            if (pos_fn) {
+                printf("[GWCA-DEBUG] CreateFlatButtonWithClickByFrameId: FrameSetPosition(frame=%u, x=%.1f, y=%.1f)\n",
+                    button_id, pos_x, pos_y);
+                fflush(stdout);
+                Coord2f coord = { pos_x, pos_y };
+                pos_fn(button_id, &coord);
+            } else {
+                printf("[GWCA-DEBUG] CreateFlatButtonWithClickByFrameId: FrameSetPosition SKIPPED — fn not resolved\n");
+                fflush(stdout);
+            }
+        }
+
+        // Step 5: Enable mouse input
+        {
+            using FrameMouseEn_pt = void(__cdecl*)(uint32_t, uint32_t, uint32_t);
+            static FrameMouseEn_pt me_fn = nullptr;
+            if (!me_fn) {
+                const auto addr = ResolveFrameMouseEnable();
+                if (addr) me_fn = reinterpret_cast<FrameMouseEn_pt>(addr);
+            }
+            if (me_fn) {
+                printf("[GWCA-DEBUG] CreateFlatButtonWithClickByFrameId: FrameMouseEnable(frame=%u, enable=1)\n", button_id);
+                fflush(stdout);
+                me_fn(button_id, 1, 0);
+            } else {
+                printf("[GWCA-DEBUG] CreateFlatButtonWithClickByFrameId: FrameMouseEnable SKIPPED — fn not resolved\n");
+                fflush(stdout);
+            }
+        }
+
+        printf("[GWCA-DEBUG] CreateFlatButtonWithClickByFrameId: COMPLETE frame_id=%u\n", button_id);
+        fflush(stdout);
+        return button_id;
+    }
+
     // Creates a native checkbox frame.
     static uint32_t CreateCheckboxFrameByFrameId(
         uint32_t parent_frame_id,
@@ -3051,6 +3829,9 @@ public:
             child_index,
             name_enc.empty() ? nullptr : const_cast<wchar_t*>(name_enc.c_str()),
             component_label.empty() ? nullptr : const_cast<wchar_t*>(component_label.c_str()));
+        // NOTE (2026-07-01): reading the id from frame+sizeof(void*) (the swarm's "-4 offset" theory)
+        // caused an IMMEDIATE checkbox crash in-client — reverted. The real checkbox model needs
+        // foundational RE (how the game builds/tears down a real dialog checkbox); see the reset RE.
         return frame ? frame->frame_id : 0;
     }
 
@@ -3062,13 +3843,22 @@ public:
         uintptr_t page_context = 0,
         const std::wstring& component_label = L"")
     {
+        printf("[GWCA-DEBUG] CreateScrollableFrameByFrameId: ENTRY parent=%u flags=0x%X child=%u page_context=0x%p label='%ls'\n",
+            parent_frame_id, component_flags, child_index,
+            (void*)page_context, component_label.c_str());
+        fflush(stdout);
+
         auto* frame = GW::UI::CreateScrollableFrame(
             parent_frame_id,
             component_flags,
             child_index,
             reinterpret_cast<void*>(page_context),
             component_label.empty() ? nullptr : const_cast<wchar_t*>(component_label.c_str()));
-        return frame ? frame->frame_id : 0;
+
+        uint32_t result = frame ? frame->frame_id : 0;
+        printf("[GWCA-DEBUG] CreateScrollableFrameByFrameId: RESULT frame_id=%u\n", result);
+        fflush(stdout);
+        return result;
     }
 
     // Creates a native text-label frame from an encoded label payload.
@@ -3162,12 +3952,23 @@ public:
         uint32_t child_index = 0,
         const std::wstring& component_label = L"")
     {
-        auto* frame = GW::TabsFrame::Create(
-            parent_frame_id,
-            component_flags,
-            child_index,
-            component_label.empty() ? nullptr : component_label.c_str());
-        return frame ? frame->frame_id : 0;
+        // (Ghidra-verified, "/Gw.exe (06-14)") Create with the STYLED page proc UiCtlPageProc
+        // (0x00885590) as the PRIMARY FrameProc — mirroring the game's own textured-tabs constructor
+        // FUN_00889950: `FUN_0062bfc0(parent, 0x40000, 1, FUN_00885590, 0, 0)`. This is essential:
+        // the engine sends msg 4 (install base/vtable) ONLY at CREATE time; the styled proc's case 4
+        // installs base CtlPageProc (0x0061a950) as its sub-handler AND its case 0x5e returns the STYLED
+        // config table so OnCtlAddItem subclasses each tab button with the textured proc (0x00885340).
+        // A post-create FrameNewSubclass never receives msg 4 → the vtable stays wired for the plain
+        // config → the styled 0x5e feeds mismatched state → crash on display (the 2026-07-01 regression).
+        // Keep flags 0x40000 (paint gate). Container renders 0×0 until ≥1 tab is added — do NOT size it.
+        const uintptr_t styled_proc = ResolveUiCtlPageProc();
+        if (!styled_proc) {
+            GWCA_ERR("[UI] CreateTabsFrameByFrameId — styled page proc (0x00885590) not resolved");
+            return 0;
+        }
+        return CreateUIComponentByFrameId(
+            parent_frame_id, component_flags, child_index,
+            styled_proc, std::wstring(), component_label);
     }
 
     static std::wstring GetButtonLabelByFrameId(uint32_t frame_id) {
@@ -4142,6 +4943,27 @@ public:
                   const_cast<void*>(user_data));
     }
 
+    // Show/hide a frame-list item by its CHILD CODE (= the insert_index it was created with). msg 0x67.
+    // (Ghidra-verified, "/Gw.exe (06-14)") The engine has NO native group/collapse: a group header only
+    // toggles its own checkbox glyph and never touches sibling rows. Collapsible sections are done
+    // app-side — track which item codes belong to a header and call this for each when the header
+    // toggles. Base CtlFrameList proc (FUN_00612c80) case 0x67 resolves the item via FrameGetChild
+    // (so item_code is the CHILD CODE, not a frame id), sets its shown flag, and reflows the list —
+    // but ONLY if the list style bit 0x2000 is CLEAR (else no reflow). Send to the LIST frame, NOT the
+    // item. IMPORTANT: the EXE 06-14 ShowItem msg is 0x67 (the WASM 0x65 is a different fn on this
+    // build). Payload = {item_code, show?1:0}. Returns false if the list frame is invalid.
+    static bool CtlFrameListShowItemByFrameId(uint32_t frame_list_id, uint32_t item_code, bool show)
+    {
+        GW::UI::Frame* f = GW::UI::GetFrameById(frame_list_id);
+        if (!f) {
+            GWCA_ERR("[UI] CtlFrameListShowItemByFrameId — invalid frame_list_id %u", frame_list_id);
+            return false;
+        }
+        uint32_t payload[2] = { item_code, show ? 1u : 0u };
+        GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x67), payload, nullptr);
+        return true;
+    }
+
     // Calls the native FrameNewSubclass (EXE 0x0062f150) to register a subclass
     // proc on a frame. The subclass proc will be called for messages matching msg_id
     // before the frame's own proc.
@@ -4177,8 +4999,10 @@ public:
         uint32_t component_flags = 0x20000,
         const std::wstring& component_label = L"")
     {
-        return CreateScrollableFrameByFrameId(window_id, component_flags, child_index,
-                                             0, component_label);
+        // Nest the list under the window's native CONTENT frame (band 0x2710) so IUi::PopCloser frees
+        // the whole list (and its item rows) on the native [X].
+        return CreateScrollableFrameByFrameId(EnsureContentFrameForWindow(window_id), component_flags,
+                                             child_index, 0, component_label);
     }
 
     // Convenience: add a text label item to a frame list. Encodes the plain text
@@ -4198,6 +5022,1163 @@ public:
         std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(plain_text);
         return CtlFrameListCreateItemByFrameId(frame_list_id, item_flags,
                                                insert_index, 0, encoded);
+    }
+
+    // Convenience: add a clickable TEXT BUTTON item to a frame list.
+    //
+    // This is byte-for-byte the proven AddTextItemToFrameListByFrameId path — same
+    // CtlFrameListCreateItem machinery (the frame list internally FrameCreates the
+    // item with flags|0x300 in its managed parent context) and the same ENCODED
+    // text payload — with ONE change: the item proc is CtlTextBtnProc instead of the
+    // text-label proc. That is the only difference between a label and a button here.
+    //
+    // Rationale (RE 2026-06-30): the engine never creates button procs as bare
+    // standalone children — they always live inside a managed parent context, and
+    // their caption must be an encoded payload (raw text crashes). The frame-list
+    // item path satisfies both, which is why it renders where bare FrameCreate does not.
+    //
+    // Returns the new button item's frame ID, or 0 on failure.
+    static uint32_t AddButtonItemToFrameListByFrameId(
+        uint32_t frame_list_id,
+        const std::wstring& plain_text,
+        uint32_t insert_index = 0,
+        uint32_t item_flags = 0)
+    {
+        if (plain_text.empty()) {
+            GWCA_ERR("[UI] AddButtonItemToFrameListByFrameId — empty text");
+            return 0;
+        }
+        const uint32_t proc = static_cast<uint32_t>(ResolveCtlTextButtonProc());
+        if (!proc) {
+            GWCA_ERR("[UI] AddButtonItemToFrameListByFrameId — CtlTextBtnProc not resolved");
+            return 0;
+        }
+        std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(plain_text);
+        return CtlFrameListCreateItemByFrameId(frame_list_id, item_flags,
+                                               insert_index, proc, encoded);
+    }
+
+    // Add a real FLAT BUTTON item (CtlBtnProc — solid rectangle, NON-hyperlink look) to a
+    // frame list. Same proven CtlFrameListCreateItem path as add_text/button_item, with the
+    // flat engine button proc. After creation the caption is set via msg 0x5E (literal), and
+    // an explicit size is applied (CtlBtnProc has no min-size, so an unsized button lays out
+    // thin). Pass item_flags 0x10000 for a persistent toggle (checked state), 0x80000 for a
+    // momentary button; read the pushed/checked state each frame via IsButtonPushedByFrameId.
+    //
+    // Returns the new button item's frame ID, or 0 on failure.
+    static uint32_t AddFlatButtonItemToFrameListByFrameId(
+        uint32_t frame_list_id,
+        const std::wstring& caption,
+        uint32_t insert_index = 0,
+        uint32_t item_flags = 0,
+        float width = 120.0f,
+        float height = 22.0f)
+    {
+        if (caption.empty()) {
+            GWCA_ERR("[UI] AddFlatButtonItemToFrameListByFrameId — empty caption");
+            return 0;
+        }
+        const uint32_t proc = static_cast<uint32_t>(ResolveCtlBtnProc());
+        if (!proc) {
+            GWCA_ERR("[UI] AddFlatButtonItemToFrameListByFrameId — CtlBtnProc not resolved");
+            return 0;
+        }
+        std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(caption);
+        const uint32_t item_id = CtlFrameListCreateItemByFrameId(frame_list_id, item_flags,
+                                                                 insert_index, proc, encoded);
+        if (!item_id)
+            return 0;
+
+        // Caption via msg 0x5E (CtlBtnSetTextLiteral takes a raw wchar_t* safely).
+        GW::UI::Frame* f = GW::UI::GetFrameById(item_id);
+        if (f) {
+            GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x5E),
+                const_cast<wchar_t*>(caption.c_str()), nullptr);
+        }
+        // Explicit size — CtlBtnProc has no min-size enforcement.
+        if (width > 0.0f && height > 0.0f) {
+            FrameSetSizeByFrameId(item_id, width, height);
+        }
+        return item_id;
+    }
+
+    // Install native no-stretch size + size-query handlers on a CtlFrameList so its items keep
+    // their OWN width instead of being stretched to the list width. Call ONCE on the game thread
+    // right after creating the scrollable content and BEFORE adding items. Returns frame_list_id, or 0.
+    static uint32_t SetFrameListNoStretchByFrameId(uint32_t frame_list_id)
+    {
+        if (!g_noStretch_FrameSetPositionPosSize) {
+            const uintptr_t a = ResolveFrameSetPositionPosSize();
+            if (a) g_noStretch_FrameSetPositionPosSize = reinterpret_cast<FrameSetPositionPosSize_pt>(a);
+        }
+        if (!g_noStretch_FrameGetNativeSize) {
+            const uintptr_t a = ResolveFrameGetNativeSize();
+            if (a) g_noStretch_FrameGetNativeSize = reinterpret_cast<FrameGetNativeSize_pt>(a);
+        }
+        if (!g_noStretch_FrameSetPositionPosSize || !g_noStretch_FrameGetNativeSize) {
+            GWCA_ERR("[UI] SetFrameListNoStretchByFrameId — geometry resolvers failed");
+            return 0;
+        }
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_list_id);
+        if (!frame) {
+            GWCA_ERR("[UI] SetFrameListNoStretchByFrameId — invalid frame_list_id %u", frame_list_id);
+            return 0;
+        }
+        // Query handler first (0x64 -> ctx+0x10), then size handler (0x62 -> ctx+0x04). wparam IS the fn ptr.
+        GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x64),
+            reinterpret_cast<void*>(&NoStretchSizeQueryHandler), nullptr);
+        GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x62),
+            reinterpret_cast<void*>(&NoStretchSizeHandler), nullptr);
+        return frame_list_id;
+    }
+
+    // ================= checkbox =================
+// ── Real GW checkbox as a DIRECT CHILD of a managed window ──────────────────────────────
+// (Ghidra-verified, Gw.exe 06-14) The working checkbox is IUi::UiCtlBtnProc (FUN_00877e60)
+// created via CreateUIComponent with the checkbox style bit 0x8000 — i.e. GWCA's
+// GW::UI::CreateCheckboxFrame (= CreateButtonFrame(parent, flags|0x8000, ...), whose
+// ButtonFrame_Callback is already resolved at UIMgr.cpp:1421 via
+// FindAssertion("UiCtlBtn.cpp","!s_btnCheckImageList") -> ToFunctionStart; NO new resolver
+// needed). Creating it this way (NOT as a CtlFrameListCreateItem row) runs the proc's
+// class-init cascade:
+//   * msg 0x04 (case 4) wires the base = flat CtlBtnProc FUN_0060f4f0, which owns the
+//     persistent checked bit0 and the auto-toggle-on-click -> create/destroy/input delegation
+//     is crash-safe (unlike the single-proc frame-list path).
+//   * the box/check face is painted in msg 0x01 pass 1 from the shared image-list global
+//     s_btnCheckImageList (DAT_010819cc); the proc is its SOLE owner — it builds the list on its
+//     class-init msg 0x05 (asserting !s_btnCheckImageList to forbid a double-build) and frees it
+//     on 0x06. The list is NULL until a Store/merchant fires msg 0x05, so on a cold session we
+//     trigger the proc's own build via EnsureBtnCheckImageList (sends msg 0x05, guarded on ==0).
+// The box SELF-SIZES (base msg 0x38 = FUN_00610580 -> ~21x21 native), so it is NOT stretched
+// full-width. Direct-child positioning is by a UNIQUE child_index (child_offset_id): the
+// window's composite-root CRProc sorts/lays out children by this id, so give each checkbox a
+// distinct child_index (1,2,3,...). Never share child_index=0 (that overlaps).
+// Read state with IsCheckboxCheckedByFrameId (msg 0x58); set with SetCheckboxCheckedByFrameId
+// (msg 0x57) — both already exist. Do NOT use IsButtonPushedByFrameId (msg 0x59 = pushed bit).
+// parent_window_id MUST be a CreateNativeWindow() window (it carries the CRProc composite root).
+// Returns the checkbox frame id, or 0.
+static uint32_t CreateCheckboxChildByFrameId(
+    uint32_t parent_window_id,
+    const std::wstring& label,
+    uint32_t child_index = 1,
+    bool initial_checked = false)
+{
+    GW::UI::Frame* parent = GW::UI::GetFrameById(parent_window_id);
+    if (!(parent && parent->IsCreated())) {
+        GWCA_ERR("[UI] CreateCheckboxChildByFrameId — parent window %u not created", parent_window_id);
+        return 0;
+    }
+    // Parent to the window's native CONTENT frame (band 0x2710), NOT the chrome window itself, so the
+    // native [X] closer (IUi::PopCloser) frees this checkbox with the content subtree instead of leaving
+    // it dangling in the hover hot-item. Falls back to the window id if creation fails.
+    const uint32_t host_id = EnsureContentFrameForWindow(parent_window_id);
+    // Encoded caption payload (raw wide strings crash the encoded-text path; reuse the same
+    // literal encoder the other control helpers use).
+    std::wstring name_enc = BuildStandaloneLiteralEncodedTextPayload(
+        label.empty() ? std::wstring(L" ") : label);
+    // (Ghidra-verified, "/Gw.exe (06-14)" + Gw.wasm, 2026-07-01) Match how GW builds its OWN
+    // checkboxes (Options→General, IUi::NDlgOptionGroupGeneral::CDlgOptGeneral::OnFrameCreate @
+    // WASM 80fcf105): every real checkbox — CheckShowKoreanRatings, CheckMouseDisableWalk,
+    // CheckCompassLock, … — is created with:
+    //     FrameCreate(parent, 0x10000, childId, UiCtlBtnProc, textId, name)
+    // i.e. style word 0x10000 ONLY. 0x10000/0x20000 are LAYOUT auto-size-width/height flags
+    // (confirmed in IFrame::Layout::CCmdAdd::Execute), NOT control-type styles.
+    //
+    // Do NOT set 0x40000. In ButtonFrame_Callback (FUN_00877e60) case 1, the raised BUTTON FACE
+    // is drawn by sub-pass 0 (*param2==0) ONLY when FrameTestStyles(frame,0x40000)!=0. Setting
+    // 0x40000 on a checkbox paints a button face — the "wrong glyph / cancel-button look". The
+    // real CHECK GLYPH is drawn by sub-pass 1 (*param2==1), which is NOT gated by 0x40000; it
+    // always pulls from the shared image list. So a correct checkbox needs NO face flag.
+    //
+    // CreateCheckboxFrame ORs 0x8000 (the explicit checkbox-glyph variant) → effective 0x18000.
+    // Do NOT add 0x4000/0x800000 (0x804000 selects the RADIO glyph instead).
+    GW::UI::Frame* frame = GW::UI::CreateCheckboxFrame(
+        host_id,
+        0x10000,
+        child_index,
+        const_cast<wchar_t*>(name_enc.c_str()),
+        nullptr);
+    if (!frame)
+        return 0;
+    // NOTE (2026-07-01): the frame+sizeof(void*) "-4 offset" id read caused an IMMEDIATE checkbox crash
+    // in-client — reverted to frame->frame_id. The correct checkbox model is pending foundational RE.
+    const uint32_t id = frame->frame_id;
+    // Ensure the shared checkbox image list exists before the glyph paints. UiCtlBtnProc is its
+    // SOLE owner (DAT_010819cc): it builds the list on its class-init msg 0x05 and paints the
+    // glyph from it in msg 0x01 pass 1 (→ FUN_0062b0e0, which asserts 0xa28 on a NULL list). The
+    // list stays NULL until a Store/merchant broadcasts msg 0x05, so on a cold session we trigger
+    // the proc's OWN build by sending it msg 0x05 — but ONLY when the global is still null
+    // (EnsureBtnCheckImageList guards on ==0). That respects the proc's `!s_btnCheckImageList`
+    // single-build assert (case 5 asserts 0x45 if already built): we never send when it's set.
+    EnsureBtnCheckImageList(id);
+    // NOTE: the caption is already delivered ENCODED via name_enc at create (param 4) — exactly like
+    // the native checkbox builder, which never sends msg 0x5E. Do NOT send a RAW caption to base
+    // SetText (0x5E) afterwards: it routes a raw wide string into the encoded-text path and is
+    // needless crash surface. (Removed the old post-create 0x5E send.)
+    // Optional initial tick via the base checked bit (msg 0x57).
+    if (initial_checked)
+        SetCheckboxCheckedByFrameId(id, true);
+    TriggerFrameRedrawByFrameId(id);
+    return id;
+}
+
+    // ================= radio =================
+    // Programmatically set the current selection of a SELECTABLE frame list to a specific
+    // item (e.g. to apply a radio-group DEFAULT, or restore a saved choice). This is the
+    // write side of GetFrameListSelectionByFrameId.
+    //
+    // (Ghidra-verified, "/Gw.exe (06-14)") The correct message is 0x6A, NOT 0x66.
+    //   * Selectable proc CCtlFrameListSelectable::FrameProc @ 0x00613850 case 0x6A does:
+    //       prop = FUN_00613b30(param_1);   FUN_00613b60(prop, /*wparam*/ code);
+    //     FUN_00613b60 stores prop+8 = code (the selected item) and highlights the row via
+    //     child msg 0x57. wparam is the item CHILD CODE passed BY VALUE — the same integer
+    //     returned by AddTextItemToFrameListByFrameId and read back by
+    //     GetFrameListSelectionByFrameId (msg 0x69, prop+8).
+    //   * Msg 0x66 is a RED HERRING: the selectable proc has no case 0x66; it falls through
+    //     to the BASE CtlFrameList proc (0x00612c80) case 0x66, which stores a selection-
+    //     CHANGED CALLBACK pointer at base-prop+0x1C (FUN_00613bf0). It does NOT set the row.
+    //
+    // WARNING: FUN_00613b60 asserts NO-RETURN (FUN_00487a80(0x428)) when the code does not
+    // resolve to a live child (FrameGetChild == 0). child_code MUST be a value previously
+    // returned by AddTextItemToFrameListByFrameId on THIS list. A zero code is rejected here;
+    // a stale/foreign nonzero code will crash, so only feed codes you created on this list.
+    //
+    // Returns frame_list_id on success, or 0 on failure.
+    static uint32_t SetFrameListSelectionByFrameId(uint32_t frame_list_id, uint32_t child_code)
+    {
+        if (!frame_list_id || !child_code) {
+            GWCA_ERR("[UI] SetFrameListSelectionByFrameId — invalid frame_list_id/child_code");
+            return 0;
+        }
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_list_id);
+        if (!frame) {
+            GWCA_ERR("[UI] SetFrameListSelectionByFrameId — frame %u not found", frame_list_id);
+            return 0;
+        }
+        // msg 0x6A: wparam = child code BY VALUE (proc case 0x6A reads param_2 as the item
+        // code and passes it straight to CtlFrameListSelectableSetSel / FUN_00613b60);
+        // lparam unused.
+        GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x6A),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(child_code)), nullptr);
+        return frame_list_id;
+    }
+
+    // ================= text_button_click =================
+// ── CtlTextBtnProc (text button) — click-via-selectable-list helper + cosmetic setters ──
+// (Ghidra-verified vs Gw.exe 06-14, FUN_00616c00 @ 0x00616c00; resolver already exists as
+//  UIManager::ResolveCtlTextButtonProc — no NEW resolver required):
+//   case 0x25 (mouse-up): FrameMsgNotifyParent(notifyId=8) UNCONDITIONALLY  → the SELECTABLE
+//     list (0x00613850) turns this into SetSelection, readable via msg 0x67.
+//   case 0x5b: *(instance+0x18) = wParam  → NORMAL text color (baked 0xff64beeb), ABGR
+//   case 0x5d: *(instance+0x1c) = wParam  → HOVER  text color (baked 0xff78d2ff), ABGR
+//   case 0x5f: rewrites caption buffer from a RAW wchar_t* wParam (create-time payload must be
+//              ENCODED, but this SETTER takes a raw wide string)
+//   Msg payload is {wParam, lParam}; the proc reads *param_2 == wParam (case 0x24 reads param_2[1]).
+//   DO NOT poll msg 0x59 here (that is GetText, NOT IsPushed) and DO NOT parent to a PLAIN list.
+
+    // Add a CLICKABLE text button whose click is READABLE. selectable_frame_list_id MUST come from
+    // CreateSelectableScrollableContentByFrameId (selectable inner proc), NOT the plain scrollable
+    // list — CtlTextBtnProc surfaces a click ONLY as parent-notify 8, and only the selectable list
+    // consumes it (→ SetSelection). Poll the click with GetFrameListSelectionByFrameId(list): the
+    // returned nonzero code == this row. Returns the item's frame id, or 0.
+    static uint32_t AddClickableTextButtonToSelectableList(
+        uint32_t selectable_frame_list_id,
+        const std::wstring& caption,
+        uint32_t insert_index = 0,
+        uint32_t item_flags = 0)
+    {
+        if (!selectable_frame_list_id) {
+            GWCA_ERR("[UI] AddClickableTextButtonToSelectableList — invalid selectable list id");
+            return 0;
+        }
+        if (caption.empty()) {
+            GWCA_ERR("[UI] AddClickableTextButtonToSelectableList — empty caption");
+            return 0;
+        }
+        // (Ghidra-verified, "/Gw.exe (06-14)") Build the row with the SELECTABLE text proc
+        // CtlTextSelectable (FUN_00617df0), NOT CtlTextBtnProc. When the selectable list highlights a
+        // row on hover/select it sends child msg 0x57 with a NULL out-ptr; CtlTextBtnProc case 0x57
+        // writes *param_2 = colour through that null → hover crash. CtlTextSelectable case 0x57 only
+        // flips a bit (no wparam deref) and its case 0x24 still notifies parent id 8 (the click the
+        // list turns into the pollable selection). Item flags 0xe001 mirror the native selectable-row
+        // constructor FUN_00619b70. Click stays pollable via GetFrameListSelectionByFrameId (msg 0x69).
+        const uintptr_t proc = ResolveCtlTextSelectableProc();
+        if (!proc) {
+            GWCA_ERR("[UI] AddClickableTextButtonToSelectableList — CtlTextSelectable proc not resolved");
+            return 0;
+        }
+        std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(caption);
+        // Use the caller's item_flags (default 0) so the list AUTO-STACKS the row exactly like a text
+        // item. The native constructor's 0xe001 includes bit 0x2000 (manual-positioning / no
+        // auto-layout), which in this frame-list-item path renders the row at zero size (invisible) and
+        // corrupts teardown (crash on window close) — that was the 2026-07-01 regression. The proc swap
+        // to CtlTextSelectable is what fixes the hover crash; the flags must stay list-managed here.
+        return CtlFrameListCreateItemByFrameId(
+            selectable_frame_list_id, item_flags, insert_index,
+            static_cast<uint32_t>(proc), encoded);
+    }
+
+    // Override the baked cyan "hyperlink" NORMAL color. color_abgr is 0xAABBGGRR. msg 0x5b.
+    static bool SetTextButtonColorByFrameId(uint32_t text_button_id, uint32_t color_abgr)
+    {
+        GW::UI::Frame* f = GW::UI::GetFrameById(text_button_id);
+        if (!f) {
+            GWCA_ERR("[UI] SetTextButtonColorByFrameId — invalid frame %u", text_button_id);
+            return false;
+        }
+        GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x5B),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(color_abgr)), nullptr);
+        return true;
+    }
+
+    // Override the baked HOVER color (shown while the mouse is over the button). ABGR. msg 0x5d.
+    static bool SetTextButtonHoverColorByFrameId(uint32_t text_button_id, uint32_t color_abgr)
+    {
+        GW::UI::Frame* f = GW::UI::GetFrameById(text_button_id);
+        if (!f) {
+            GWCA_ERR("[UI] SetTextButtonHoverColorByFrameId — invalid frame %u", text_button_id);
+            return false;
+        }
+        GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x5D),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(color_abgr)), nullptr);
+        return true;
+    }
+
+    // Replace the caption. msg 0x5f takes a RAW wide string (it wcslen+copies it) — this is the
+    // text-button caption setter. Do NOT use 0x5e here: on this proc 0x5e propagates the frame
+    // NAME to children, it is not the caption setter.
+    static bool SetTextButtonTextByFrameId(uint32_t text_button_id, const std::wstring& caption)
+    {
+        GW::UI::Frame* f = GW::UI::GetFrameById(text_button_id);
+        if (!f) {
+            GWCA_ERR("[UI] SetTextButtonTextByFrameId — invalid frame %u", text_button_id);
+            return false;
+        }
+        GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x5F),
+            const_cast<wchar_t*>(caption.c_str()), nullptr);
+        return true;
+    }
+
+    // ================= edit =================
+// ============================================================================
+// Editable text (edit box) — CORRECT build path. (Ghidra-verified, Gw.exe 06-14.)
+//
+// CtlEditProc (0x00888aa0) is ONLY the render/caret/input SUBCLASS: its switch has NO
+// case 9 (OnFrameCreate) and NO case 4 (class vtable), so registering it as the primary
+// component callback (or as a bare frame-list item via CtlFrameListCreateItem) attaches no
+// CCtlEdit value context and every value msg (0x5E/0x57/0x5A) is dead / faults. The game
+// builds edit boxes (decompiled GmChat builder FUN_0051b580) by registering the OUTER CCtlEdit
+// proc FUN_008852e0 through CreateUIComponent:
+//   msg 4   -> installs C++ class vtable   *(ctx+0xc)=0x00619c50
+//   msg 9   -> FUN_0062f150(frame, CtlEditProc 0x00888aa0, 0)  attaches the render subclass
+//   msg 100 -> copies the 7-ptr value-interface table from 0x00b96960 (REP MOVSD)
+// That outer proc is what makes SetText(0x5E)/GetText(0x57)/SetMaxLength(0x5A) functional.
+// => edit MUST be a DIRECT CHILD via CreateUIComponent, NOT a (no-stretch) frame-list item.
+//
+// Resolver: the msg-100 REP MOVSD from 0x00b96960 anchors the outer proc. The 41-byte
+// prologue is verified UNIQUE @ 0x008852e0 (search_byte_patterns, Gw.exe 06-14).
+static uintptr_t ResolveOuterCCtlEditProc()
+{
+    static uintptr_t cached = 0;
+    if (cached)
+        return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x8B\x4D\x08\x8B\x41\x04\x83\xF8\x04\x74\x3B\x83\xF8\x09\x74\x23\x83\xF8\x64\x75\x15\x56\x57\x8B\x7D\x10\xB9\x07\x00\x00\x00\xBE\x60\x69\xB9\x00\xF3\xA5",
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveOuterCCtlEditProc — pattern not found");
+        return 0;
+    }
+    cached = addr;
+    return cached;
+}
+
+// (Ghidra-verified) s_editCaretMaterial cluster (Gw.exe 06-14 = 0x01081d78 caret /
+// 0x01081d7c selection / 0x01081d80 glyph). Built ONCE in CtlEditProc (0x00888aa0) msg 5 under
+// `if(s_editCaretMaterial==0){...build...}else{FUN_00487a80(0x3c) FATAL}`. So msg 5 is SAFE
+// only while the global is NULL — identical guard to EnsureBtnCheckImageList. In a live in-game
+// session a chat box already ran msg 5, so it is warm and we send nothing. NOTE: 0x01081d78 is
+// build-specific (resolve from CtlEditProc's msg-5 store for build independence later).
+static bool IsEditCaretMaterialReady()
+{
+    volatile uint32_t* g = reinterpret_cast<uint32_t*>(0x01081d78u);
+    return *g != 0;
+}
+
+static void EnsureEditCaretMaterial(uint32_t edit_frame_id)
+{
+    volatile uint32_t* g = reinterpret_cast<uint32_t*>(0x01081d78u);
+    if (*g == 0) {
+        GW::UI::Frame* f = GW::UI::GetFrameById(edit_frame_id);
+        if (f) GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x05), nullptr, nullptr);
+    }
+}
+
+// Build a REAL editable text box as a DIRECT CHILD of a window (NOT a frame-list item / no-stretch
+// row — CtlEditProc has NO msg 0x38 self-size and the CCtlEdit value context only exists on the
+// CreateUIComponent child path). Registers the OUTER CCtlEdit proc (0x008852e0), applies an
+// explicit size (else it renders 0x0), and warms the caret material iff cold. component_flags
+// default 0x892e000 = the game's own full "EditName" edit flags (decompiled from FUN_0051b580;
+// simple single-line variant = proc 0x0087d9a0 + flags 0x2020000). parent_frame_id MUST be a real
+// CreateNativeWindow child. Returns the edit frame id, or 0.
+static uint32_t CreateEditBoxChildByFrameId(
+    uint32_t parent_frame_id,
+    const std::wstring& label = L"EditBox",
+    uint32_t child_index = 0,
+    uint32_t component_flags = 0x892e000,
+    float width = 200.0f, float height = 20.0f)
+{
+    const uintptr_t proc = ResolveOuterCCtlEditProc();
+    if (!proc) {
+        GWCA_ERR("[UI] CreateEditBoxChildByFrameId — outer CCtlEdit proc not resolved");
+        return 0xFFFFFFFFu;
+    }
+    // (Ghidra-verified) GW frame ids are 0-BASED and slot 0 is recycled — id 0 is a VALID handle, not a
+    // failure. The old `if(!id) return 0` discarded a valid id-0 edit and skipped its size+seed → blank
+    // box (log showed "edit created ok id=0"). Guard the PARENT up front and use 0xFFFFFFFF as the only
+    // failure sentinel; let id 0 fall through to sizing + the msg-0x5A/0x5E seed.
+    GW::UI::Frame* parent = GW::UI::GetFrameById(parent_frame_id);
+    if (!(parent && parent->IsCreated())) {
+        GWCA_ERR("[UI] CreateEditBoxChildByFrameId — invalid parent %u", parent_frame_id);
+        return 0xFFFFFFFFu;
+    }
+    // Nest under the window's native CONTENT frame (band 0x2710) so IUi::PopCloser frees it on [X].
+    const uint32_t id = CreateUIComponentByFrameId(
+        EnsureContentFrameForWindow(parent_frame_id), component_flags, child_index,
+        static_cast<uintptr_t>(proc), std::wstring(), label);
+    // Size with ANCHOR 6 (0x0062F770), NOT FrameSetSize: CtlEditProc has no msg 0x38 self-size, and
+    // as a direct window child a plain FrameSetSize is overwritten by the window layout each pass →
+    // the frame collapses to 0x0 and paints nothing ("empty window"). The anchor-6 pos/size setter
+    // pins it (same fix as the slider). (2026-07-01)
+    if (width > 0.0f && height > 0.0f) {
+        if (!g_noStretch_FrameSetPositionPosSize) {
+            const uintptr_t a = ResolveFrameSetPositionPosSize();
+            if (a) g_noStretch_FrameSetPositionPosSize = reinterpret_cast<FrameSetPositionPosSize_pt>(a);
+        }
+        if (g_noStretch_FrameSetPositionPosSize) {
+            const Coord2f pos  = { 10.0f, 10.0f };
+            const Coord2f size = { width, height };
+            g_noStretch_FrameSetPositionPosSize(id, &pos, &size);
+        } else {
+            FrameSetSizeByFrameId(id, width, height);
+        }
+    }
+    EnsureEditCaretMaterial(id);                     // warm caret/sel/glyph iff NULL (safe)
+    // (Ghidra-verified, "/Gw.exe (06-14)") The edit only paints once its value store is seeded. The
+    // game's EditName builder FUN_0051b580 sends SetMaxLength (msg 0x5A = FUN_00604aa0) then SetText
+    // (msg 0x5E = FUN_00604b00) post-create; without them the value frame reports ZERO content size and
+    // CtlEditProc's paint enumerates no glyph/caret/background sub-passes → nothing draws ("empty
+    // window"), even with a valid frame rect. Seed both: max length first (allocates/sizes the store),
+    // then a single ENCODED space so it lays out and issues its first paint. (Raw wide strings trip the
+    // SetText assert — must be encoded.)
+    if (GW::UI::Frame* ef = GW::UI::GetFrameById(id)) {
+        GW::UI::SendFrameUIMessage(ef, static_cast<GW::UI::UIMessage>(0x5A),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(0x100)), nullptr);
+        std::wstring seed = BuildStandaloneLiteralEncodedTextPayload(L" ");
+        GW::UI::SendFrameUIMessage(ef, static_cast<GW::UI::UIMessage>(0x5E),
+            const_cast<wchar_t*>(seed.c_str()), nullptr);
+    }
+    return id;
+}
+
+// Set edit text (msg 0x5E; game accessor FUN_00604b00). Text MUST be an encoded payload — a raw
+// wide string trips the SetText null/encoding assert. Returns false if the frame is invalid.
+static bool SetEditBoxTextByFrameId(uint32_t frame_id, const std::wstring& plain_text)
+{
+    GW::UI::Frame* f = GW::UI::GetFrameById(frame_id);
+    if (!(f && f->IsCreated()))
+        return false;
+    std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(plain_text);
+    GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x5E),
+        const_cast<wchar_t*>(encoded.c_str()), nullptr);
+    return true;
+}
+
+// Set edit max input length (msg 0x5A; game accessor FUN_00604aa0). max_length is the raw wparam
+// value (not a pointer), exactly as the engine passes it.
+static bool SetEditBoxMaxLengthByFrameId(uint32_t frame_id, uint32_t max_length)
+{
+    GW::UI::Frame* f = GW::UI::GetFrameById(frame_id);
+    if (!(f && f->IsCreated()))
+        return false;
+    GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x5A),
+        reinterpret_cast<void*>(static_cast<uintptr_t>(max_length)), nullptr);
+    return true;
+}
+
+// GetText is msg 0x57 (game accessor FUN_00603c40). Because the frame is now built via the outer
+// proc, the EXISTING GetEditableTextValueByFrameId (GWCA GW::EditableTextFrame::GetValue) reads
+// the live CCtlEdit context correctly — reuse it rather than a hand-rolled 0x57 buffer call.
+
+    // ================= progress =================
+// ============================================================================
+// PLACEMENT 1 — free-function resolver: add next to ResolveCtlBtnProc (~py_ui.h:305).
+// ============================================================================
+
+// CtlProgress::CProgressFrame::FrameProc @ EXE 0x008812e0 (WASM ram:80f6cf82) — the REAL
+// progress-bar FrameProc. Single-layer, self-driving: msg 4 declares base &LAB_00618b70
+// (=FrameWithValue FUN_00618d00), msg 5 builds the 3 class-static image lists incl.
+// sm_rateArrowImageList (via the LOADER FUN_00882530), msg 9 allocs the 0x28 instance ctx
+// and self-arms the 0x45 anim tick; value/max/percent fall through to the FrameWithValue
+// base (thunk_FUN_00647170). It carries NO assertion-message string of its own, so it
+// CANNOT be anchored by FindAssertion — the GWCA anchor
+// FindAssertion("UiCtlProgress.cpp","!sm_rateArrowImageList")->ToFunctionStart wrongly
+// lands on the rate-arrow image-list LOADER FUN_00882530 (a void(void), the string's ONLY
+// referrer — verified via get_xrefs_to: single caller 0x0088159b inside 0x008812e0), which
+// crashes when invoked as a FrameProc. Anchor instead on the proc's own unique jump-table
+// prologue (26 bytes = the function ENTRY):
+//   push ebp; mov ebp,esp; sub esp,0x18; push ebx; mov ebx,[ebp+0xC]; push esi;
+//   mov esi,[ebp+8]; push edi; mov eax,[esi+4]; add eax,-4; cmp eax,0x5E; ja ...
+// Verified UNIQUE @ 0x008812e0 in Gw.exe build 06-14 (match IS the entry; no ToFunctionStart).
+static uintptr_t ResolveCtlProgressProc()
+{
+    static uintptr_t cached = 0;
+    if (cached)
+        return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x83\xEC\x18\x53\x8B\x5D\x0C\x56\x8B\x75\x08\x57\x8B\x46\x04\x83\xC0\xFC\x83\xF8\x5E\x0F\x87",
+        "xxxxxxxxxxxxxxxxxxxxxxxxxx", 0);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveCtlProgressProc — pattern not found");
+        return 0;
+    }
+    cached = addr;
+    return cached;
+}
+
+// ============================================================================
+// PLACEMENT 2 — UIManager members: add next to CreateProgressBarByFrameId (~py_ui.h:3492).
+// ============================================================================
+
+    // Creates a WORKING native progress bar as a POSITIONED DIRECT CHILD of parent_frame_id,
+    // using the CORRECT CtlProgress proc (0x008812e0). This bypasses GWCA's
+    // GW::ProgressBar::Create, whose callback anchor resolves to the rate-arrow LOADER and
+    // crashes. Registering the real proc lets the engine self-run msg 4/5/9 (base wiring,
+    // class-static image lists incl. sm_rateArrowImageList, ctx alloc). The proc self-sizes
+    // HEIGHT only (msg 0x38 echoes the proposed WIDTH), so width/x/y are supplied explicitly
+    // or it renders 0-wide. To make the fill actually PAINT, the paint-style must include bit
+    // 0x10 (primary bar); this helper sets it via msg 0x64. Drive the fill afterwards with
+    // SetProgressBar(Value|Percent|Max)ByFrameId. Returns the child frame id, or 0.
+    static uint32_t CreateProgressBarChildByFrameId(
+        uint32_t parent_frame_id,
+        float x = 10.0f, float y = 10.0f,
+        float width = 160.0f, float height = 0.0f,
+        uint32_t child_index = 0,
+        uint32_t component_flags = 0x300)
+    {
+        const uintptr_t proc = ResolveCtlProgressProc();
+        if (!proc) {
+            GWCA_ERR("[UI] CreateProgressBarChildByFrameId — CtlProgress proc not resolved");
+            return 0;
+        }
+        // Same typed-component create GW::ProgressBar::Create uses, but with the correct proc.
+        // msg 9 ignores userData/name, so both are empty. Nest under the band 0x2710 content frame so
+        // IUi::PopCloser frees it on the native [X].
+        const uint32_t id = CreateUIComponentByFrameId(
+            EnsureContentFrameForWindow(parent_frame_id), component_flags, child_index,
+            static_cast<uintptr_t>(proc), std::wstring(), std::wstring());
+        if (!id)
+            return 0;
+        // Force width (self-size only covers height). Height 0 -> a sane default; a caller
+        // height overrides the proc's font-height self-size.
+        if (width > 0.0f)
+            FrameSetSizeByFrameId(id, width, height > 0.0f ? height : 16.0f);
+        {
+            using FrameSetPos_pt = void(__cdecl*)(uint32_t, Coord2f*);
+            static FrameSetPos_pt pos_fn = nullptr;
+            if (!pos_fn) { const auto a = ResolveFrameSetPositionCoord2f(); if (a) pos_fn = reinterpret_cast<FrameSetPos_pt>(a); }
+            if (pos_fn) { Coord2f c = { x, y }; pos_fn(id, &c); }
+        }
+        // Paint-style: OR in the primary-bar bit (0x10) so the fill renders (msg 0x64 SetStyle).
+        SendFrameUIMessage(id, 0x64, 0x10, 0);
+        return id;
+    }
+
+    // Sets the progress fill as a percentage 0..100 (base FrameWithValue SetPercent, msg 0x5B;
+    // wparam is the raw percent — the base computes value = max*percent/100).
+    static bool SetProgressBarPercentByFrameId(uint32_t frame_id, uint32_t percent) {
+        return SendFrameUIMessage(frame_id, 0x5B, static_cast<uintptr_t>(percent), 0);
+    }
+
+    // Reads the current progress max (base FrameWithValue GetMax, msg 0x57; out via lparam).
+    static uint32_t GetProgressBarMaxByFrameId(uint32_t frame_id) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return 0;
+        uint32_t out = 0;
+        GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x57), nullptr, &out);
+        return out;
+    }
+
+    // Sets an animated auto-advance rate in units/second (base FrameWithValue, msg 0x59;
+    // wparam is a POINTER to a float — the base reads *(float*)wparam, then arms msg 0x45).
+    static bool SetProgressBarIncrementsPerSecondByFrameId(uint32_t frame_id, float per_second) {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+        if (!(frame && frame->IsCreated()))
+            return false;
+        GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x59), &per_second, nullptr);
+        return true;
+    }
+
+    // Sets the on-bar overlay text (proc-level msg 0x62 -> ctx+0x04, invalidates draw). The
+    // text MUST be a GW-encoded payload (BuildStandaloneLiteralEncodedTextPayload); a raw
+    // wide string is unsafe. Pass an empty string to clear.
+    static bool SetProgressBarOverlayTextByFrameId(uint32_t frame_id, const std::wstring& enc_text) {
+        return SendFrameUIMessage(frame_id, 0x62,
+            reinterpret_cast<uintptr_t>(enc_text.empty() ? nullptr : enc_text.c_str()), 0);
+    }
+
+    // ================= tabs =================
+// ============================================================================
+// TABS (CtlPage / CtlPageProc @ EXE 0x0061a950, WASM ram:80e078f3)
+// ----------------------------------------------------------------------------
+// Self-contained container FrameProc. msg 0x09 (create) self-allocs an 8-byte
+// instance {+0x00 frame handle, +0x04 active_index = 0xffffffff} and does NOT
+// register a multi-layer base (unlike slider/dropdown) → renders cold as a plain
+// frame-list item, no crash. It self-lays-out its tab-button strip + active body
+// on 0x37/0x38 and derives its size ONLY from its children (verified FUN_0061b2d0):
+// with ZERO tabs it reports {0,0} and renders 0x0 — you MUST add >=1 tab. Never
+// FrameSetSize it and never position its children.
+//
+// Resolve via the full 30-byte function-ENTRY prologue (the match IS the entry —
+// no ToFunctionStart). Verified UNIQUE @ 0x0061a950 in Gw.exe build 06-14-2026
+// (search_byte_patterns → single hit).
+static uintptr_t ResolveCtlPageProc()
+{
+    static uintptr_t cached = 0;
+    if (cached)
+        return cached;
+    const uintptr_t addr = GW::Scanner::Find(
+        "\x55\x8B\xEC\x8B\x45\x08\x83\xEC\x0C\x53\x8B\x5D\x10\x56\x8B\x75\x0C\x57\x8B\x78\x08\x8B\x40\x04\x83\xC0\xFC\x83\xF8\x5A",
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0);
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveCtlPageProc — pattern not found");
+        return 0;
+    }
+    cached = addr;
+    return cached;
+}
+
+// ---- The following are static members of class UIManager (place beside the
+//      other frame-list-item helpers, e.g. after AddFlatButtonItemToFrameListByFrameId) ----
+
+    // Create a TABS container (CtlPage) as a frame-list item — the crash-safe path.
+    // The managed list supplies the parent context; CtlPageProc msg 0x09 self-allocs
+    // its instance and self-lays-out. RENDERS 0x0 UNTIL A TAB IS ADDED (msg 0x38
+    // sizes from children). Do NOT FrameSetSize the returned container.
+    // Returns the tabs container frame id, or 0.
+    static uint32_t CreateTabsAsListItemByFrameId(
+        uint32_t frame_list_id,
+        uint32_t insert_index = 0,
+        uint32_t flags = 0x300)
+    {
+        const uintptr_t proc = ResolveCtlPageProc();
+        if (!proc) {
+            GWCA_ERR("[UI] CreateTabsAsListItemByFrameId — CtlPageProc not resolved");
+            return 0;
+        }
+        // Empty encoded userData — CtlPageProc msg 0x09 ignores it (harmless).
+        std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(L"");
+        return CtlFrameListCreateItemByFrameId(frame_list_id, flags, insert_index,
+                                               static_cast<uint32_t>(proc), encoded);
+    }
+
+    // Add a tab to a CtlPage container (msg 0x56 → FUN_0061ad40). Builds the 5-dword
+    // CtlPageItem {caption, flags, code, proc, ctx} the engine reads:
+    //   caption -> tab-button userData (MUST be GW-literal-encoded; a raw wchar_t* crashes)
+    //   flags   -> body create flags (engine ORs 0x200 for the page body); 0x20000 = the game value
+    //   code    -> tab index, MUST be >= 0 and unique (asserted "!IsBtnCode(pageCode)")
+    //   proc    -> body content FrameProc (MUST be valid & self-contained; 0 = null proc = unsafe)
+    //   ctx     -> body userData (for a text proc it MUST be an encoded payload)
+    // Engine builds body = FrameCreate(page, flags|0x200, code, proc, ctx) and tab button =
+    // FrameCreate(page, 0x20100, ~code, flat CtlBtnProc 0x0060f4f0, caption); FIRST tab auto-selects.
+    // Returns the tab BODY frame id (in msg lparam) to populate, or 0.
+    static uint32_t AddTabToPageByFrameId(
+        uint32_t tabs_frame_id,
+        const std::wstring& tab_caption,
+        uint32_t tab_code,
+        uintptr_t body_proc = 0,
+        const std::wstring& body_text = L"")
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(tabs_frame_id);
+        if (!frame) {
+            GWCA_ERR("[UI] AddTabToPageByFrameId — invalid tabs_frame_id %u", tabs_frame_id);
+            return 0;
+        }
+        if (static_cast<int32_t>(tab_code) < 0) {
+            GWCA_ERR("[UI] AddTabToPageByFrameId — tab_code must be >= 0");
+            return 0;
+        }
+        // Never pass a null body proc: default to the self-contained text-label proc.
+        if (!body_proc)
+            body_proc = reinterpret_cast<uintptr_t>(ResolveTextLabelFrameCallback());
+        if (!body_proc) {
+            GWCA_ERR("[UI] AddTabToPageByFrameId — body proc not resolved");
+            return 0;
+        }
+        // Encoded payloads must stay alive across the msg 0x56 send (engine copies them).
+        std::wstring caption_enc = BuildStandaloneLiteralEncodedTextPayload(
+            tab_caption.empty() ? std::wstring(L" ") : tab_caption);
+        std::wstring body_enc = BuildStandaloneLiteralEncodedTextPayload(
+            body_text.empty() ? std::wstring(L" ") : body_text);
+
+        // 5-dword CtlPageItem {caption, flags, code, proc, ctx} (32-bit dwords).
+        uintptr_t item[5];
+        item[0] = reinterpret_cast<uintptr_t>(caption_enc.c_str());
+        item[1] = 0x20000;
+        item[2] = static_cast<uintptr_t>(tab_code);
+        item[3] = body_proc;
+        item[4] = reinterpret_cast<uintptr_t>(body_enc.c_str());
+
+        uint32_t out_body_frame_id = 0;
+        // wparam = &item (param_2), lparam = &out_body (param_3) — verified FUN_0061ad40.
+        GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x56),
+            reinterpret_cast<void*>(item), &out_body_frame_id);
+        return out_body_frame_id;
+    }
+
+    // Select the active tab by index (msg 0x5d → asserts index>=0, then SetActive(index,0)).
+    static bool TabSetActiveByFrameId(uint32_t tabs_frame_id, uint32_t index)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(tabs_frame_id);
+        if (!frame) return false;
+        return GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x5d),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(index)), nullptr);
+    }
+
+    // Current active tab index (msg 0x59 → *out = instance+4). Returns 0xffffffff until the
+    // first tab exists; poll each frame and diff to detect user tab-button clicks.
+    static uint32_t TabGetActiveByFrameId(uint32_t tabs_frame_id)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(tabs_frame_id);
+        if (!frame) return 0xffffffffu;
+        uint32_t out = 0xffffffffu;
+        GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x59), nullptr, &out);
+        return out;
+    }
+
+    // Body frame id for the given tab index (msg 0x5a → FrameGetChild(page, index)).
+    static uint32_t TabGetBodyFrameByFrameId(uint32_t tabs_frame_id, uint32_t index)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(tabs_frame_id);
+        if (!frame) return 0;
+        uint32_t out = 0;
+        GW::UI::SendFrameUIMessage(frame, static_cast<GW::UI::UIMessage>(0x5a),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(index)), &out);
+        return out;
+    }
+
+    // Enable (msg 0x58, flag 1) / disable (msg 0x57, flag 0) a tab by index — verified FUN_0061a950.
+    static bool SetTabEnabledByFrameId(uint32_t tabs_frame_id, uint32_t index, bool enabled)
+    {
+        GW::UI::Frame* frame = GW::UI::GetFrameById(tabs_frame_id);
+        if (!frame) return false;
+        return GW::UI::SendFrameUIMessage(frame,
+            static_cast<GW::UI::UIMessage>(enabled ? 0x58 : 0x57),
+            reinterpret_cast<void*>(static_cast<uintptr_t>(index)), nullptr);
+    }
+
+    // ================= slider =================
+// ── Slider (MULTI-LAYER: CtlSliderProc base @ EXE 0x00615fe0 + UiCtlSliderProc wrapper @ EXE 0x0087f440) ──
+// Ghidra-verified (Gw.exe 06-14): the slider is a TWO-LAYER typed control and CANNOT be created
+// single-proc. The frame-list-item path (AddControlItemByFrameId -> CtlFrameListCreateItem 0x00612900)
+// registers only ONE proc and never runs the msg-4 base-declaration cascade, so frame+0xB0 (subclass
+// depth) is too shallow and the FIRST click (msg 0x24 -> FrameMsgCallBase thunk_FUN_00647170) fires the
+// depth assertion FUN_00487a80(0x223) => CRASH. (Create msg 9 / destroy msg 0xB are exempt in
+// FUN_00647170 — that is why creation itself did not crash, only the first click did.)
+// Confirmed handshake: wrapper 0x0087f440 case 4 => *(code**)param_2[3]=CtlSliderProc(0x00615fe0);
+// base 0x00615fe0 case 4 => *(code**)param_2[3]=FUN_006123a0. Only a typed FrameCreate runs that
+// cascade — which is exactly what GWCA's UI::CreateSliderFrame does (CreateUIComponent(base) +
+// FrameNewSubclass(wrapper)), already wrapped by CreateSliderFrameByFrameId() below.
+//
+// Crash-safe one-shot creator (fills the orphaned py_ui.h:3901 comment that was never implemented).
+// PARENT MUST be a real managed window (CreateNativeWindow), NOT a frame list.
+// Order is load-bearing:
+//   1) two-layer typed create (runs msg-4 cascade => click-safe)
+//   2) SetRange (msg 0x56) FIRST — SetValue asserts min<=v<=max, so range must exist
+//   3) SetValue (msg 0x57)
+//   4) explicit FrameSetSize — base msg-0x38 self-size is proportional to (max-min) => "extremely wide"
+// Read the live value each frame via GetSliderValueByFrameId (msg 0x58); the base updates its internal
+// position on drag (case 0x2c/0x2e) even if the parent ignores notify codes 7/9, so polling reflects
+// user drags with no ImGui hit-test.
+static uint32_t CreateSliderControlByFrameId(
+    uint32_t parent_window_id,
+    uint32_t min_value,
+    uint32_t max_value,
+    uint32_t initial_value,
+    float    width  = 150.0f,
+    float    height = 18.0f,
+    uint32_t child_index = 0)
+{
+    // Guard: base msg-0x38 / msg-0x57 divide & compare against (max-min); zero/inverted range is unsafe.
+    if (max_value <= min_value)
+        return 0;
+    if (initial_value < min_value) initial_value = min_value;
+    if (initial_value > max_value) initial_value = max_value;
+
+    // (1) SINGLE create with the WRAPPER UiCtlSliderProc (0x0087f440) as the PRIMARY proc — mirrors the
+    //     game (FUN_00507210) and the tabs fix. Its case 4 installs base CtlSliderProc as sub-handler.
+    //     Do NOT use CreateSliderFrameByFrameId (base-primary + FrameNewSubclass(wrapper)) — that re-fires
+    //     msg 9/0xb and crashes on create. flags 0x40000 (paint gate), NOT 0x300; empty userdata so msg 9
+    //     seeds min=max=0 with no deref (range is set next).
+    const uintptr_t slider_proc = ResolveUiCtlSliderProc();
+    if (!slider_proc) {
+        GWCA_ERR("[UI] CreateSliderControlByFrameId — UiCtlSliderProc (0x0087f440) not resolved");
+        return 0;
+    }
+    // Nest under the window's native CONTENT frame (band 0x2710) so IUi::PopCloser frees it on [X].
+    const uint32_t slider_id = CreateUIComponentByFrameId(
+        EnsureContentFrameForWindow(parent_window_id), 0x40000, child_index, slider_proc, std::wstring(), std::wstring());
+    if (!slider_id)
+        return 0;
+
+    // (2) SetRange (msg 0x56) MUST precede SetValue — msg 0x57 asserts min<=v<=max (fatal otherwise).
+    SetSliderRangeByFrameId(slider_id, min_value, max_value);
+    // (3) SetValue (msg 0x57) — safe now that range is set.
+    SetSliderValueByFrameId(slider_id, initial_value);
+    // (4) Explicit size AFTER range (so base measure msg 0x38 uses a real max-min). Plain FrameSetSize
+    //     only — the anchor-6 setter (0x0062F770) asserts (inverted-rect 0x238) on the self-measuring
+    //     slider container. Slider still renders range-wide; true width control = range-span (open item).
+    FrameSetSizeByFrameId(slider_id, width, height);
+
+    return slider_id;
+}
+
+// Tear down a slider created by CreateSliderControlByFrameId — use this INSTEAD of a bare destroy.
+// (Ghidra-verified, "/Gw.exe (06-14)") CtlSliderProc (0x00615fe0) registers an auto-scroll CTimer
+// node on a groove/track click (case 0x24 → FUN_00630080 → alloc) and only UNREGISTERS it on mouse-up
+// (case 0x2e → FUN_00630040). The destroy path (case 0xb) frees the instance but NEVER unregisters the
+// timer, so destroying a slider while a groove timer is live orphans the node AND leaves a repeating
+// timer firing on freed memory → the "crashes after fiddling / seems like a leak" symptom. Send a
+// synthetic mouse-up (msg 0x2e, button==0) FIRST to release any pending timer, THEN destroy. Safe even
+// when no timer is live (the unregister just walks the list and finds nothing).
+static bool DestroySliderControlByFrameId(uint32_t slider_id)
+{
+    if (!slider_id)
+        return false;
+    GW::UI::Frame* f = GW::UI::GetFrameById(slider_id);
+    if (!f)
+        return false;
+    // msg 0x2e reads *wparam == 0 (button up) to enter the release branch; zeroed 0x20-byte payload.
+    uint32_t up[8] = { 0 };
+    GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x2E), up, nullptr);
+    return DestroyUIComponentByFrameId(slider_id);
+}
+
+    // ================= groupheader =================
+// ─────────────────────────────────────────────────────────────────────────────
+// CGroupHeaderFrame::FrameProc @ EXE 0x0087ddc0 (WASM ram:81192c89) — GROUP HEADER
+// composite. On msg 9 it inline-allocates its 0x60-byte TCtlInstance (vtable
+// 0x00b96070) and its base OnFrameCreate self-builds TWO children and lays them out:
+//   child0 = CheckOpen checkbox (proc FUN_008867f0; self-builds image list
+//            DAT_01081d70 on msg 5, frees on msg 6 → NO cold-art crash)
+//   child1 = CtlTextBtnProc caption (proc FUN_00616c00, TxtName)
+// positioned via named template L"UiCtlGroupHeader" (FramePlaceChildren FUN_0062f1a0).
+// It renders + self-lays-out cold; do NOT create children or FrameSetSize/Position.
+//
+// Message protocol (verified from the switch in FUN_0087ddc0, 06-14 — the catalog had
+// 0x57/0x58 SWAPPED):
+//   0x56 GetIsOpen(lparam=&u32 out)  reads child0 checked bit (FUN_0060f4b0)
+//   0x57 GetText(lparam=TArray<wchar_t>* out)
+//   0x58 SetIsOpen(wparam=bool value) sets child0 checked bit (FUN_0060f490)
+//   0x59 SetText(wparam=wchar_t* text) forwards to child1 CtlTextBtnSetText (FUN_006177b0)
+//
+// Resolver: the OLD anchor {file="UiCtlGroupHeader.cpp", msg="UiCtlGroupHeader.cpp"}
+// passed the FILENAME as the assertion EXPRESSION → GW::Scanner::FindAssertion returned 0
+// (this was the in-client failure). The real assert expression inside the msg-0x56 path
+// is "isOpen" (EXE string 0x009495b4, pushed at 0x0087ddfe right after the file string
+// at 0x0087ddf9 — both xref'd only inside this proc). Fallback expr "decodedName" (0x57).
+static uintptr_t ResolveGroupHeaderProc()
+{
+    static uintptr_t cached = 0;
+    if (cached)
+        return cached;
+
+    uintptr_t addr = GW::Scanner::FindAssertion(
+        "UiCtlGroupHeader.cpp", "isOpen", 0, 0);
+    if (!addr) {
+        addr = GW::Scanner::FindAssertion(
+            "UiCtlGroupHeader.cpp", "decodedName", 0, 0);
+    }
+    if (!addr) {
+        GWCA_ERR("[SCAN] ResolveGroupHeaderProc — assertion not found");
+        return 0;
+    }
+    const uintptr_t func_start = GW::Scanner::ToFunctionStart(addr, 0xFFF);
+    if (!func_start) {
+        GWCA_ERR("[SCAN] ResolveGroupHeaderProc — ToFunctionStart failed");
+        return 0;
+    }
+    cached = func_start;   // → 0x0087ddc0
+    return cached;
+}
+
+// ── The following are static members of UIManager (place beside
+//    AddButtonItemToFrameListByFrameId / IsButtonPushedByFrameId). ──────────────
+
+// Add a native GROUP HEADER (collapsible section) row to a frame list. Same proven
+// CtlFrameListCreateItem path as add_text/button items, but with the group-header proc;
+// the engine self-builds the checkbox+caption children and positions them. Do NOT send
+// 0x5E and do NOT FrameSetSize/FrameSetPosition. item_flags: 0x1000 = non-collapsible
+// (hides the CheckOpen box), 0x2000 = disable caption mouse. Returns the item's frame ID.
+static uint32_t AddGroupHeaderItemToFrameListByFrameId(
+    uint32_t frame_list_id,
+    const std::wstring& header_text,
+    uint32_t insert_index = 0,
+    uint32_t item_flags = 0)
+{
+    if (header_text.empty()) {
+        GWCA_ERR("[UI] AddGroupHeaderItemToFrameListByFrameId — empty header text");
+        return 0;
+    }
+    const uint32_t proc = static_cast<uint32_t>(ResolveGroupHeaderProc());
+    if (!proc) {
+        GWCA_ERR("[UI] AddGroupHeaderItemToFrameListByFrameId — GroupHeader proc not resolved");
+        return 0;
+    }
+    std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(header_text);
+    return CtlFrameListCreateItemByFrameId(frame_list_id, item_flags,
+                                           insert_index, proc, encoded);
+}
+
+// Group header expanded/collapsed state (msg 0x56 — reads child0 checkbox). Poll each frame.
+static bool GroupHeaderGetIsOpenByFrameId(uint32_t frame_id)
+{
+    auto* frame = GW::UI::GetFrameById(frame_id);
+    if (!(frame && frame->IsCreated()))
+        return false;
+    uint32_t out = 0;
+    GW::UI::SendFrameUIMessage(
+        frame, static_cast<GW::UI::UIMessage>(0x56), nullptr, &out);
+    return out != 0;
+}
+
+// Set group header expanded/collapsed (msg 0x58 — wparam = value). Returns true on send.
+static bool GroupHeaderSetIsOpenByFrameId(uint32_t frame_id, bool is_open)
+{
+    return SendFrameUIMessage(frame_id, 0x58,
+        static_cast<uintptr_t>(is_open ? 1u : 0u), 0);
+}
+
+// Set group header caption (msg 0x59 — wparam = GW-literal-encoded text, forwarded to
+// child1 CtlTextBtnSetText). The message is handled synchronously, so the temporary
+// encoded payload is safe for the duration of the send.
+static bool GroupHeaderSetTextByFrameId(uint32_t frame_id, const std::wstring& header_text)
+{
+    auto* frame = GW::UI::GetFrameById(frame_id);
+    if (!(frame && frame->IsCreated()))
+        return false;
+    std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(header_text);
+    return GW::UI::SendFrameUIMessage(
+        frame, static_cast<GW::UI::UIMessage>(0x59),
+        encoded.empty() ? nullptr : const_cast<wchar_t*>(encoded.c_str()),
+        nullptr);
+}
+
+    // Generic: add ANY researched control as a frame-list item, resolving its FrameProc by
+    // name via the same proven CtlFrameListCreateItem path. This is the test surface for the
+    // whole UI-element swarm — one call per control, so a risky control can be tried in
+    // isolation. Returns the item frame id, or 0 (0 = proc unresolved / not creatable — this
+    // function itself never crashes; a crash, if any, is inside the native item creation for
+    // controls still marked "needs_workaround").
+    //
+    // control names: "flat_button","checkbox","radio","styled_button","text_button",
+    //   "text_label","dropdown","slider","edit","progress","tabs","groupheader".
+    // Button-family controls also get their caption set (msg 0x5E) and an explicit size.
+    static uint32_t AddControlItemByFrameId(
+        uint32_t frame_list_id,
+        const std::string& control,
+        const std::wstring& caption,
+        uint32_t insert_index = 0,
+        uint32_t item_flags = 0)
+    {
+        uintptr_t proc = 0;
+        bool button_family = false;
+        if (control == "flat_button" || control == "checkbox" || control == "radio") {
+            proc = ResolveCtlBtnProc(); button_family = true;
+        } else if (control == "text_button" || control == "hyperlink") {
+            proc = ResolveCtlTextButtonProc();
+        } else if (control == "text_label") {
+            proc = reinterpret_cast<uintptr_t>(ResolveTextLabelFrameCallback());
+        } else {
+            // Assertion-anchored procs (build-stable), mirroring UIMgr.cpp resolvers.
+            const char* file = nullptr; const char* msg = nullptr;
+            if (control == "styled_button") { file = "UiCtlBtn.cpp"; msg = "!s_btnCheckImageList"; button_family = true; }
+            else if (control == "dropdown")  { file = "UiCtlDropMenu.cpp"; msg = "!FrameGetChild(thisFrame, CTL_LIST_ENTRIES)"; }
+            else if (control == "slider")    { file = "CtlSlider.cpp"; msg = "value >= m_range.min"; }
+            else if (control == "edit")      { file = "UiCtlEditBox.cpp"; msg = "!s_editCaretMaterial"; }
+            else if (control == "progress")  { file = "UiCtlProgress.cpp"; msg = "!sm_rateArrowImageList"; }
+            else if (control == "tabs")      { file = "CtlPage.cpp"; msg = "!IsBtnCode(pageCode)"; }
+            else if (control == "groupheader"){ file = "UiCtlGroupHeader.cpp"; msg = "UiCtlGroupHeader.cpp"; }
+            if (file) {
+                const uintptr_t a = GW::Scanner::FindAssertion(file, msg, 0, 0);
+                if (a) proc = GW::Scanner::ToFunctionStart(a, 0xFFF);
+            }
+        }
+        if (!proc) {
+            GWCA_ERR("[UI] AddControlItemByFrameId — proc not resolved for '%s'", control.c_str());
+            return 0;
+        }
+        // (Ghidra-verified) The styled 9-slice button (UiCtlBtnProc) msg-0x01 paint sub-0 does
+        // `FrameTestStyles(frame,0x40000); if(==0) return;` — without 0x40000 it draws NOTHING.
+        if (control == "styled_button") item_flags |= 0x40000;
+        std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(caption.empty() ? std::wstring(L" ") : caption);
+        const uint32_t item_id = CtlFrameListCreateItemByFrameId(
+            frame_list_id, item_flags, insert_index, static_cast<uint32_t>(proc), encoded);
+        if (!item_id)
+            return 0;
+        if (button_family && !caption.empty()) {
+            GW::UI::Frame* f = GW::UI::GetFrameById(item_id);
+            if (f) {
+                GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x5E),
+                    const_cast<wchar_t*>(caption.c_str()), nullptr);
+            }
+            FrameSetSizeByFrameId(item_id, 120.0f, 22.0f);
+        }
+        // Styled button's other gate: the shared s_btnCheckImageList must exist (else sub-1's
+        // FrameContentAddImage gets a null handle and paints nothing).
+        if (control == "styled_button") EnsureBtnCheckImageList(item_id);
+        return item_id;
+    }
+
+    // (Ghidra-verified) s_btnCheckImageList global — Gw.exe 06-14 build = 0x010819cc. It is NULL
+    // until a Store/merchant opens (that broadcasts msg 0x05 to UiCtlBtnProc, which runs
+    // FrameImageListCreate). If still null, send the styled-button item msg 0x05 ourselves to
+    // populate it. Guarded on ==0 only: the proc asserts !s_btnCheckImageList, so a second
+    // create would assert. NOTE: 0x010819cc is build-specific; resolve from UiCtlBtnProc's
+    // msg-0x05 `mov [global],eax` store for build-independence later.
+    static void EnsureBtnCheckImageList(uint32_t styled_btn_item_id)
+    {
+        volatile uint32_t* g = reinterpret_cast<uint32_t*>(0x010819ccu);
+        if (*g == 0) {
+            GW::UI::Frame* f = GW::UI::GetFrameById(styled_btn_item_id);
+            if (f) GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x05), nullptr, nullptr);
+        }
+    }
+
+    // Resolve a named control's FrameProc (shared by the list-item and direct-child paths).
+    // Sets *is_button_family when the control uses CtlBtnProc/UiCtlBtnProc (caption via 0x5E).
+    static uintptr_t ResolveNamedControlProc(const std::string& control, bool* is_button_family)
+    {
+        bool bf = false; uintptr_t proc = 0;
+        if (control == "flat_button" || control == "checkbox" || control == "radio") { proc = ResolveCtlBtnProc(); bf = true; }
+        else if (control == "text_button" || control == "hyperlink") { proc = ResolveCtlTextButtonProc(); }
+        else if (control == "text_label") { proc = reinterpret_cast<uintptr_t>(ResolveTextLabelFrameCallback()); }
+        else {
+            const char* file = nullptr; const char* msg = nullptr;
+            if (control == "styled_button") { file = "UiCtlBtn.cpp"; msg = "!s_btnCheckImageList"; bf = true; }
+            else if (control == "dropdown")  { file = "UiCtlDropMenu.cpp"; msg = "!FrameGetChild(thisFrame, CTL_LIST_ENTRIES)"; }
+            else if (control == "slider")    { file = "CtlSlider.cpp"; msg = "value >= m_range.min"; }
+            else if (control == "edit")      { file = "UiCtlEditBox.cpp"; msg = "!s_editCaretMaterial"; }
+            else if (control == "progress")  { file = "UiCtlProgress.cpp"; msg = "!sm_rateArrowImageList"; }
+            else if (control == "tabs")      { file = "CtlPage.cpp"; msg = "!IsBtnCode(pageCode)"; }
+            else if (control == "groupheader"){ file = "UiCtlGroupHeader.cpp"; msg = "UiCtlGroupHeader.cpp"; }
+            if (file) { const uintptr_t a = GW::Scanner::FindAssertion(file, msg, 0, 0); if (a) proc = GW::Scanner::ToFunctionStart(a, 0xFFF); }
+        }
+        if (is_button_family) *is_button_family = bf;
+        return proc;
+    }
+
+    // EXPERIMENT: create a control as a DIRECT CHILD of a parent frame (like the game's own
+    // dialog buttons) rather than a full-width frame-list row — this is the path to a
+    // CORRECTLY-SIZED, free-standing control. Uses ENCODED text as userData (the frame-list
+    // path proved raw text crashes; the earlier bare-FrameCreate crash was likely the raw
+    // text, not the parent context). Applies explicit size + position so it does not lay out
+    // as a strip. Returns the child frame id, or 0.
+    static uint32_t CreateControlChildByFrameId(
+        uint32_t parent_frame_id,
+        const std::string& control,
+        const std::wstring& caption,
+        uint32_t child_index = 0,
+        float x = 10.0f, float y = 10.0f,
+        float width = 120.0f, float height = 22.0f)
+    {
+        bool bf = false;
+        const uintptr_t proc = ResolveNamedControlProc(control, &bf);
+        if (!proc) {
+            GWCA_ERR("[UI] CreateControlChildByFrameId — proc not resolved for '%s'", control.c_str());
+            return 0;
+        }
+        std::wstring encoded = BuildStandaloneLiteralEncodedTextPayload(caption.empty() ? std::wstring(L" ") : caption);
+        // Direct child: FrameCreate(parent, 0x300, child, proc, /*userData*/encoded, /*name*/L"").
+        const uint32_t id = CreateUIComponentByFrameId(parent_frame_id, 0x300, child_index,
+            static_cast<uintptr_t>(proc), encoded, std::wstring());
+        if (!id)
+            return 0;
+        if (width > 0.0f && height > 0.0f)
+            FrameSetSizeByFrameId(id, width, height);
+        {
+            using FrameSetPos_pt = void(__cdecl*)(uint32_t, Coord2f*);
+            static FrameSetPos_pt pos_fn = nullptr;
+            if (!pos_fn) { const auto a = ResolveFrameSetPositionCoord2f(); if (a) pos_fn = reinterpret_cast<FrameSetPos_pt>(a); }
+            if (pos_fn) { Coord2f c = { x, y }; pos_fn(id, &c); }
+        }
+        if (bf && !caption.empty()) {
+            GW::UI::Frame* f = GW::UI::GetFrameById(id);
+            if (f) GW::UI::SendFrameUIMessage(f, static_cast<GW::UI::UIMessage>(0x5E),
+                const_cast<wchar_t*>(caption.c_str()), nullptr);
+        }
+        return id;
+    }
+
+    // Create a SELECTABLE scrollable frame list as a child of the window. Identical to
+    // CreateScrollableContentByFrameId, except the inner frame list uses the selectable
+    // proc (CCtlFrameListSelectable::FrameProc) instead of the plain one. Clicking any item
+    // then highlights it (visual cue) AND stores it as the list's selection, which you read
+    // each frame with GetFrameListSelectionByFrameId. This is the native click-recognition
+    // path: item click → notify 8 → SetSelection → highlight + pollable selection.
+    //
+    // Returns the frame list's ID, or 0 on failure.
+    static uint32_t CreateSelectableScrollableContentByFrameId(
+        uint32_t window_id,
+        uint32_t child_index = 0,
+        uint32_t component_flags = 0x20000)
+    {
+        const uintptr_t sel_proc = ResolveCtlFrameListSelectableProc();
+        if (!sel_proc) {
+            GWCA_ERR("[UI] CreateSelectableScrollableContentByFrameId — selectable proc not resolved");
+            return 0;
+        }
+        // Mirrors the anon-namespace TypedScrollablePageContext {void*; void*; uint32_t}:
+        // field_4 = the inner frame-list proc. It is consumed synchronously during creation
+        // (exactly like the working plain-list default_page_context), so a stack local is safe.
+        struct PageCtx { void* field_0; void* field_4; uint32_t field_8; } ctx = {};
+        ctx.field_4 = reinterpret_cast<void*>(sel_proc);
+        // (Ghidra-verified, "/Gw.exe (06-14)") The native selectable-list constructor
+        // CCtlFrameListSelectable create @ FUN_00619b70 builds this SAME {0, sel_proc, 0}
+        // page context, but calls the frame-create primitive with flags 0x20128, NOT 0x20000.
+        // The extra bits 0x128 (0x100|0x20|0x08) are what make the create dispatch INIT (proc
+        // msg 9) to the inner selectable proc, which allocates the per-instance selection state
+        // at *(prop). Without them the state stays NULL and the FIRST selection read/write
+        // (GetFrameListSelectionByFrameId msg 0x69 / SetFrameListSelectionByFrameId msg 0x6A)
+        // hits the null-deref assert in FUN_00613b30 (P:\Code\...\CtlFrameList.cpp:0x3f8) →
+        // hard client crash. This is the confirmed radio (crash on default-select at create)
+        // and hyperlink (crash on the per-frame selection poll) failure. Force the bits on.
+        const uint32_t selectable_flags = component_flags | 0x128;
+        // Nest under the band 0x2710 content frame so IUi::PopCloser frees it on the native [X].
+        return CreateScrollableFrameByFrameId(EnsureContentFrameForWindow(window_id), selectable_flags,
+                                              child_index, reinterpret_cast<uintptr_t>(&ctx), L"");
+    }
+
+    // Read the currently-selected item of a SELECTABLE frame list (msg 0x67).
+    // Returns the selected item's child code, or 0 if nothing is selected. Poll each frame;
+    // a nonzero code appearing after a click identifies the clicked row.
+    static uint32_t GetFrameListSelectionByFrameId(uint32_t frame_list_id)
+    {
+        using GetSel_pt = uint32_t(__cdecl*)(uint32_t, uint32_t*);
+        static GetSel_pt fn = nullptr;
+        if (!fn) {
+            const uintptr_t addr = ResolveCtlFrameListSelectableGetSelection();
+            if (!addr) {
+                GWCA_ERR("[UI] GetFrameListSelectionByFrameId — getter not resolved");
+                return 0;
+            }
+            fn = reinterpret_cast<GetSel_pt>(addr);
+        }
+        if (!frame_list_id) return 0;
+        uint32_t code = 0;
+        const uint32_t has_sel = fn(frame_list_id, &code);
+        return has_sel ? code : 0;
     }
 
     // Convenience: create a titled container window with scrollable text content.

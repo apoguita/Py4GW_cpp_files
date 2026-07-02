@@ -510,6 +510,18 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("content_height"),
 			py::arg("title") = std::wstring()
 		)
+		.def_static("create_native_dialog_window",
+			&UIManager::CreateNativeDialogWindow,
+			py::arg("content_x"),
+			py::arg("content_y"),
+			py::arg("content_width"),
+			py::arg("content_height"),
+			py::arg("title") = std::wstring(),
+			"ISOLATED. A window created with the DIALOG BASE proc IUi::UiCtlDlgMsgProc (mimics "
+			"CompositeDlgBuilder case 1: style 0x254000, childId 0xd) so its frame gets the dialog vtable "
+			"the normal window omits, then the chrome IUi::UiCtlDlgProc chained on top. Test host for the "
+			"native content-page path. Returns the window frame id, or 0."
+		)
 		.def_static("ensure_devtext_source",
 			&UIManager::EnsureDevTextSource
 		)
@@ -779,6 +791,62 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			&UIManager::DestroyUIComponentByFrameId,
 			py::arg("frame_id")
 		)
+		.def_static("destroy_window_safely_by_frame_id",
+			&UIManager::DestroyWindowSafelyByFrameId,
+			py::arg("window_id"),
+			"Destroy a window + its owned subtree SAFELY: scrubs the hover (DAT_00c0ad54) and focus "
+			"(DAT_00c0ba10) input globals FIRST so no freed control frame is left as the current "
+			"hover/focus target, then runs the native teardown. Fixes the 'crash on closing the window' "
+			"use-after-free for windows hosting interactive controls. Use instead of destroy_ui_component."
+		)
+		.def_static("clear_ui_input_targets",
+			&UIManager::ClearUiInputTargets,
+			"Scrub the hover/focus input-target globals (set no-hover, no-focus). Call before destroying "
+			"a window that hosts controls, or anytime the current hover/focus frame is about to be freed."
+		)
+		.def_static("frame_exists_by_frame_id",
+			&UIManager::FrameExistsByFrameId,
+			py::arg("frame_id"),
+			"True if the frame id currently exists (created + live). GUARD every per-frame poll/get/set "
+			"with this: if the window was closed (native [X]) the control is freed and messaging its "
+			"stale id reads freed memory and crashes. Stop polling once a control's window fails this."
+		)
+		.def_static("create_content_panel_by_frame_id",
+			&UIManager::CreateContentPanelByFrameId,
+			py::arg("window_id"),
+			py::arg("width") = 0.0f,
+			py::arg("height") = 0.0f,
+			py::arg("child_index") = 0,
+			"Create an owned CONTENT PANEL (plain pass-through container) as a child of a window and "
+			"return its frame id. Parent your controls to THIS panel, not the window: the game never "
+			"hosts interactive controls on the CtlDlg chrome root, and doing so is what leaves freed "
+			"controls dangling in the hover global on close. The panel tears down cleanly with the window."
+		)
+		.def_static("create_owned_band_frame_by_frame_id",
+			&UIManager::CreateOwnedBandFrameByFrameId,
+			py::arg("window_id"),
+			py::arg("width") = 0.0f,
+			py::arg("height") = 0.0f,
+			"PHASE 2 (isolated): create an OWNED band-member content frame (band childId 0x2710 + our "
+			"authored dispatcher) so the native [X]/PopCloser tears down hosted controls cleanly. Parent "
+			"controls to the returned id. Returns 0 on failure."
+		)
+		.def_static("attach_instanced_dispatcher_by_frame_id",
+			&UIManager::AttachInstancedDispatcherByFrameId,
+			py::arg("frame_id"),
+			"PHASE 1 (isolated): chain the Py4GW-authored instanced-dialog dispatcher onto a frame. "
+			"Validates the engine can call an authored C++ FrameProc without crashing — the foundation "
+			"for the native control host. Returns True on success."
+		)
+		.def_static("create_content_page_by_frame_id",
+			&UIManager::CreateContentPageByFrameId,
+			py::arg("window_id"),
+			"NATIVE-LAYOUT PATH (isolated). Create (or return the existing) native CONTENT PAGE for a "
+			"CreateNativeWindow window: a band-0x2710 child using the real content-page proc "
+			"(IUi::UiCtlContentPageProc), made interactive via FrameMouseEnable(page,1,0). Parent controls "
+			"to the RETURNED page id so the native [X]/PopCloser frees them cleanly and they land on the "
+			"correct paint/hit layer. Returns 0 on failure."
+		)
 		.def_static("add_frame_ui_interaction_callback_by_frame_id",
 			&UIManager::AddFrameUIInteractionCallbackByFrameId,
 			py::arg("frame_id"),
@@ -840,6 +908,30 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("child_index") = 0,
 			py::arg("caption") = std::wstring(),
 			py::arg("component_label") = std::wstring()
+		)
+		.def_static("create_ctl_button_frame_by_frame_id",
+			&UIManager::CreateCtlButtonFrameByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags"),
+			py::arg("child_index") = 0,
+			py::arg("caption") = std::wstring(),
+			py::arg("component_label") = std::wstring()
+		)
+		.def_static("create_flat_button_with_click_by_frame_id",
+			&UIManager::CreateFlatButtonWithClickByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("component_flags") = 0x40000,
+			py::arg("child_index") = 0,
+			py::arg("label_text") = std::wstring(),
+			py::arg("width") = 100.0f,
+			py::arg("height") = 24.0f,
+			py::arg("pos_x") = 10.0f,
+			py::arg("pos_y") = 10.0f,
+			py::arg("enable_click") = false,
+			"Creates a flat engine button (CtlBtnProc) with proper dimensions and optional click support. "
+			"Path B from button-rendering-pipeline consensus. "
+			"Fixes the thin-strip bug via FrameSetSize. "
+			"Returns the button's frame ID."
 		)
 		.def_static("create_checkbox_frame_by_frame_id",
 			&UIManager::CreateCheckboxFrameByFrameId,
@@ -1239,6 +1331,276 @@ PYBIND11_EMBEDDED_MODULE(PyUIManager, m) {
 			py::arg("item_flags") = 0,
 			"Adds a text label item to a frame list. Encodes plain text and "
 			"calls CtlFrameListCreateItem. Returns the item's frame ID."
+		)
+		.def_static("add_button_item_to_frame_list_by_frame_id",
+			&UIManager::AddButtonItemToFrameListByFrameId,
+			py::arg("frame_list_id"),
+			py::arg("plain_text"),
+			py::arg("insert_index") = 0,
+			py::arg("item_flags") = 0,
+			"Adds a clickable text-button item to a frame list. Same proven path as "
+			"add_text_item but with the CtlTextBtnProc item proc. Returns the item's frame ID."
+		)
+		.def_static("add_flat_button_item_to_frame_list_by_frame_id",
+			&UIManager::AddFlatButtonItemToFrameListByFrameId,
+			py::arg("frame_list_id"),
+			py::arg("caption"),
+			py::arg("insert_index") = 0,
+			py::arg("item_flags") = 0,
+			py::arg("width") = 120.0f,
+			py::arg("height") = 22.0f,
+			"Adds a real FLAT BUTTON item (CtlBtnProc, solid rect, non-hyperlink). Caption via "
+			"msg 0x5E + explicit size. item_flags 0x10000=toggle, 0x80000=momentary. Read state "
+			"with is_button_pushed_by_frame_id. Returns the item's frame ID."
+		)
+		.def_static("add_control_item_by_frame_id",
+			&UIManager::AddControlItemByFrameId,
+			py::arg("frame_list_id"),
+			py::arg("control"),
+			py::arg("caption"),
+			py::arg("insert_index") = 0,
+			py::arg("item_flags") = 0,
+			"Adds a named control as a frame-list item (test surface for the UI-element swarm). "
+			"control: flat_button|checkbox|radio|styled_button|text_button|text_label|dropdown|"
+			"slider|edit|progress|tabs|groupheader. Returns item id, or 0 if the proc is unresolved."
+		)
+		.def_static("create_control_child_by_frame_id",
+			&UIManager::CreateControlChildByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("control"),
+			py::arg("caption"),
+			py::arg("child_index") = 0,
+			py::arg("x") = 10.0f,
+			py::arg("y") = 10.0f,
+			py::arg("width") = 120.0f,
+			py::arg("height") = 22.0f,
+			"Create a named control as a DIRECT CHILD (free-standing, correctly-sized) of a parent "
+			"frame, with encoded text + explicit size/position. Same control names as "
+			"add_control_item. Returns the child frame id, or 0."
+		)
+		.def_static("set_frame_list_no_stretch_by_frame_id",
+			&UIManager::SetFrameListNoStretchByFrameId,
+			py::arg("frame_list_id"),
+			"Install native size + size-query handlers on a CtlFrameList so items keep their own "
+			"width instead of stretching to the list width. Call once, right after creating the "
+			"scrollable content and BEFORE adding items. Returns frame_list_id, or 0."
+		)
+		.def_static("create_checkbox_child_by_frame_id",
+			&UIManager::CreateCheckboxChildByFrameId,
+			py::arg("parent_window_id"),
+			py::arg("label") = std::wstring(),
+			py::arg("child_index") = 1,
+			py::arg("initial_checked") = false,
+			"Create a REAL GW checkbox (UiCtlBtnProc + style 0x8000) as a DIRECT CHILD of a "
+			"CreateNativeWindow window. Self-sizes its box and warms s_btnCheckImageList so the "
+			"glyph paints cold. Give each checkbox on the same window a UNIQUE child_index (1,2,3,...) "
+			"so they lay out instead of overlapping. Read/write state via "
+			"is_checkbox_checked_by_frame_id (msg 0x58) / set_checkbox_checked_by_frame_id (msg 0x57). "
+			"Returns the checkbox frame id, or 0."
+		)
+		.def_static("set_frame_list_selection_by_frame_id",
+			&UIManager::SetFrameListSelectionByFrameId,
+			py::arg("frame_list_id"),
+			py::arg("child_code"),
+			"Programmatically select an item (by its code returned from "
+			"add_text_item_to_frame_list_by_frame_id) in a SELECTABLE frame list — e.g. to apply "
+			"a radio-group default or restore a saved choice. Sends msg 0x6A (single-selection "
+			"clears the prior row = free mutual exclusion). child_code must be a live item on this "
+			"list. Returns frame_list_id, or 0."
+		)
+		.def_static("add_clickable_text_button_to_selectable_list",
+			&UIManager::AddClickableTextButtonToSelectableList,
+			py::arg("selectable_frame_list_id"),
+			py::arg("caption"),
+			py::arg("insert_index") = 0,
+			py::arg("item_flags") = 0,
+			"Add a clickable text button (CtlTextBtnProc) to a SELECTABLE frame list (from "
+			"create_selectable_scrollable_content_by_frame_id). Its notify-8 click is read via "
+			"get_frame_list_selection_by_frame_id (msg 0x67). Returns the item frame id, or 0."
+		)
+		.def_static("set_text_button_color_by_frame_id",
+			&UIManager::SetTextButtonColorByFrameId,
+			py::arg("text_button_id"),
+			py::arg("color_abgr"),
+			"Override the baked cyan NORMAL color of a text button (msg 0x5b). color is 0xAABBGGRR."
+		)
+		.def_static("set_text_button_hover_color_by_frame_id",
+			&UIManager::SetTextButtonHoverColorByFrameId,
+			py::arg("text_button_id"),
+			py::arg("color_abgr"),
+			"Override the baked HOVER color of a text button (msg 0x5d). color is 0xAABBGGRR."
+		)
+		.def_static("set_text_button_text_by_frame_id",
+			&UIManager::SetTextButtonTextByFrameId,
+			py::arg("text_button_id"),
+			py::arg("caption"),
+			"Replace a text button's caption (msg 0x5f, raw wide string). Not msg 0x5e."
+		)
+		.def_static("create_edit_box_child_by_frame_id",
+			&UIManager::CreateEditBoxChildByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("label") = std::wstring(L"EditBox"),
+			py::arg("child_index") = 0,
+			py::arg("component_flags") = 0x892e000,
+			py::arg("width") = 200.0f,
+			py::arg("height") = 20.0f,
+			"Create a REAL editable text box as a direct child (outer CCtlEdit proc 0x008852e0)."
+		)
+		.def_static("set_edit_box_text_by_frame_id",
+			&UIManager::SetEditBoxTextByFrameId,
+			py::arg("frame_id"), py::arg("plain_text"),
+			"Set edit box text (msg 0x5E, auto-encoded)."
+		)
+		.def_static("set_edit_box_max_length_by_frame_id",
+			&UIManager::SetEditBoxMaxLengthByFrameId,
+			py::arg("frame_id"), py::arg("max_length"),
+			"Set edit box max input length (msg 0x5A)."
+		)
+		.def_static("ensure_edit_caret_material",
+			&UIManager::EnsureEditCaretMaterial,
+			py::arg("edit_frame_id"),
+			"Warm s_editCaretMaterial iff cold (guarded msg 0x05)."
+		)
+		.def_static("is_edit_caret_material_ready",
+			&UIManager::IsEditCaretMaterialReady,
+			"True if s_editCaretMaterial is already built (safe to create edit)."
+		)
+		.def_static("create_progress_bar_child_by_frame_id",
+			&UIManager::CreateProgressBarChildByFrameId,
+			py::arg("parent_frame_id"),
+			py::arg("x") = 10.0f,
+			py::arg("y") = 10.0f,
+			py::arg("width") = 160.0f,
+			py::arg("height") = 0.0f,
+			py::arg("child_index") = 0,
+			py::arg("component_flags") = 0x300,
+			"Create a working native ProgressBar as a positioned direct child (correct CtlProgress proc 0x008812e0)."
+		)
+		.def_static("set_progress_bar_percent_by_frame_id",
+			&UIManager::SetProgressBarPercentByFrameId,
+			py::arg("frame_id"),
+			py::arg("percent"))
+		.def_static("get_progress_bar_max_by_frame_id",
+			&UIManager::GetProgressBarMaxByFrameId,
+			py::arg("frame_id"))
+		.def_static("set_progress_bar_increments_per_second_by_frame_id",
+			&UIManager::SetProgressBarIncrementsPerSecondByFrameId,
+			py::arg("frame_id"),
+			py::arg("per_second"))
+		.def_static("set_progress_bar_overlay_text_by_frame_id",
+			&UIManager::SetProgressBarOverlayTextByFrameId,
+			py::arg("frame_id"),
+			py::arg("enc_text"))
+			.def_static("create_tabs_as_list_item_by_frame_id",
+				&UIManager::CreateTabsAsListItemByFrameId,
+				py::arg("frame_list_id"),
+				py::arg("insert_index") = 0,
+				py::arg("flags") = 0x300,
+				"Create a TABS container (CtlPage @ 0x0061a950) as a frame-list item (crash-safe, "
+				"single-proc). RENDERS 0x0 until a tab is added (self-sizes from children via msg 0x38). "
+				"Do NOT FrameSetSize it. Returns the container frame id, or 0.")
+			.def_static("add_tab_to_page_by_frame_id",
+				&UIManager::AddTabToPageByFrameId,
+				py::arg("tabs_frame_id"),
+				py::arg("tab_caption"),
+				py::arg("tab_code"),
+				py::arg("body_proc") = 0,
+				py::arg("body_text") = std::wstring(),
+				"Add a tab (msg 0x56) to a CtlPage. tab_code must be >= 0 and unique. body_proc 0 = "
+				"default self-contained text proc. Returns the tab BODY frame id. First tab auto-selects.")
+			.def_static("tab_set_active_by_frame_id",
+				&UIManager::TabSetActiveByFrameId,
+				py::arg("tabs_frame_id"),
+				py::arg("index"),
+				"Select the active tab by index (msg 0x5d).")
+			.def_static("tab_get_active_by_frame_id",
+				&UIManager::TabGetActiveByFrameId,
+				py::arg("tabs_frame_id"),
+				"Active tab index (msg 0x59); 0xffffffff until the first tab. Poll+diff for user clicks.")
+			.def_static("tab_get_body_frame_by_frame_id",
+				&UIManager::TabGetBodyFrameByFrameId,
+				py::arg("tabs_frame_id"),
+				py::arg("index"),
+				"Body frame id for the given tab index (msg 0x5a).")
+			.def_static("set_tab_enabled_by_frame_id",
+				&UIManager::SetTabEnabledByFrameId,
+				py::arg("tabs_frame_id"),
+				py::arg("index"),
+				py::arg("enabled"),
+				"Enable (msg 0x58) / disable (msg 0x57) a tab by index.")
+	.def_static("create_slider_control_by_frame_id",
+		&UIManager::CreateSliderControlByFrameId,
+		py::arg("parent_window_id"),
+		py::arg("min_value"),
+		py::arg("max_value"),
+		py::arg("initial_value"),
+		py::arg("width")  = 150.0f,
+		py::arg("height") = 18.0f,
+		py::arg("child_index") = 0,
+		"Create a fully-initialized native slider (two-layer: CtlSliderProc base 0x00615fe0 + "
+		"UiCtlSliderProc wrapper 0x0087f440) as a DIRECT CHILD of a managed window (NOT a frame list). "
+		"Runs the crash-safe order: two-layer typed create -> SetRange(0x56) -> SetValue(0x57) -> "
+		"FrameSetSize. Cannot be created single-proc (item path crashes on first click). "
+		"Read the live value with get_slider_value_by_frame_id (msg 0x58). Returns frame id, or 0 on failure.")
+
+	.def_static("destroy_slider_control_by_frame_id",
+		&UIManager::DestroySliderControlByFrameId,
+		py::arg("slider_id"),
+		"Tear down a slider created by create_slider_control_by_frame_id. Sends a synthetic mouse-up "
+		"(msg 0x2e) to release the auto-scroll CTimer the slider registers on a groove click BEFORE "
+		"destroying it (the native destroy path never unregisters that timer → crash-after-fiddling "
+		"leak). Use this instead of destroy_ui_component_by_frame_id for sliders. Returns True on success.")
+
+		.def_static("add_group_header_item_to_frame_list_by_frame_id",
+			&UIManager::AddGroupHeaderItemToFrameListByFrameId,
+			py::arg("frame_list_id"),
+			py::arg("header_text"),
+			py::arg("insert_index") = 0,
+			py::arg("item_flags") = 0,
+			"Adds a native GROUP HEADER (collapsible section: checkbox + caption) item to a frame "
+			"list. Engine self-builds+lays-out the children (CGroupHeaderFrame @ 0x0087ddc0) — do "
+			"NOT size/position it. Poll open/closed with group_header_get_is_open_by_frame_id. "
+			"item_flags 0x1000=non-collapsible, 0x2000=disable caption mouse. Returns the item id."
+		)
+		.def_static("ctl_frame_list_show_item_by_frame_id",
+			&UIManager::CtlFrameListShowItemByFrameId,
+			py::arg("frame_list_id"),
+			py::arg("item_code"),
+			py::arg("show"),
+			"Show/hide a frame-list item by its CHILD CODE (= the insert_index it was created with), msg "
+			"0x67. The engine has no native group collapse; drive collapsible sections app-side by calling "
+			"this for each member item when a group header toggles. Send to the LIST frame. The list must "
+			"NOT carry style 0x2000 or the list won't reflow. Returns True on success."
+		)
+		.def_static("group_header_get_is_open_by_frame_id",
+			&UIManager::GroupHeaderGetIsOpenByFrameId,
+			py::arg("frame_id"),
+			"Returns True if the group header section is expanded (native state, msg 0x56). Poll each frame."
+		)
+		.def_static("group_header_set_is_open_by_frame_id",
+			&UIManager::GroupHeaderSetIsOpenByFrameId,
+			py::arg("frame_id"),
+			py::arg("is_open"),
+			"Sets the group header expanded/collapsed state (msg 0x58)."
+		)
+		.def_static("group_header_set_text_by_frame_id",
+			&UIManager::GroupHeaderSetTextByFrameId,
+			py::arg("frame_id"),
+			py::arg("header_text"),
+			"Sets the group header caption (msg 0x59; GW-literal-encoded, forwarded to the caption child)."
+		)
+		.def_static("create_selectable_scrollable_content_by_frame_id",
+			&UIManager::CreateSelectableScrollableContentByFrameId,
+			py::arg("window_id"),
+			py::arg("child_index") = 0,
+			py::arg("component_flags") = 0x20000,
+			"Creates a scrollable frame list whose items are selectable/clickable rows "
+			"(highlight on click). Read the clicked row with get_frame_list_selection_by_frame_id."
+		)
+		.def_static("get_frame_list_selection_by_frame_id",
+			&UIManager::GetFrameListSelectionByFrameId,
+			py::arg("frame_list_id"),
+			"Returns the selected item code of a selectable frame list (0 if none). Poll each frame."
 		)
 		.def_static("create_scrollable_text_window",
 			&UIManager::CreateScrollableTextWindow,
