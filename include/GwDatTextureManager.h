@@ -17,8 +17,10 @@ public:
     void DxUpdate(IDirect3DDevice9* device);
     IDirect3DTexture9* GetTexture(const std::wstring& texture_key);
     IDirect3DTexture9* GetTextureByFileId(uint32_t file_id);
+    IDirect3DTexture9* GetColoredModelTexture(uint32_t model_file_id, uint8_t dye_tint, uint8_t dye1, uint8_t dye2, uint8_t dye3, uint8_t dye4);
     void CleanupOldTextures(int timeout_seconds = 30);
     static IDirect3DTexture9** LoadTextureFromFileId(uint32_t file_id);
+    static IDirect3DTexture9** LoadColoredTextureFromModel(uint32_t model_file_id, uint8_t dye_tint, uint8_t dye1, uint8_t dye2, uint8_t dye3, uint8_t dye4);
 
     static bool IsDatTextureKey(const std::wstring& texture_key);
     static uint32_t ParseFileId(const std::wstring& texture_key);
