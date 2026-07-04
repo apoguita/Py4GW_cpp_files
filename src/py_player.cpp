@@ -422,12 +422,12 @@ bool PyPlayer::InteractAgent(int agent_id, bool call_target) {
 bool PyPlayer::ChangeTarget(uint32_t new_target_id) {
     if (new_target_id == 0) return false;
 
-    auto agent = GW::Agents::GetAgentByID(new_target_id);
-    if (!agent) return false;
+    if (!GW::Agents::GetAgentByID(new_target_id)) return false;
 
-    GW::GameThread::Enqueue([agent, new_target_id] {
+    GW::GameThread::Enqueue([new_target_id] {
         if (GW::Agent* a = GW::Agents::GetAgentByID(new_target_id)) {
-            GW::Agents::ChangeTarget(agent);
+            // Use the freshly re-resolved pointer from the game thread, not a stale captured one.
+            GW::Agents::ChangeTarget(a);
         }
         });
     return true;
@@ -437,7 +437,12 @@ bool PyPlayer::CallTarget(int agent_id) {
     if (agent_id == 0) return false;
 
     GW::GameThread::Enqueue([agent_id] {
-        GW::Agents::CallTarget(static_cast<uint32_t>(agent_id));
+        const auto id = static_cast<uint32_t>(agent_id);
+        GW::Agent* agent = GW::Agents::GetAgentByID(id);
+        if (!agent || !agent->GetAsAgentLiving()) {
+            return;
+        }
+        GW::Agents::CallTarget(id);
         });
     return true;
 }

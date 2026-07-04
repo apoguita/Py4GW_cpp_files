@@ -1326,6 +1326,10 @@ namespace GW {
         GWCA_API bool SetFrameMargins(Frame* frame, uint32_t flags, float size[4], float input_mask[4], uint32_t type);
         GWCA_API Frame* CreateButtonFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
         GWCA_API Frame* CreateButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
+        GWCA_API Frame* CreateCtlButtonFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
+        GWCA_API Frame* CreateCtlButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);
+        GWCA_API Frame* CreateFlatButtonWithClick(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index = 0, wchar_t* label_text = nullptr, bool enable_click = false);
+        GWCA_API Frame* CreateFlatButtonWithClick(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, wchar_t* label_text = nullptr, bool enable_click = false);
         GWCA_API Frame* CreateTextButtonFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index = 0, wchar_t* caption = nullptr, wchar_t* component_label = nullptr);
         GWCA_API Frame* CreateTextButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index = 0, wchar_t* caption = nullptr, wchar_t* component_label = nullptr);
         GWCA_API Frame* CreateCheckboxFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index = 0, wchar_t* name_enc = nullptr, wchar_t* component_label = nullptr);

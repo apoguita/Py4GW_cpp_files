@@ -751,6 +751,20 @@ namespace {
         DestroyUIComponent_Func = (DestroyUIComponent_pt)Scanner::ToFunctionStart(
             Scanner::FindAssertion("\\Code\\Gw\\Ui\\Frame\\FrApi.cpp", "frame->state.Test(FRAME_STATE_CREATED)", 0, 0));
 
+        // FrameNewSubclass — registers a subclass handler on a frame (EXE 0x0062f150).
+        // Two resolution strategies, assertion-preferred:
+        //   1. FrApi.cpp assertion at line 0x467 (survives EXE rebuilds)
+        //   2. Byte pattern 8D B8 A8 00 00 00 8B CF at offset -0x2D
+        address = Scanner::FindAssertion(
+            "\\Code\\Engine\\Frame\\FrApi.cpp", "frameId", 0x467, 0);
+        if (address)
+            FrameNewSubclass_Func = reinterpret_cast<FrameNewSubclass_pt>(Scanner::ToFunctionStart(address, 0x100));
+        if (!FrameNewSubclass_Func) {
+            address = Scanner::Find(
+                "\x8D\xB8\xA8\x00\x00\x00\x8B\xCF", "xxxxxxxx", -0x2D);
+            if (address)
+                FrameNewSubclass_Func = reinterpret_cast<FrameNewSubclass_pt>(address);
+        }
 
         // Graphics renderer related
 
@@ -1374,6 +1388,7 @@ namespace GW {
 
         namespace {
             UIInteractionCallback ButtonFrame_Callback = nullptr;
+            UIInteractionCallback CtlBtnProc_Callback = nullptr;     // engine-level CtlBtnProc (no deps, flat buttons)
             UIInteractionCallback TextButtonFrame_Callback = nullptr;
             UIInteractionCallback ScrollableFrame_Callback = nullptr;
             UIInteractionCallback TextLabelFrame_Callback = nullptr;
@@ -1397,6 +1412,9 @@ namespace GW {
                     return;
                 TypedComponentCallbacks_Initialized = true;
 
+                printf("[GWCA-DEBUG] InitializeTypedComponentCallbacks: BEGIN\n");
+                fflush(stdout);
+
                 uintptr_t addr = 0;
                 uintptr_t* ptr = nullptr;
 
@@ -1404,42 +1422,97 @@ namespace GW {
                     "UiCtlBtn.cpp",
                     "!s_btnCheckImageList",
                     0, 0);
-                if (addr)
-                    ButtonFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFF));
+                if (addr) {
+                    uintptr_t resolved = Scanner::ToFunctionStart(addr, 0xFF);
+                    ButtonFrame_Callback = reinterpret_cast<UIInteractionCallback>(resolved);
+                    printf("[GWCA-DEBUG]   ButtonFrame_Callback (IUi::UiCtlBtnProc) = 0x%p [assert: UiCtlBtn.cpp/!s_btnCheckImageList -> 0x%p]\n", ButtonFrame_Callback, (void*)addr);
+                } else {
+                    printf("[GWCA-DEBUG]   ButtonFrame_Callback: NOT FOUND (FindAssertion failed)\n");
+                }
+                fflush(stdout);
+
+                // CtlBtnProc — engine-level button FrameProc (EXE 0x0060f4f0).
+                // Unlike IUi::UiCtlBtnProc, CtlBtnProc has ZERO external dependencies:
+                // no s_btnCheckImageList, no image templates, no hover states.
+                // Paints flat-color rectangles via GrBuildSolidMaterial.
+                // Text set after creation via CtlBtnSetTextLiteral (msg 0x5E).
+                // This is the same path IME candidate window uses (prev/next page buttons).
+                // Verified unique (1 match) on 05-30-2026 EXE build.
+                // Pattern: FrameProc prologue + message dispatch (max 0x5E).
+                addr = Scanner::Find(
+                    "\x55\x8B\xEC\x83\xEC\x30\x53\x8B\x5D\x08\x56\x57"
+                    "\x8B\x7D\x0C\x8B\x43\x04\x8B\x53\x08\x48\x83\xF8\x5E",
+                    "xxxxxxxxxxxxxxxxxxxxxxxxxx",
+                    0);
+                if (addr) {
+                    CtlBtnProc_Callback = reinterpret_cast<UIInteractionCallback>(addr);
+                    printf("[GWCA-DEBUG]   CtlBtnProc_Callback = 0x%p [byte-pattern: FrameProc+dispatch max 0x5E]\n", CtlBtnProc_Callback);
+                } else {
+                    printf("[GWCA-DEBUG]   CtlBtnProc_Callback: NOT FOUND\n");
+                }
+                fflush(stdout);
 
                 // CtlTextBtnProc — engine-level text button (no IUi:: wrapper, no image list dependency)
                 // Pattern: jump table dispatch with max message 0x5C (vs 0x5F for IUi::UiCtlBtnProc)
                 // Verified unique in 06-14 EXE at FUN_00616c00+0x12
                 addr = Scanner::Find("\x83\xC0\xFC\x83\xF8\x5C\x0F\x87", "xxxxxxxx");
-                if (addr)
-                    TextButtonFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0x20));
+                if (addr) {
+                    uintptr_t resolved = Scanner::ToFunctionStart(addr, 0x20);
+                    TextButtonFrame_Callback = reinterpret_cast<UIInteractionCallback>(resolved);
+                    printf("[GWCA-DEBUG]   TextButtonFrame_Callback = 0x%p [byte-pattern: jmp-dispatch max 0x5C]\n", TextButtonFrame_Callback);
+                } else {
+                    printf("[GWCA-DEBUG]   TextButtonFrame_Callback: NOT FOUND\n");
+                }
+                fflush(stdout);
 
                 addr = Scanner::FindAssertion(
                     "CtlText.cpp",
                     "FrameTestStyles(hdr.frameId, CTLTEXT_STYLE_MODEL)",
                     0, 0);
-                if (addr)
-                    TextLabelFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+                if (addr) {
+                    uintptr_t resolved = Scanner::ToFunctionStart(addr, 0xFFF);
+                    TextLabelFrame_Callback = reinterpret_cast<UIInteractionCallback>(resolved);
+                    printf("[GWCA-DEBUG]   TextLabelFrame_Callback (CtlTextProc) = 0x%p [assert: CtlText.cpp/FrameTestStyles]\n", TextLabelFrame_Callback);
+                } else {
+                    printf("[GWCA-DEBUG]   TextLabelFrame_Callback: NOT FOUND\n");
+                }
+                fflush(stdout);
 
                 addr = Scanner::Find("\x81\xE1\x00\x00\xF8\xFF", "xxxxxx", -4, static_cast<ScannerSection>(0));
                 if (addr) {
                     ptr = reinterpret_cast<uintptr_t*>(addr);
                     ScrollableFrame_Callback = reinterpret_cast<UIInteractionCallback>(*ptr);
+                    printf("[GWCA-DEBUG]   ScrollableFrame_Callback = 0x%p [byte-pattern: AND ECX,FFF80000h at +4]\n", ScrollableFrame_Callback);
+                } else {
+                    printf("[GWCA-DEBUG]   ScrollableFrame_Callback: NOT FOUND\n");
                 }
+                fflush(stdout);
 
                 addr = Scanner::FindAssertion(
                     "CtlFrameList.cpp",
                     "No valid case for switch variable 'msg.relation'",
                     0, 0);
-                if (addr)
-                    FrameList_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+                if (addr) {
+                    uintptr_t resolved = Scanner::ToFunctionStart(addr, 0xFFF);
+                    FrameList_Callback = reinterpret_cast<UIInteractionCallback>(resolved);
+                    printf("[GWCA-DEBUG]   FrameList_Callback = 0x%p [assert: CtlFrameList.cpp/msg.relation]\n", FrameList_Callback);
+                } else {
+                    printf("[GWCA-DEBUG]   FrameList_Callback: NOT FOUND\n");
+                }
+                fflush(stdout);
 
                 addr = Scanner::FindAssertion(
                     "UiCtlDropMenu.cpp",
                     "!FrameGetChild(thisFrame, CTL_LIST_ENTRIES)",
                     0, 0);
-                if (addr)
-                    DropdownFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+                if (addr) {
+                    uintptr_t resolved = Scanner::ToFunctionStart(addr, 0xFFF);
+                    DropdownFrame_Callback = reinterpret_cast<UIInteractionCallback>(resolved);
+                    printf("[GWCA-DEBUG]   DropdownFrame_Callback = 0x%p [assert: UiCtlDropMenu.cpp/!FrameGetChild]\n", DropdownFrame_Callback);
+                } else {
+                    printf("[GWCA-DEBUG]   DropdownFrame_Callback: NOT FOUND\n");
+                }
+                fflush(stdout);
 
                 // SliderFrame_Callback: CtlSliderProc (primary FrameProc).
                 // Handles msg 0x09 (allocates CtlSlider::CInstance), mouse/keyboard,
@@ -1448,8 +1521,14 @@ namespace GW {
                     "CtlSlider.cpp",
                     "value >= m_range.min",
                     0, 0);
-                if (addr)
-                    SliderFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+                if (addr) {
+                    uintptr_t resolved = Scanner::ToFunctionStart(addr, 0xFFF);
+                    SliderFrame_Callback = reinterpret_cast<UIInteractionCallback>(resolved);
+                    printf("[GWCA-DEBUG]   SliderFrame_Callback (CtlSliderProc) = 0x%p [assert: CtlSlider.cpp/value>=m_range.min]\n", SliderFrame_Callback);
+                } else {
+                    printf("[GWCA-DEBUG]   SliderFrame_Callback: NOT FOUND\n");
+                }
+                fflush(stdout);
 
                 // SliderFrame_WrapperCallback: IUi::UiCtlSliderProc — paint wrapper (used via FrameNewSubclass).
                 // Handles textured paint (bar+thumb via FrameContentAddImageTemplate) and invalidation (msg 0x0C).
@@ -1458,29 +1537,52 @@ namespace GW {
                     "\x55\x8B\xEC\x83\xEC\x18\x53\x8B\x5D\x08\x56\x57\x8B\x43\x04\x48\x83\xF8\x58",
                     "xxxxxxxxxxxxxxxxxxx",
                     0);
-                if (addr)
+                if (addr) {
                     SliderFrame_WrapperCallback = reinterpret_cast<UIInteractionCallback>(addr);
+                    printf("[GWCA-DEBUG]   SliderFrame_WrapperCallback (IUi::UiCtlSliderProc) = 0x%p [byte-pattern: paint wrapper]\n", SliderFrame_WrapperCallback);
+                } else {
+                    printf("[GWCA-DEBUG]   SliderFrame_WrapperCallback: NOT FOUND\n");
+                }
+                fflush(stdout);
 
                 addr = Scanner::FindAssertion(
                     "UiCtlEditBox.cpp",
                     "!s_editCaretMaterial",
                     0, 0);
-                if (addr)
-                    EditableTextFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+                if (addr) {
+                    uintptr_t resolved = Scanner::ToFunctionStart(addr, 0xFFF);
+                    EditableTextFrame_Callback = reinterpret_cast<UIInteractionCallback>(resolved);
+                    printf("[GWCA-DEBUG]   EditableTextFrame_Callback = 0x%p [assert: UiCtlEditBox.cpp/!s_editCaretMaterial]\n", EditableTextFrame_Callback);
+                } else {
+                    printf("[GWCA-DEBUG]   EditableTextFrame_Callback: NOT FOUND\n");
+                }
+                fflush(stdout);
 
                 addr = Scanner::FindAssertion(
                     "UiCtlProgress.cpp",
                     "!sm_rateArrowImageList",
                     0, 0);
-                if (addr)
-                    ProgressBar_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+                if (addr) {
+                    uintptr_t resolved = Scanner::ToFunctionStart(addr, 0xFFF);
+                    ProgressBar_Callback = reinterpret_cast<UIInteractionCallback>(resolved);
+                    printf("[GWCA-DEBUG]   ProgressBar_Callback = 0x%p [assert: UiCtlProgress.cpp/!sm_rateArrowImageList]\n", ProgressBar_Callback);
+                } else {
+                    printf("[GWCA-DEBUG]   ProgressBar_Callback: NOT FOUND\n");
+                }
+                fflush(stdout);
 
                 addr = Scanner::FindAssertion(
                     "CtlPage.cpp",
                     "!IsBtnCode(pageCode)",
                     0, 0);
-                if (addr)
-                    TabsFrame_Callback = reinterpret_cast<UIInteractionCallback>(Scanner::ToFunctionStart(addr, 0xFFF));
+                if (addr) {
+                    uintptr_t resolved = Scanner::ToFunctionStart(addr, 0xFFF);
+                    TabsFrame_Callback = reinterpret_cast<UIInteractionCallback>(resolved);
+                    printf("[GWCA-DEBUG]   TabsFrame_Callback = 0x%p [assert: CtlPage.cpp/!IsBtnCode]\n", TabsFrame_Callback);
+                } else {
+                    printf("[GWCA-DEBUG]   TabsFrame_Callback: NOT FOUND\n");
+                }
+                fflush(stdout);
 
                 // FrameNewSubclass: native Ui_AttachCurrentHandlerSlot @ 0x0062f150.
                 // Registers a subclass FrameProc that intercepts messages before the primary.
@@ -1489,9 +1591,14 @@ namespace GW {
                     uintptr_t fn_addr = Scanner::Find(
                         "\x8D\xB8\xA8\x00\x00\x00\x8B\xCF",
                         "xxxxxxxx", -0x2D);
-                    if (fn_addr)
+                    if (fn_addr) {
                         FrameNewSubclass_Func = reinterpret_cast<FrameNewSubclass_pt>(fn_addr);
+                        printf("[GWCA-DEBUG]   FrameNewSubclass_Func = 0x%p [byte-pattern: 8DB8A80000008BCF-0x2D]\n", (void*)FrameNewSubclass_Func);
+                    } else {
+                        printf("[GWCA-DEBUG]   FrameNewSubclass_Func: NOT FOUND\n");
+                    }
                 }
+                fflush(stdout);
 
                 addr = Scanner::FindAssertion(
                     "FrApi.cpp",
@@ -1500,6 +1607,7 @@ namespace GW {
                 if (addr) {
                     TypedComponentPassthroughHook_Func = reinterpret_cast<TypedComponentPassthroughHook_pt>(
                         Scanner::ToFunctionStart(addr, 0xFFF));
+                    printf("[GWCA-DEBUG]   TypedComponentPassthroughHook_Func = 0x%p [assert: FrApi.cpp/inputMask]\n", (void*)TypedComponentPassthroughHook_Func);
                     if (TypedComponentPassthroughHook_Func) {
                         HookBase::CreateHook(
                             reinterpret_cast<void**>(&TypedComponentPassthroughHook_Func),
@@ -1507,7 +1615,13 @@ namespace GW {
                             reinterpret_cast<void**>(&TypedComponentPassthroughHook_Ret));
                         HookBase::EnableHooks(reinterpret_cast<void*>(TypedComponentPassthroughHook_Func));
                     }
+                } else {
+                    printf("[GWCA-DEBUG]   TypedComponentPassthroughHook_Func: NOT FOUND\n");
                 }
+                fflush(stdout);
+
+                printf("[GWCA-DEBUG] InitializeTypedComponentCallbacks: END\n");
+                fflush(stdout);
             }
 
             uint32_t FindAvailableChildIndex(Frame* parent, uint32_t child_index) {
@@ -1936,6 +2050,119 @@ namespace GW {
         Frame* CreateButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
             return parent ? CreateButtonFrame(parent->frame_id, component_flags, child_index, name_enc, component_label) : nullptr;
         }
+        Frame* CreateCtlButtonFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
+            InitializeTypedComponentCallbacks();
+            printf("[GWCA-DEBUG] CreateCtlButtonFrame: ENTRY parent=%u flags=0x%X child=%u callback=0x%p label='%ls'\n",
+                parent_frame_id, component_flags, child_index, (void*)CtlBtnProc_Callback,
+                component_label ? component_label : L"(null)");
+            fflush(stdout);
+
+            if (!CtlBtnProc_Callback) {
+                printf("[GWCA-DEBUG] CreateCtlButtonFrame: FAILED — CtlBtnProc_Callback is null\n");
+                fflush(stdout);
+                return nullptr;
+            }
+            auto* parent = GetFrameById(parent_frame_id);
+            if (!parent) {
+                printf("[GWCA-DEBUG] CreateCtlButtonFrame: FAILED — parent frame %u not found\n", parent_frame_id);
+                fflush(stdout);
+                return nullptr;
+            }
+            auto existing = GetChildFrame(parent, child_index);
+            while (existing) {
+                child_index += 1;
+                existing = GetChildFrame(parent, child_index);
+            }
+            printf("[GWCA-DEBUG] CreateCtlButtonFrame: BEFORE CreateUIComponent(parent=%u flags=0x%X child=%u callback=0x%p name_enc=%p label='%ls')\n",
+                parent_frame_id, component_flags, child_index, (void*)CtlBtnProc_Callback,
+                (void*)name_enc, component_label ? component_label : L"(null)");
+            fflush(stdout);
+
+            const auto frame_id = CreateUIComponent(parent_frame_id, component_flags, child_index, CtlBtnProc_Callback, name_enc, component_label);
+
+            printf("[GWCA-DEBUG] CreateCtlButtonFrame: AFTER CreateUIComponent -> frame_id=%u\n", frame_id);
+            fflush(stdout);
+
+            return frame_id ? GetFrameById(frame_id) : nullptr;
+        }
+        Frame* CreateCtlButtonFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
+            return parent ? CreateCtlButtonFrame(parent->frame_id, component_flags, child_index, name_enc, component_label) : nullptr;
+        }
+
+        // ── Path B: Flat Engine Button with Click Support ──────────────────
+        // Creates a CtlBtnProc button and registers the dialog subclass on the
+        // parent window so button clicks dispatch through OnFrameNotify.
+        //
+        // Steps:
+        //   1. FrameNewSubclass(parent, dialog_subclass_type, 0) — enables OnFrameNotify
+        //   2. FrameCreate(parent, flags, childIdx, CtlBtnProc, userData, label)
+        //
+        // The dialog subclass type address is the EXE equivalent of WASM's
+        // &DAT_ram_00000aed (function table index 0x0aed).  Currently this
+        // defaults to 0 (skip — Approach C).  When resolved via Ghidra RE,
+        // set CreateFlatButton_DialogSubclassType to the correct EXE data address.
+        //
+        // Post-creation steps (FrameSetSize, CtlBtnSetTextLiteral) are handled
+        // by the Python layer via ButtonMethods.create_flat_button_with_click().
+        static uintptr_t CreateFlatButton_DialogSubclassType = 0; // TODO: resolve &DAT_ram_00000aed EXE address
+
+        Frame* CreateFlatButtonWithClick(uint32_t parent_frame_id, uint32_t component_flags,
+                                         uint32_t child_index, wchar_t* label_text,
+                                         bool enable_click) {
+            InitializeTypedComponentCallbacks();
+            printf("[GWCA-DEBUG] CreateFlatButtonWithClick: ENTRY parent=%u flags=0x%X child=%u label='%ls' enable_click=%d\n",
+                parent_frame_id, component_flags, child_index,
+                label_text ? label_text : L"(null)", (int)enable_click);
+            fflush(stdout);
+
+            if (!CtlBtnProc_Callback) {
+                printf("[GWCA-DEBUG] CreateFlatButtonWithClick: FAILED — CtlBtnProc_Callback is null\n");
+                fflush(stdout);
+                return nullptr;
+            }
+            auto* parent = GetFrameById(parent_frame_id);
+            if (!parent) {
+                printf("[GWCA-DEBUG] CreateFlatButtonWithClick: FAILED — parent frame %u not found\n", parent_frame_id);
+                fflush(stdout);
+                return nullptr;
+            }
+
+            // Step 1: Add dialog subclass to parent for OnFrameNotify (click dispatch)
+            if (enable_click && CreateFlatButton_DialogSubclassType && FrameNewSubclass_Func) {
+                printf("[GWCA-DEBUG] CreateFlatButtonWithClick: FrameNewSubclass(parent=%u subclass=0x%p)\n",
+                    parent_frame_id, (void*)CreateFlatButton_DialogSubclassType);
+                fflush(stdout);
+                FrameNewSubclass_Func(parent_frame_id,
+                    reinterpret_cast<void*>(CreateFlatButton_DialogSubclassType), 0);
+            }
+
+            // Step 2: Create the button via FrameCreate with CtlBtnProc callback
+            auto existing = GetChildFrame(parent, child_index);
+            while (existing) {
+                child_index += 1;
+                existing = GetChildFrame(parent, child_index);
+            }
+            printf("[GWCA-DEBUG] CreateFlatButtonWithClick: BEFORE CreateUIComponent(parent=%u flags=0x%X child=%u callback=0x%p label='%ls')\n",
+                parent_frame_id, component_flags, child_index, (void*)CtlBtnProc_Callback,
+                label_text ? label_text : L"(null)");
+            fflush(stdout);
+
+            const auto frame_id = CreateUIComponent(parent_frame_id, component_flags,
+                child_index, CtlBtnProc_Callback, nullptr, label_text);
+
+            printf("[GWCA-DEBUG] CreateFlatButtonWithClick: AFTER CreateUIComponent -> frame_id=%u\n", frame_id);
+            fflush(stdout);
+
+            return frame_id ? GetFrameById(frame_id) : nullptr;
+        }
+
+        Frame* CreateFlatButtonWithClick(Frame* parent, uint32_t component_flags,
+                                         uint32_t child_index, wchar_t* label_text,
+                                         bool enable_click) {
+            return parent ? CreateFlatButtonWithClick(parent->frame_id, component_flags,
+                child_index, label_text, enable_click) : nullptr;
+        }
+
         Frame* CreateTextButtonFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, wchar_t* name_enc, wchar_t* component_label) {
             InitializeTypedComponentCallbacks();
             if (!TextButtonFrame_Callback)
@@ -1964,20 +2191,39 @@ namespace GW {
         Frame* CreateScrollableFrame(uint32_t parent_frame_id, uint32_t component_flags, uint32_t child_index, void* page_context, wchar_t* component_label) {
             TypedScrollablePageContext default_page_context = {};
             InitializeTypedComponentCallbacks();
-            if (!ScrollableFrame_Callback)
+            printf("[GWCA-DEBUG] CreateScrollableFrame: ENTRY parent=%u flags=0x%X child=%u page_context=0x%p label='%ls'\n",
+                parent_frame_id, component_flags, child_index, page_context,
+                component_label ? component_label : L"(null)");
+            fflush(stdout);
+
+            if (!ScrollableFrame_Callback) {
+                printf("[GWCA-DEBUG] CreateScrollableFrame: FAILED — ScrollableFrame_Callback is null\n");
+                fflush(stdout);
                 return nullptr;
+            }
             default_page_context.field_4 = reinterpret_cast<void*>(FrameList_Callback);
             auto* resolved_page_context = page_context ? reinterpret_cast<TypedScrollablePageContext*>(page_context) : &default_page_context;
-            if (!resolved_page_context->field_4)
+            if (!resolved_page_context->field_4) {
+                printf("[GWCA-DEBUG] CreateScrollableFrame: FAILED — page_context->field_4 (FrameList_Callback) is null\n");
+                fflush(stdout);
                 return nullptr;
+            }
             auto* parent = GetFrameById(parent_frame_id);
-            if (!parent)
+            if (!parent) {
+                printf("[GWCA-DEBUG] CreateScrollableFrame: FAILED — parent frame %u not found\n", parent_frame_id);
+                fflush(stdout);
                 return nullptr;
+            }
             auto existing = GetChildFrame(parent, child_index);
             while (existing) {
                 child_index += 1;
                 existing = GetChildFrame(parent, child_index);
             }
+            printf("[GWCA-DEBUG] CreateScrollableFrame: BEFORE CreateUIComponent(parent=%u flags=0x%X child=%u callback=0x%p label='%ls')\n",
+                parent_frame_id, component_flags | 0x20000, child_index, (void*)ScrollableFrame_Callback,
+                component_label ? component_label : L"(null)");
+            fflush(stdout);
+
             const auto frame_id = CreateUIComponent(
                 parent_frame_id,
                 component_flags | 0x20000,
@@ -1985,6 +2231,10 @@ namespace GW {
                 ScrollableFrame_Callback,
                 reinterpret_cast<wchar_t*>(resolved_page_context),
                 component_label);
+
+            printf("[GWCA-DEBUG] CreateScrollableFrame: AFTER CreateUIComponent -> frame_id=%u\n", frame_id);
+            fflush(stdout);
+
             return frame_id ? GetFrameById(frame_id) : nullptr;
         }
         Frame* CreateScrollableFrame(Frame* parent, uint32_t component_flags, uint32_t child_index, void* page_context, wchar_t* component_label) {

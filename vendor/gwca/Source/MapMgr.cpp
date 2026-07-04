@@ -350,9 +350,10 @@ namespace {
         EnterChallengeMission_Func = (DoAction_pt)Scanner::FunctionFromNearCall(address + 0x43);
 
 
-        address = Scanner::Find("\x83\xc0\x0c\x41\x3d\x68\x01\x00\x00", "xxxxxxxxx");
+        //address = Scanner::Find("\x83\xc0\x0c\x41\x3d\x68\x01\x00\x00", "xxxxxxxxx"); // 2026-06-24
+        address = Scanner::Find("\x83\xc0\x0c\x41\x3d\x00\x00\x00\x00", "xxxxx??xx");
         if (address) {
-            map_type_instance_infos = *(MapTypeInstanceInfo**)(address + 0x19);
+            map_type_instance_infos = *(MapTypeInstanceInfo**)(address + 0x1a);
             map_type_instance_infos_size = (*(uint32_t*)(address + 5)) / sizeof(MapTypeInstanceInfo);
         }
 

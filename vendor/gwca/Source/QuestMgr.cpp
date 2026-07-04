@@ -68,7 +68,8 @@ namespace {
 
         //address = Scanner::Find("\x75\x14\x68\x5d\x10\x00\x00", "xxxxxxx");
         //address = Scanner::Find("\x75\x14\x68\x72\x10\x00\x00", "xxxxxxx");
-        address = Scanner::Find("\x75\x14\x68\x64\x10\x00\x00", "xxxxxxx");
+        //address = Scanner::Find("\x75\x14\x68\x64\x10\x00\x00", "xxxxxxx"); // 2026-06-24
+        address = Scanner::Find("\x85\xc0\x75\x14\x68\x6d\x10\x00\x00", "xxxxxxxxx");
         request_quest_info_address = address;
         if (address) {
             address = Scanner::FindInRange("\xe8\x00\x00\x00\x00\x83\xc4\x08", "x????xxx", 0, address, address + 0xff);

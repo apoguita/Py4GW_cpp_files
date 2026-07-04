@@ -36,11 +36,39 @@ public:
     }
 
     IDirect3DTexture9* GetTexture(const std::wstring& name) {
-        if (GwDatTextureManager::IsDatTextureKey(name)) {
+        constexpr std::wstring_view dat_prefix = L"gwdat://";
+        const bool is_dat_key = name.size() > dat_prefix.size() && name.rfind(dat_prefix.data(), 0) == 0;
+        if (is_dat_key) {
             if (!d3d_device && g_d3d_device)
                 SetDevice(g_d3d_device);
 
-            return GwDatTextureManager::Instance().GetTexture(name);
+            std::vector<uint32_t> parts;
+            std::wstringstream stream(name.substr(dat_prefix.size()));
+            std::wstring part;
+            while (std::getline(stream, part, L'/')) {
+                if (part.empty()) {
+                    return nullptr;
+                }
+                try {
+                    parts.push_back(static_cast<uint32_t>(std::stoul(part)));
+                }
+                catch (...) {
+                    return nullptr;
+                }
+            }
+            if (parts.size() == 1) {
+                return GwDatTextureManager::Instance().GetTextureByFileId(parts[0]);
+            }
+            if (parts.size() != 6) {
+                return nullptr;
+            }
+            return GwDatTextureManager::Instance().GetColoredModelTexture(
+                parts[0],
+                static_cast<uint8_t>(parts[1]),
+                static_cast<uint8_t>(parts[2]),
+                static_cast<uint8_t>(parts[3]),
+                static_cast<uint8_t>(parts[4]),
+                static_cast<uint8_t>(parts[5]));
         }
 
         auto it = textures.find(name);
