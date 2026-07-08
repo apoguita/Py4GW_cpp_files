@@ -223,6 +223,8 @@ public:
 	float GetAllFlagY();
     int GetHeroAgentID(int hero_index);
     int GetAgentHeroID(int agent_id);
+    int GetInventorySelectedAgentID();
+    int GetInventoryEquipmentFrameID();
     int GetAgentIDByLoginNumber(int login_number);
     std::string GetPlayerNameByLoginNumber(int login_number);
     bool SearchParty(uint32_t search_type, std::string advertisement);

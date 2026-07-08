@@ -76,6 +76,52 @@ namespace {
     typedef void(__cdecl* IdentifyItem_pt)(uint32_t identification_kit_id, uint32_t item_id);
     IdentifyItem_pt IdentifyItem_Func = 0;
 
+    typedef uint32_t(__cdecl* ValidateUpgrade_pt)(uint32_t target_item_id, uint32_t upgrade_item_id);
+    ValidateUpgrade_pt ValidateUpgrade_Func = 0;
+
+    typedef void(__cdecl* OrderUpgradeBegin_pt)(uint32_t target_inventory_id, uint32_t target_item_id);
+    OrderUpgradeBegin_pt OrderUpgradeBegin_Func = 0;
+
+    typedef void(__cdecl* OrderUpgradeAdd_pt)(uint32_t upgrade_slot, uint32_t upgrade_item_id);
+    OrderUpgradeAdd_pt OrderUpgradeAdd_Func = 0;
+
+    typedef void(__cdecl* OrderUpgradeEnd_pt)();
+    OrderUpgradeEnd_pt OrderUpgradeEnd_Func = 0;
+
+    typedef uint32_t(__cdecl* GetInventoryIDFromAgent_pt)(uint32_t agent_id);
+    GetInventoryIDFromAgent_pt GetInventoryIDFromAgent_Func = 0;
+
+    typedef uint32_t(__cdecl* GetEquippedItemID_pt)(uint32_t inventory_id, uint32_t equip_slot, uint32_t* active);
+    GetEquippedItemID_pt GetEquippedItemID_Func = 0;
+
+    typedef void*(__thiscall* InventoryTableFind_pt)(void* inventory_table, uint32_t inventory_id);
+    InventoryTableFind_pt InventoryTableFind_Func = 0;
+
+    constexpr uint32_t INVENTORY_SET_AGENT_FRAME_MESSAGE_ID =
+        static_cast<uint32_t>(GW::UI::UIMessage::kNone) + 0x56;
+    constexpr GW::UI::UIMessage INVENTORY_SET_AGENT_FRAME_MESSAGE =
+        static_cast<GW::UI::UIMessage>(INVENTORY_SET_AGENT_FRAME_MESSAGE_ID);
+    constexpr uint32_t INVENTORY_GET_AGENT_FRAME_MESSAGE = 0x100001A8;
+    constexpr uint32_t INVENTORY_AGENT_SENTINEL = 0xFFFFFFFF;
+    constexpr size_t INVENTORY_EQUIPMENT_SELECTED_AGENT_OFFSET = 0x08;
+    constexpr size_t INVENTORY_EQUIPMENT_SELECTED_INVENTORY_OFFSET = 0x0C;
+    constexpr const wchar_t* INVENTORY_EQUIPMENT_FRAME_LABEL = L"Inventory-Equipment";
+    constexpr uint32_t UPGRADE_ADD_UI_MESSAGE_ID = 0x10000108;
+    constexpr uint32_t UPGRADE_REFRESH_UI_MESSAGE_ID = 0x10000109;
+    constexpr GW::UI::UIMessage UPGRADE_ADD_UI_MESSAGE =
+        static_cast<GW::UI::UIMessage>(UPGRADE_ADD_UI_MESSAGE_ID);
+    constexpr GW::UI::UIMessage UPGRADE_REFRESH_UI_MESSAGE =
+        static_cast<GW::UI::UIMessage>(UPGRADE_REFRESH_UI_MESSAGE_ID);
+    constexpr uint32_t UPGRADE_SLOT_DERIVE = 0xffffffff;
+    constexpr uint32_t UPGRADE_UI_MESSAGE_GUARD_MS = 3000;
+    constexpr uint32_t UPGRADE_UI_MESSAGE_GUARD_BLOCKS = 4;
+
+    HookEntry InventoryEquipmentSetAgent_Entry;
+    HookEntry InventoryEquipmentRefresh_Entry;
+    HookEntry ItemUpdated_Entry;
+    HookEntry UpgradeUiMessageGuard_Entry;
+    uint32_t upgrade_ui_message_guard_until = 0;
+    uint32_t upgrade_ui_message_guard_remaining = 0;
     HookEntry OnUseItem_Entry;
     DoAction_pt UseItem_Func = 0;
     DoAction_pt UseItem_Ret = 0;
@@ -92,6 +138,37 @@ namespace {
     }
     bool IsStorageItem(const GW::Item* item) {
         return item && IsStorageBag(item->bag);
+    }
+
+    void ClearUpgradeUiMessageGuard() {
+        upgrade_ui_message_guard_until = 0;
+        upgrade_ui_message_guard_remaining = 0;
+    }
+
+    void ArmUpgradeUiMessageGuard() {
+        upgrade_ui_message_guard_until = GetTickCount() + UPGRADE_UI_MESSAGE_GUARD_MS;
+        upgrade_ui_message_guard_remaining = UPGRADE_UI_MESSAGE_GUARD_BLOCKS;
+    }
+
+    void OnUpgradeUiMessage(GW::HookStatus* status, UI::UIMessage message_id, void*, void*) {
+        if (!(status && !status->blocked))
+            return;
+        if (message_id != UPGRADE_ADD_UI_MESSAGE && message_id != UPGRADE_REFRESH_UI_MESSAGE)
+            return;
+
+        const uint32_t guard_until = upgrade_ui_message_guard_until;
+        if (!(guard_until && upgrade_ui_message_guard_remaining))
+            return;
+        if (static_cast<int32_t>(guard_until - GetTickCount()) < 0) {
+            ClearUpgradeUiMessageGuard();
+            return;
+        }
+
+        status->blocked = true;
+        --upgrade_ui_message_guard_remaining;
+        if (!upgrade_ui_message_guard_remaining)
+            upgrade_ui_message_guard_until = 0;
+        GWCA_INFO("[Item Module] Blocked stale upgrade UI message 0x%08x after native ApplyUpgrade", static_cast<uint32_t>(message_id));
     }
 
 
@@ -137,6 +214,15 @@ namespace {
         uint32_t bag_index; // equal to bag_id() - 1
         uint32_t slot;
     };
+
+    bool IsItemStillInSourceBag(const GW::Item* item) {
+        if (!(item && item->bag && item->bag->items.valid()))
+            return false;
+        if (!item->slot || item->slot > item->bag->items.size())
+            return false;
+        return item->bag->items[item->slot - 1] == item;
+    }
+
     void OnMoveItem(uint32_t item_id, uint32_t quantity, uint32_t bag_index, uint32_t slot) {
         GW::Hook::EnterHook();
         MoveItem_UIMessage packet = { item_id, quantity, bag_index, slot };
@@ -156,6 +242,130 @@ namespace {
         if (!status->blocked) {
             MoveItem_Ret(packet->item_id, packet->quantity, packet->bag_index, packet->slot);
         }
+    }
+
+    bool IsInventoryEquipmentFrame(const GW::UI::Frame* frame) {
+        if (!(frame && frame->IsCreated()))
+            return false;
+
+        const auto labeled_frame = GW::UI::GetFrameByLabel(INVENTORY_EQUIPMENT_FRAME_LABEL);
+        if (labeled_frame == frame)
+            return true;
+
+        uint32_t selected_agent_id = INVENTORY_AGENT_SENTINEL;
+        GW::UI::SendFrameUIMessage(
+            const_cast<GW::UI::Frame*>(frame),
+            static_cast<GW::UI::UIMessage>(INVENTORY_GET_AGENT_FRAME_MESSAGE),
+            nullptr,
+            &selected_agent_id);
+        return selected_agent_id != INVENTORY_AGENT_SENTINEL;
+    }
+
+    uint32_t ReadContextUInt32(const void* context, size_t offset) {
+        return *reinterpret_cast<const uint32_t*>(reinterpret_cast<uintptr_t>(context) + offset);
+    }
+
+    bool ReadInventoryEquipmentFrameSelection(
+        const GW::UI::Frame* frame,
+        uint32_t* selected_agent_id,
+        uint32_t* selected_inventory_id) {
+        const void* context = GW::UI::GetFrameContext(const_cast<GW::UI::Frame*>(frame));
+        if (!context)
+            return false;
+
+        if (selected_agent_id) {
+            *selected_agent_id = ReadContextUInt32(
+                context,
+                INVENTORY_EQUIPMENT_SELECTED_AGENT_OFFSET);
+        }
+        if (selected_inventory_id) {
+            *selected_inventory_id = ReadContextUInt32(
+                context,
+                INVENTORY_EQUIPMENT_SELECTED_INVENTORY_OFFSET);
+        }
+        return true;
+    }
+
+    bool IsInventoryEquipmentInventoryValid(uint32_t agent_id, uint32_t inventory_id) {
+        if (!inventory_id)
+            return false;
+
+        const bool stale_hero_inventory_id =
+            inventory_id == agent_id && agent_id != GW::Agents::GetControlledCharacterId();
+        return !stale_hero_inventory_id && Items::IsInventoryIDValid(inventory_id);
+    }
+
+    bool IsInventoryEquipmentSelectionStale() {
+        const auto frame = GW::UI::GetFrameByLabel(INVENTORY_EQUIPMENT_FRAME_LABEL);
+        if (!(frame && frame->IsCreated()))
+            return false;
+
+        uint32_t selected_agent_id = 0;
+        uint32_t selected_inventory_id = 0;
+        if (!ReadInventoryEquipmentFrameSelection(frame, &selected_agent_id, &selected_inventory_id))
+            return false;
+        return selected_inventory_id && !IsInventoryEquipmentInventoryValid(selected_agent_id, selected_inventory_id);
+    }
+
+    void OnItemUpdated_UIMessage(GW::HookStatus* status, UI::UIMessage message_id, void* wparam, void*) {
+        if (!(status && !status->blocked && message_id == UI::UIMessage::kItemUpdated && wparam))
+            return;
+
+        const auto packet = static_cast<UI::UIPacket::kItemUpdated*>(wparam);
+        if (IsInventoryEquipmentSelectionStale()) {
+            status->blocked = true;
+            GWCA_INFO(
+                "[Item Module] Blocked stale ItemUpdated item=%u",
+                packet->item_id);
+        }
+    }
+
+    void OnInventoryEquipmentSetAgent_UIMessage(
+        GW::HookStatus* status,
+        const GW::UI::Frame* frame,
+        GW::UI::UIMessage message_id,
+        void* wparam,
+        void*) {
+        if (!(status && !status->blocked && message_id == INVENTORY_SET_AGENT_FRAME_MESSAGE))
+            return;
+        if (!IsInventoryEquipmentFrame(frame))
+            return;
+
+        const uint32_t agent_id = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(wparam));
+        const uint32_t inventory_id = Items::GetInventoryIDFromAgent(agent_id);
+        if (IsInventoryEquipmentInventoryValid(agent_id, inventory_id))
+            return;
+
+        status->blocked = true;
+        GWCA_INFO(
+            "[Item Module] Blocked Inventory-Equipment 0x56 for agent=%u inventory=%u",
+            agent_id,
+            inventory_id);
+    }
+
+    void OnInventoryEquipmentRefresh_UIMessage(
+        GW::HookStatus* status,
+        const GW::UI::Frame* frame,
+        GW::UI::UIMessage message_id,
+        void*,
+        void*) {
+        if (!(status && !status->blocked && message_id == UI::UIMessage::kItemUpdated))
+            return;
+        if (!IsInventoryEquipmentFrame(frame))
+            return;
+
+        uint32_t selected_agent_id = 0;
+        uint32_t selected_inventory_id = 0;
+        if (!ReadInventoryEquipmentFrameSelection(frame, &selected_agent_id, &selected_inventory_id))
+            return;
+        if (!selected_inventory_id || !IsInventoryEquipmentSelectionStale())
+            return;
+
+        status->blocked = true;
+        GWCA_INFO(
+            "[Item Module] Blocked stale Inventory-Equipment refresh for agent=%u inventory=%u",
+            selected_agent_id,
+            selected_inventory_id);
     }
 
     typedef void(__cdecl* EquipItem_pt)(uint32_t item_id, uint32_t agent_id);
@@ -282,6 +492,39 @@ namespace {
         IdentifyItem_Func = (IdentifyItem_pt)Scanner::ToFunctionStart(Scanner::FindAssertion("ItCliApi.cpp", "context->itemTable.Get(srcItemId)", 0, 0));
 		Logger::AssertAddress("IdentifyItem_Func", (uintptr_t)IdentifyItem_Func, "Item Module");
 
+        ValidateUpgrade_Func = (ValidateUpgrade_pt)Scanner::ToFunctionStart(Scanner::FindAssertion("ItCliApi.cpp", "baseItem", 0, 0), 0x420);
+        OrderUpgradeAdd_Func = (OrderUpgradeAdd_pt)Scanner::ToFunctionStart(Scanner::FindAssertion("ItCliApi.cpp", "upgradeItemId", 0x67b, 0), 0x260);
+        OrderUpgradeBegin_Func = (OrderUpgradeBegin_pt)Scanner::ToFunctionStart(Scanner::FindAssertion("ItCliApi.cpp", "targetInventoryId", 0x685, 0), 0x260);
+        GetEquippedItemID_Func = (GetEquippedItemID_pt)Scanner::ToFunctionStart(Scanner::FindAssertion("ItCliApi.cpp", "slot < ITEM_EQUIP_SLOTS", 0x1e5, 0), 0x260);
+        GetInventoryIDFromAgent_Func = (GetInventoryIDFromAgent_pt)Scanner::ToFunctionStart(Scanner::FindAssertion("\\Code\\Gw\\Ui\\Game\\GmItemHelpers.cpp", "agentId", 0x69, 0), 0x260);
+        if (GetEquippedItemID_Func) {
+            const auto start = reinterpret_cast<uintptr_t>(GetEquippedItemID_Func);
+            const auto call_site = Scanner::FindInRange(
+                "\x81\xc1\xd4\x00\x00\x00\xe8",
+                "xxxxxxx",
+                6,
+                start,
+                start + 0x80);
+            if (call_site)
+                InventoryTableFind_Func = reinterpret_cast<InventoryTableFind_pt>(Scanner::FunctionFromNearCall(call_site));
+        }
+        if (OrderUpgradeBegin_Func) {
+            const auto candidate = reinterpret_cast<uintptr_t>(OrderUpgradeBegin_Func) + 0xb0;
+            if (Scanner::IsValidPtr(candidate, ScannerSection::Section_TEXT)) {
+                const auto first_byte = *reinterpret_cast<uint8_t*>(candidate);
+                if (first_byte == 0xe9 || first_byte == 0x55) {
+                    OrderUpgradeEnd_Func = reinterpret_cast<OrderUpgradeEnd_pt>(candidate);
+                }
+            }
+        }
+        Logger::AssertAddress("ValidateUpgrade_Func", (uintptr_t)ValidateUpgrade_Func, "Item Module");
+        Logger::AssertAddress("OrderUpgradeBegin_Func", (uintptr_t)OrderUpgradeBegin_Func, "Item Module");
+        Logger::AssertAddress("OrderUpgradeAdd_Func", (uintptr_t)OrderUpgradeAdd_Func, "Item Module");
+        Logger::AssertAddress("OrderUpgradeEnd_Func", (uintptr_t)OrderUpgradeEnd_Func, "Item Module");
+        Logger::AssertAddress("GetInventoryIDFromAgent_Func", (uintptr_t)GetInventoryIDFromAgent_Func, "Item Module");
+        Logger::AssertAddress("GetEquippedItemID_Func", (uintptr_t)GetEquippedItemID_Func, "Item Module");
+        Logger::AssertAddress("InventoryTableFind_Func", (uintptr_t)InventoryTableFind_Func, "Item Module");
+
         address = Scanner::Find("\x83\xc4\x40\x6a\x00\x6a\x19", "xxxxxxx", -0x4e);
         DropItem_Func = (DropItem_pt)Scanner::FunctionFromNearCall(address);
 
@@ -398,6 +641,31 @@ namespace {
             Logger::AssertHook("UseItem_Func", HookBase::CreateHook((void**)&UseItem_Func, OnUseItem, (void**)&UseItem_Ret), "Item Module");
             UI::RegisterUIMessageCallback(&OnUseItem_Entry, UI::UIMessage::kSendUseItem, OnUseItem_UIMessage, 0x1);
         }
+        UI::RegisterFrameUIMessageCallback(
+            &InventoryEquipmentSetAgent_Entry,
+            INVENTORY_SET_AGENT_FRAME_MESSAGE,
+            OnInventoryEquipmentSetAgent_UIMessage,
+            -0x8000);
+        UI::RegisterFrameUIMessageCallback(
+            &InventoryEquipmentRefresh_Entry,
+            UI::UIMessage::kItemUpdated,
+            OnInventoryEquipmentRefresh_UIMessage,
+            -0x8000);
+        UI::RegisterUIMessageCallback(
+            &ItemUpdated_Entry,
+            UI::UIMessage::kItemUpdated,
+            OnItemUpdated_UIMessage,
+            -0x8000);
+        UI::RegisterUIMessageCallback(
+            &UpgradeUiMessageGuard_Entry,
+            UPGRADE_ADD_UI_MESSAGE,
+            OnUpgradeUiMessage,
+            -0x8000);
+        UI::RegisterUIMessageCallback(
+            &UpgradeUiMessageGuard_Entry,
+            UPGRADE_REFRESH_UI_MESSAGE,
+            OnUpgradeUiMessage,
+            -0x8000);
         if (ChangeGold_Func) {
 			Logger::AssertHook("ChangeGold_Func", HookBase::CreateHook((void**)&ChangeGold_Func, OnChangeGold, (void**)&ChangeGold_Ret), "Item Module");
         }
@@ -441,6 +709,10 @@ namespace {
         HookBase::RemoveHook(MoveItem_Func);
         HookBase::RemoveHook(UseItem_Func);
         HookBase::RemoveHook(ChangeGold_Func);
+        UI::RemoveFrameUIMessageCallback(&InventoryEquipmentSetAgent_Entry);
+        UI::RemoveFrameUIMessageCallback(&InventoryEquipmentRefresh_Entry);
+        UI::RemoveUIMessageCallback(&ItemUpdated_Entry, UI::UIMessage::kItemUpdated);
+        UI::RemoveUIMessageCallback(&UpgradeUiMessageGuard_Entry);
     }
 }
 
@@ -494,7 +766,7 @@ namespace GW {
             StoC::EmulatePacket(&pack);
         }
         bool CanInteractWithItem(const GW::Item* item) {
-            return item && !IsStorageItem(item) || CanAccessXunlaiChest();
+            return item && (!IsStorageItem(item) || CanAccessXunlaiChest());
         }
         bool PickUpItem(const Item* item, uint32_t call_target /*= 0*/) {
             auto packet = UI::UIPacket::kInteractAgent{ item->agent_id, call_target == 1 };
@@ -672,6 +944,90 @@ namespace GW {
             return IdentifyItem_Func ? IdentifyItem_Func(identification_kit_id, item_id), true : false;
         }
 
+        uint32_t GetInventoryIDFromAgent(uint32_t agent_id) {
+            if (!(GetInventoryIDFromAgent_Func && agent_id))
+                return 0;
+            return GetInventoryIDFromAgent_Func(agent_id);
+        }
+
+        bool IsInventoryIDValid(uint32_t inventory_id) {
+            if (!(InventoryTableFind_Func && inventory_id))
+                return false;
+            const auto item_context = GetItemContext();
+            if (!item_context)
+                return false;
+            void* inventory_table = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(item_context) + 0xd4);
+            return InventoryTableFind_Func(inventory_table, inventory_id) != nullptr;
+        }
+
+        uint32_t GetEquippedItemID(uint32_t inventory_id, uint32_t equip_slot, bool* active) {
+            if (!(GetEquippedItemID_Func && inventory_id && equip_slot <= 8 && IsInventoryIDValid(inventory_id)))
+                return 0;
+            uint32_t active_value = 0;
+            const uint32_t item_id = GetEquippedItemID_Func(inventory_id, equip_slot, &active_value);
+            if (active)
+                *active = active_value != 0;
+            return item_id;
+        }
+
+        uint32_t GetUpgradeSlot(const Item* upgrade_item) {
+            if (!(upgrade_item && upgrade_item->type == Constants::ItemType::Rune_Mod))
+                return 0;
+
+            const uint32_t interaction = upgrade_item->interaction;
+            const bool weapon_upgrade = (interaction & 0x04000000) != 0;
+            const bool armor_insignia = (interaction & 0x00010000) != 0;
+            const bool armor_rune = (interaction & 0x00100000) != 0;
+            const uint32_t category_count =
+                (weapon_upgrade ? 1u : 0u) +
+                (armor_insignia ? 1u : 0u) +
+                (armor_rune ? 1u : 0u);
+            if (category_count != 1)
+                return 0;
+            if (weapon_upgrade)
+                return 6;
+            if (armor_insignia)
+                return 7;
+            if (armor_rune)
+                return 1;
+            return 0;
+        }
+
+        bool ValidateUpgrade(uint32_t target_item_id, uint32_t upgrade_item_id) {
+            const auto target_item = GetItemById(target_item_id);
+            const auto upgrade_item = GetItemById(upgrade_item_id);
+            if (!(ValidateUpgrade_Func && CanInteractWithItem(target_item) && CanInteractWithItem(upgrade_item)))
+                return false;
+            return ValidateUpgrade_Func(target_item_id, upgrade_item_id) != 0;
+        }
+
+        bool ApplyUpgrade(uint32_t inventory_id, uint32_t target_item_id, uint32_t upgrade_item_id, uint32_t upgrade_slot) {
+            if (target_item_id == upgrade_item_id)
+                return false;
+
+            const auto target_item = GetItemById(target_item_id);
+            const auto upgrade_item = GetItemById(upgrade_item_id);
+            if (!(OrderUpgradeBegin_Func && OrderUpgradeAdd_Func && OrderUpgradeEnd_Func))
+                return false;
+            if (!(inventory_id && IsInventoryIDValid(inventory_id) && CanInteractWithItem(target_item) && CanInteractWithItem(upgrade_item)))
+                return false;
+
+            const bool derive_upgrade_slot = upgrade_slot == UPGRADE_SLOT_DERIVE;
+            if (derive_upgrade_slot) {
+                upgrade_slot = GetUpgradeSlot(upgrade_item);
+                if (!upgrade_slot)
+                    return false;
+            }
+            if (!ValidateUpgrade(target_item_id, upgrade_item_id))
+                return false;
+
+            ArmUpgradeUiMessageGuard();
+            OrderUpgradeBegin_Func(inventory_id, target_item_id);
+            OrderUpgradeAdd_Func(upgrade_slot, upgrade_item_id);
+            OrderUpgradeEnd_Func();
+            return true;
+        }
+
         uint32_t GetGoldAmountOnCharacter() {
             auto* i = GetInventory();
             return i ? i->gold_character : 0;
@@ -729,6 +1085,8 @@ namespace GW {
 
         bool MoveItem(const Item* from, const Bag* bag, uint32_t slot, uint32_t quantity) {
             if (!(MoveItem_Func && from && bag)) return false;
+            if (!(CanInteractWithItem(from) && IsItemStillInSourceBag(from))) return false;
+            if (!bag->items.valid()) return false;
             if (bag->items.size() < (unsigned)slot) return false;
             if (quantity <= 0) quantity = from->quantity;
             if (quantity > from->quantity) quantity = from->quantity;

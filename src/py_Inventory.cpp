@@ -114,6 +114,12 @@ void bind_Inventory(py::module_& m) {
         .def("UseItem", &Inventory::UseItem, py::arg("item_id"))  // Use an item
         .def("DestroyItem", &Inventory::DestroyItem, py::arg("item_id"))  // Destroy an item
         .def("IdentifyItem", &Inventory::IdentifyItem, py::arg("id_kit_id"), py::arg("item_id"))  // Identify an item
+        .def("GetInventoryIDFromAgent", &Inventory::GetInventoryIDFromAgent, py::arg("agent_id"))
+        .def("IsInventoryIDValid", &Inventory::IsInventoryIDValid, py::arg("inventory_id"))
+        .def("GetEquippedItemID", &Inventory::GetEquippedItemID, py::arg("inventory_id"), py::arg("equip_slot"))
+        .def("GetUpgradeSlot", &Inventory::GetUpgradeSlot, py::arg("upgrade_item_id"))
+        .def("ValidateUpgrade", &Inventory::ValidateUpgrade, py::arg("target_item_id"), py::arg("upgrade_item_id"))
+        .def("ApplyUpgrade", &Inventory::ApplyUpgrade, py::arg("inventory_id"), py::arg("target_item_id"), py::arg("upgrade_item_id"), py::arg("upgrade_slot") = -1)
 
         // Get item info
         .def("GetHoveredItemID", &Inventory::GetHoveredItemId)  // Get hovered item ID
@@ -139,4 +145,3 @@ PYBIND11_EMBEDDED_MODULE(PyInventory, m) {
     bind_SafeBag(m);
     bind_Inventory(m);
 }
-

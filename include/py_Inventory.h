@@ -113,6 +113,62 @@ public:
         return result;
     }
 
+    int GetInventoryIDFromAgent(int agent_id) {
+        return static_cast<int>(GW::Items::GetInventoryIDFromAgent(static_cast<uint32_t>(agent_id)));
+    }
+
+    bool IsInventoryIDValid(int inventory_id) {
+        return GW::Items::IsInventoryIDValid(static_cast<uint32_t>(inventory_id));
+    }
+
+    int GetEquippedItemID(int inventory_id, int equip_slot) {
+        return static_cast<int>(GW::Items::GetEquippedItemID(
+            static_cast<uint32_t>(inventory_id),
+            static_cast<uint32_t>(equip_slot)));
+    }
+
+    int GetUpgradeSlot(int upgrade_item_id) {
+        GW::Item* item = GW::Items::GetItemById(static_cast<uint32_t>(upgrade_item_id));
+        return static_cast<int>(GW::Items::GetUpgradeSlot(item));
+    }
+
+    bool ValidateUpgrade(int target_item_id, int upgrade_item_id) {
+        if (target_item_id == upgrade_item_id)
+            return false;
+        return GW::Items::ValidateUpgrade(
+            static_cast<uint32_t>(target_item_id),
+            static_cast<uint32_t>(upgrade_item_id));
+    }
+
+    bool ApplyUpgrade(int inventory_id, int target_item_id, int upgrade_item_id, int upgrade_slot = -1) {
+        const uint32_t target_inventory_id = static_cast<uint32_t>(inventory_id);
+        const uint32_t target_item_id_u32 = static_cast<uint32_t>(target_item_id);
+        const uint32_t upgrade_item_id_u32 = static_cast<uint32_t>(upgrade_item_id);
+        const bool derive_upgrade_slot = upgrade_slot < 0;
+        uint32_t upgrade_slot_u32 = derive_upgrade_slot ? 0xffffffff : static_cast<uint32_t>(upgrade_slot);
+
+        if (!(target_inventory_id && target_item_id_u32 && upgrade_item_id_u32))
+            return false;
+        if (target_item_id_u32 == upgrade_item_id_u32)
+            return false;
+        if (!GW::Items::IsInventoryIDValid(target_inventory_id))
+            return false;
+        if (derive_upgrade_slot) {
+            const auto upgrade_item = GW::Items::GetItemById(upgrade_item_id_u32);
+            upgrade_slot_u32 = GW::Items::GetUpgradeSlot(upgrade_item);
+            if (!upgrade_slot_u32)
+                return false;
+        }
+        if (!GW::Items::ValidateUpgrade(target_item_id_u32, upgrade_item_id_u32))
+            return false;
+
+        return GW::Items::ApplyUpgrade(
+            target_inventory_id,
+            target_item_id_u32,
+            upgrade_item_id_u32,
+            upgrade_slot_u32);
+    }
+
 
     int GetGoldAmount() {
         return GW::Items::GetGoldAmountOnCharacter();
@@ -139,6 +195,3 @@ public:
 
 
 };
-
-
-
