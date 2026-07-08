@@ -3,6 +3,133 @@
 
 namespace py = pybind11;
 
+namespace {
+    // Gw_05072026.exe FUN_008ea160 handles 0x100001A8 as the equipment selected-agent getter.
+    // Older GWCA enums and Gw.wasm still label the same local query as 0x100001A7, so keep fallback probing.
+    constexpr uint32_t INVENTORY_GET_AGENT_FRAME_MESSAGE_CURRENT = 0x100001A8;
+    constexpr uint32_t INVENTORY_GET_AGENT_FRAME_MESSAGE_LEGACY = 0x100001A7;
+    constexpr uint32_t INVENTORY_AGENT_SENTINEL = 0xFFFFFFFF;
+    constexpr const wchar_t* INVENTORY_EQUIPMENT_FRAME_LABEL = L"Inventory-Equipment";
+
+    bool CanProbeInventoryEquipmentFrame() {
+        const auto instance_type = GW::Map::GetInstanceType();
+        if (!GW::Map::GetIsMapLoaded()
+            || GW::Map::GetIsObserving()
+            || instance_type == GW::Constants::InstanceType::Loading) {
+            return false;
+        }
+
+        const GW::Inventory* inventory = GW::Items::GetInventory();
+        return inventory && inventory->equipped_items;
+    }
+
+    bool TryReadInventorySelectedAgent(
+        GW::UI::Frame* frame,
+        uint32_t get_message_id,
+        uint32_t* selected_agent_id) {
+        if (!frame || !selected_agent_id) {
+            return false;
+        }
+
+        uint32_t candidate_agent_id = INVENTORY_AGENT_SENTINEL;
+        GW::UI::SendFrameUIMessage(
+            frame,
+            static_cast<GW::UI::UIMessage>(get_message_id),
+            nullptr,
+            &candidate_agent_id);
+
+        if (candidate_agent_id == INVENTORY_AGENT_SENTINEL) {
+            return false;
+        }
+
+        *selected_agent_id = candidate_agent_id;
+        return true;
+    }
+
+    GW::UI::Frame* ProbeInventoryEquipmentFrame(
+        uint32_t* selected_agent_id = nullptr,
+        uint32_t* selected_frame_id = nullptr) {
+        if (!CanProbeInventoryEquipmentFrame()) {
+            return nullptr;
+        }
+
+        const auto try_frame = [&](
+            GW::UI::Frame* frame,
+            uint32_t get_message_id,
+            bool accept_zero_agent) -> bool {
+            if (!frame || !frame->IsCreated()) {
+                return false;
+            }
+
+            uint32_t candidate_agent_id = INVENTORY_AGENT_SENTINEL;
+            if (!TryReadInventorySelectedAgent(frame, get_message_id, &candidate_agent_id)) {
+                return false;
+            }
+            if (!accept_zero_agent && candidate_agent_id == 0) {
+                return false;
+            }
+
+            if (selected_agent_id) {
+                *selected_agent_id = candidate_agent_id;
+            }
+            if (selected_frame_id) {
+                *selected_frame_id = frame->frame_id;
+            }
+            return true;
+        };
+
+        GW::UI::Frame* labeled_frame = GW::UI::GetFrameByLabel(INVENTORY_EQUIPMENT_FRAME_LABEL);
+        if (try_frame(labeled_frame, INVENTORY_GET_AGENT_FRAME_MESSAGE_CURRENT, true)
+            || try_frame(labeled_frame, INVENTORY_GET_AGENT_FRAME_MESSAGE_LEGACY, true)) {
+            return labeled_frame;
+        }
+
+        const std::vector<uint32_t> frame_ids = GW::UI::GetFrameArray();
+        const auto scan_message = [&](uint32_t get_message_id, bool accept_zero_agent) -> GW::UI::Frame* {
+            for (const uint32_t frame_id : frame_ids) {
+                GW::UI::Frame* frame = GW::UI::GetFrameById(frame_id);
+                if (try_frame(frame, get_message_id, accept_zero_agent)) {
+                    if (selected_frame_id) {
+                        *selected_frame_id = frame_id;
+                    }
+                    return frame;
+                }
+            }
+            return nullptr;
+        };
+
+        GW::UI::Frame* frame = scan_message(INVENTORY_GET_AGENT_FRAME_MESSAGE_CURRENT, true);
+        if (frame) {
+            return frame;
+        }
+
+        // Legacy getter can return zero from unrelated root frames; require a real agent there.
+        return scan_message(INVENTORY_GET_AGENT_FRAME_MESSAGE_LEGACY, false);
+    }
+
+    uint32_t ReadInventorySelectedAgent() {
+        if (!CanProbeInventoryEquipmentFrame()) {
+            return 0;
+        }
+
+        uint32_t selected_agent_id = INVENTORY_AGENT_SENTINEL;
+        if (ProbeInventoryEquipmentFrame(&selected_agent_id) && selected_agent_id != INVENTORY_AGENT_SENTINEL) {
+            return selected_agent_id;
+        }
+        return 0;
+    }
+
+    uint32_t ResolveInventoryEquipmentFrameID() {
+        if (!CanProbeInventoryEquipmentFrame()) {
+            return 0;
+        }
+
+        uint32_t frame_id = 0;
+        ProbeInventoryEquipmentFrame(nullptr, &frame_id);
+        return frame_id;
+    }
+}
+
 const std::unordered_map<int, std::pair<std::string, int>> Hero::hero_data = {
     {0, {"None", static_cast<int>(ProfessionType::None)}},
     {1, {"Norgu", static_cast<int>(ProfessionType::Mesmer)}},
@@ -370,6 +497,14 @@ int PyParty::GetHeroAgentID(int hero_index) {
     return GW::PartyMgr::GetHeroAgentID(hero_index);
 }
 
+int PyParty::GetInventorySelectedAgentID() {
+    return static_cast<int>(ReadInventorySelectedAgent());
+}
+
+int PyParty::GetInventoryEquipmentFrameID() {
+    return static_cast<int>(ResolveInventoryEquipmentFrameID());
+}
+
 int PyParty::GetAgentHeroID(int agent_id) {
     return GW::PartyMgr::GetAgentHeroID(agent_id);
 }
@@ -586,6 +721,8 @@ void bind_PyParty(py::module_& m) {
 		.def("GetAllFlagX", &PyParty::GetAllFlagX)  // Bind GetAllFlagX method
 		.def("GetAllFlagY", &PyParty::GetAllFlagY)  // Bind GetAllFlagY method
         .def("GetHeroAgentID", &PyParty::GetHeroAgentID, py::arg("hero_index"))  // Bind GetHeroAgentID method
+        .def("GetInventorySelectedAgentID", &PyParty::GetInventorySelectedAgentID)
+        .def("GetInventoryEquipmentFrameID", &PyParty::GetInventoryEquipmentFrameID)
         .def("GetAgentHeroID", &PyParty::GetAgentHeroID, py::arg("agent_id"))  // Bind GetAgentHeroID method
         .def("GetAgentIDByLoginNumber", &PyParty::GetAgentIDByLoginNumber, py::arg("login_number"))  
         .def("GetPlayerNameByLoginNumber", &PyParty::GetPlayerNameByLoginNumber, py::arg("login_number"))  // Bind GetPlayerNameByLoginNumber method
@@ -628,5 +765,3 @@ PYBIND11_EMBEDDED_MODULE(PyParty, m) {
     BindPetInfo(m);
     bind_PyParty(m);
 }
-
-

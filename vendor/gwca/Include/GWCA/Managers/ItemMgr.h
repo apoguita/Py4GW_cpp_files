@@ -90,6 +90,22 @@ namespace GW {
         // Identify an item
         GWCA_API bool IdentifyItem(uint32_t identification_kit_id, uint32_t item_id);
 
+        // Resolve the player or hero inventory id backing an agent's equipment panel.
+        GWCA_API uint32_t GetInventoryIDFromAgent(uint32_t agent_id);
+
+        // Returns whether a native inventory id is present in the client's inventory table.
+        GWCA_API bool IsInventoryIDValid(uint32_t inventory_id);
+
+        // Returns the item id equipped in a native equipment slot for an inventory id.
+        GWCA_API uint32_t GetEquippedItemID(uint32_t inventory_id, uint32_t equip_slot, bool* active = nullptr);
+
+        // Returns the native upgrade slot encoded by an upgrade item's interaction flags.
+        GWCA_API uint32_t GetUpgradeSlot(const Item* upgrade_item);
+
+        // Validate and apply a rune/upgrade component to a target item.
+        GWCA_API bool ValidateUpgrade(uint32_t target_item_id, uint32_t upgrade_item_id);
+        GWCA_API bool ApplyUpgrade(uint32_t inventory_id, uint32_t target_item_id, uint32_t upgrade_item_id, uint32_t upgrade_slot = 0xffffffff);
+
         // Cancel the current salvage session
         GWCA_API bool SalvageSessionCancel();
 
